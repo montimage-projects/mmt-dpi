@@ -111,13 +111,25 @@ deb: sdk $(SDKLIB) $(SDKINC) $(SDKXAM) --private-prepare-build-dir
         \nVersion: $(VERSION)-$(GIT_VERSION)\
         \nSection: base \
         \nPriority: standard \
-        \nArchitecture: all \
+        \nArchitecture: $(shell uname -m)\
         \nMaintainer: Montimage <contact@montimage.com> \
+        \nDepends: libc6 (>= 2.17) \
         \nDescription: MMT-DPI:  \
         \n (Built time: `date +"%Y-%m-%d %H:%M:%S"`) \
         \n A software C library desinged to extract data attributes from network packets, server logs, and from structured events in general, in odrder to make them available for analysis \
         \n Homepage: http://www.montimage.com" \
 		> $(BUILD_DIR)/DEBIAN/control
+	$(QUIET) echo '#!/bin/bash' > $(BUILD_DIR)/DEBIAN/postinst
+	$(QUIET) echo 'set -e' >> $(BUILD_DIR)/DEBIAN/postinst
+	$(QUIET) echo "echo 'Running ldconfig for mmt-dpi...'" >> $(BUILD_DIR)/DEBIAN/postinst
+	$(QUIET) echo 'ldconfig' >> $(BUILD_DIR)/DEBIAN/postinst
+	$(QUIET) chmod +x $(BUILD_DIR)/DEBIAN/postinst
+	$(QUIET) echo '#!/bin/bash' > $(BUILD_DIR)/DEBIAN/prerm
+	$(QUIET) echo 'set -e' >> $(BUILD_DIR)/DEBIAN/prerm
+	$(QUIET) echo "echo 'Removing mmt-dpi ldconfig entry...'" >> $(BUILD_DIR)/DEBIAN/prerm
+	$(QUIET) echo 'rm -f /etc/ld.so.conf.d/mmt-dpi.conf' >> $(BUILD_DIR)/DEBIAN/prerm
+	$(QUIET) echo 'ldconfig' >> $(BUILD_DIR)/DEBIAN/prerm
+	$(QUIET) chmod +x $(BUILD_DIR)/DEBIAN/prerm
 
 	$(QUIET) dpkg-deb -b $(BUILD_DIR)
 	$(QUIET) $(RM) $(BUILD_DIR)
