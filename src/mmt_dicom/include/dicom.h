@@ -112,9 +112,8 @@ int init_dicom_proto_struct();
 classified_proto_t dicom_stack_classification(ipacket_t * ipacket);
 int mmt_check_dicom_hdr(struct dicomhdr* header);
 int mmt_check_dicom_payload(struct dicomhdr* header, unsigned int packet_len);
-int mmt_check_dicom(struct dicomhdr * header, int offset, int packet_len);
+int mmt_check_dicom(struct dicomhdr * header, unsigned int packet_len);
 int mmt_check_dicom_tcp(ipacket_t * ipacket, unsigned index);
-static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attribute_t * extracted_data);
 
 #ifndef CORE
 	int init_proto();

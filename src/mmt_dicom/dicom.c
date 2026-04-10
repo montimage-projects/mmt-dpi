@@ -8,29 +8,31 @@
 #include <netinet/in.h>
 #include "../mmt_tcpip/include/mmt_tcpip_protocols.h"
 
+static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attribute_t * extracted_data);
+
 static attribute_metadata_t dicom_attributes_metadata[DICOM_ATTRIBUTES_NB] = {
 	{DICOM_PDU_TYPE, DICOM_PDU_TYPE_ALIAS, MMT_U8_DATA, sizeof(uint8_t), 0, SCOPE_PACKET, _extraction_att},
 	{DICOM_PDU_LEN, DICOM_PDU_LEN_ALIAS, MMT_U32_DATA, sizeof(uint32_t), 2, SCOPE_PACKET, _extraction_att},
 	{DICOM_PROTO_VERSION, DICOM_PROTO_VERSION_ALIAS, MMT_U16_DATA, sizeof(uint16_t), 6, SCOPE_PACKET, _extraction_att},
-	{DICOM_CALLED_AE_TITLE, DICOM_CALLED_AE_TITLE_ALIAS, MMT_STRING_DATA, 16, 10, SCOPE_PACKET, _extraction_att},
-	{DICOM_CALLING_AE_TITLE, DICOM_CALLING_AE_TITLE_ALIAS, MMT_STRING_DATA, 16, 26, SCOPE_PACKET, _extraction_att},
-	{DICOM_APPLICATION_CONTEXT, DICOM_APPLICATION_CONTEXT_ALIAS, MMT_STRING_DATA, 64, 0, SCOPE_PACKET, _extraction_att},
-	{DICOM_PRESENTATION_CONTEXT, DICOM_PRESENTATION_CONTEXT_ALIAS, MMT_STRING_DATA, 64, 0, SCOPE_PACKET, _extraction_att},
+	{DICOM_CALLED_AE_TITLE, DICOM_CALLED_AE_TITLE_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 10, SCOPE_PACKET, _extraction_att},
+	{DICOM_CALLING_AE_TITLE, DICOM_CALLING_AE_TITLE_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 26, SCOPE_PACKET, _extraction_att},
+	{DICOM_APPLICATION_CONTEXT, DICOM_APPLICATION_CONTEXT_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 0, SCOPE_PACKET, _extraction_att},
+	{DICOM_PRESENTATION_CONTEXT, DICOM_PRESENTATION_CONTEXT_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 0, SCOPE_PACKET, _extraction_att},
 	{DICOM_MAX_PDU_LENGTH, DICOM_MAX_PDU_LENGTH_ALIAS, MMT_U32_DATA, sizeof(uint32_t), 0, SCOPE_PACKET, _extraction_att},
-	{DICOM_IMPLEMENTATION_CLASS_UID, DICOM_IMPLEMENTATION_CLASS_UID_ALIAS, MMT_STRING_DATA, 64, 0, SCOPE_PACKET, _extraction_att},
+	{DICOM_IMPLEMENTATION_CLASS_UID, DICOM_IMPLEMENTATION_CLASS_UID_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 0, SCOPE_PACKET, _extraction_att},
 	// P-DATA-TF attributes
 	{DICOM_PDV_LENGTH, DICOM_PDV_LENGTH_ALIAS, MMT_U32_DATA, sizeof(uint32_t), 6, SCOPE_PACKET, _extraction_att},
 	{DICOM_PDV_CONTEXT, DICOM_PDV_CONTEXT_ALIAS, MMT_U8_DATA, sizeof(uint8_t), 10, SCOPE_PACKET, _extraction_att},
 	{DICOM_PDV_FLAGS, DICOM_PDV_FLAGS_ALIAS, MMT_U8_DATA, sizeof(uint8_t), 11, SCOPE_PACKET, _extraction_att},
 	{DICOM_COMMAND_GROUP_LENGTH, DICOM_COMMAND_GROUP_LENGTH_ALIAS, MMT_U32_DATA, sizeof(uint32_t), 0, SCOPE_PACKET, _extraction_att},
 	{DICOM_COMMAND_FIELD, DICOM_COMMAND_FIELD_ALIAS, MMT_U16_DATA, sizeof(uint16_t), 0, SCOPE_PACKET, _extraction_att},
-	{DICOM_PATIENT_NAME, DICOM_PATIENT_NAME_ALIAS, MMT_STRING_DATA, 64, 0, SCOPE_PACKET, _extraction_att},
+	{DICOM_PATIENT_NAME, DICOM_PATIENT_NAME_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 0, SCOPE_PACKET, _extraction_att},
 	// New attributes
 	{DICOM_STATUS, DICOM_STATUS_ALIAS, MMT_U16_DATA, sizeof(uint16_t), 0, SCOPE_PACKET, _extraction_att},
-	{DICOM_AFFECTED_SOP_CLASS_UID, DICOM_AFFECTED_SOP_CLASS_UID_ALIAS, MMT_STRING_DATA, 64, 0, SCOPE_PACKET, _extraction_att},
+	{DICOM_AFFECTED_SOP_CLASS_UID, DICOM_AFFECTED_SOP_CLASS_UID_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 0, SCOPE_PACKET, _extraction_att},
 	{DICOM_MESSAGE_ID, DICOM_MESSAGE_ID_ALIAS, MMT_U16_DATA, sizeof(uint16_t), 0, SCOPE_PACKET, _extraction_att},
-	{DICOM_ABSTRACT_SYNTAX, DICOM_ABSTRACT_SYNTAX_ALIAS, MMT_STRING_DATA, 64, 0, SCOPE_PACKET, _extraction_att},
-	{DICOM_TRANSFER_SYNTAX, DICOM_TRANSFER_SYNTAX_ALIAS, MMT_STRING_DATA, 64, 0, SCOPE_PACKET, _extraction_att},
+	{DICOM_ABSTRACT_SYNTAX, DICOM_ABSTRACT_SYNTAX_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 0, SCOPE_PACKET, _extraction_att},
+	{DICOM_TRANSFER_SYNTAX, DICOM_TRANSFER_SYNTAX_ALIAS, MMT_STRING_DATA, BINARY_64DATA_TYPE_LEN, 0, SCOPE_PACKET, _extraction_att},
 	{DICOM_DATA_SET_TYPE, DICOM_DATA_SET_TYPE_ALIAS, MMT_U16_DATA, sizeof(uint16_t), 0, SCOPE_PACKET, _extraction_att},
 };
 
@@ -63,6 +65,8 @@ static int find_assoc_subitem(const uint8_t *data, int start, int end,
 		uint16_t len = (data[pos+2] << 8) | data[pos+3];
 		if (type == item_type)
 			return pos;
+		if (len > (end - pos - 4))
+			break;
 		pos += 4 + len;
 	}
 	return -1;
@@ -82,7 +86,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 		return 0;
 	}
 
-	if (!mmt_check_dicom(hdr, dicom_offset, packet_len)) {
+	if (!mmt_check_dicom(hdr, packet_len)) {
 		return 0;
 	}
 
@@ -101,7 +105,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 		break;
 	case DICOM_CALLED_AE_TITLE:
 		if(hdr->pdu_type == A_ASSOCIATE_RQ || hdr->pdu_type == A_ASSOCIATE_AC) {
-			mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			int start_offset = dicom_offset + attribute_offset;
 			int length = dicom_attributes_metadata[DICOM_CALLED_AE_TITLE - 1].data_len;
 			if (start_offset + length > (int)ipacket->p_hdr->caplen) return 0;
@@ -112,7 +116,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 		break;
 	case DICOM_CALLING_AE_TITLE:
 		if(hdr->pdu_type == A_ASSOCIATE_RQ || hdr->pdu_type == A_ASSOCIATE_AC) {
-			mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			int start_offset = dicom_offset + attribute_offset;
 			int length = dicom_attributes_metadata[DICOM_CALLING_AE_TITLE - 1].data_len;
 			if (start_offset + length > (int)ipacket->p_hdr->caplen) return 0;
@@ -136,7 +140,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 			if (value_offset + item_len > (int)ipacket->p_hdr->caplen) return 0;
 			if (item_len > 63) item_len = 63;
 
-			mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			memcpy(binary_data->data, &ipacket->data[value_offset], item_len);
 			binary_data->len = item_len;
 			binary_data->data[item_len] = '\0';
@@ -166,7 +170,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 			if (sub_value_offset + sub_len > (int)ipacket->p_hdr->caplen) return 0;
 			if (sub_len > 63) sub_len = 63;
 
-			mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			memcpy(binary_data->data, &ipacket->data[sub_value_offset], sub_len);
 			binary_data->len = sub_len;
 			binary_data->data[sub_len] = '\0';
@@ -208,7 +212,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 				if (sub_value_offset + sub_len > (int)ipacket->p_hdr->caplen) return 0;
 				if (sub_len > 63) sub_len = 63;
 
-				mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+				mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 				memcpy(binary_data->data, &ipacket->data[sub_value_offset], sub_len);
 				binary_data->len = sub_len;
 				binary_data->data[sub_len] = '\0';
@@ -324,7 +328,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 			}
 			if (length_offset + length > (int)ipacket->p_hdr->caplen) return 0;
 
-			mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			memcpy(binary_data->data, &ipacket->data[length_offset], length);
 			binary_data->len = length;
 			binary_data->data[length] = '\0';
@@ -368,7 +372,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 			if (val_len == 0 || val_offset + (int)val_len > (int)ipacket->p_hdr->caplen) return 0;
 			if (val_len > 63) val_len = 63;
 
-			mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			memcpy(binary_data->data, &ipacket->data[val_offset], val_len);
 			binary_data->len = val_len;
 			binary_data->data[val_len] = '\0';
@@ -419,7 +423,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 			if (sub_val + sub_len > (int)ipacket->p_hdr->caplen) return 0;
 			if (sub_len > 63) sub_len = 63;
 
-			mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			memcpy(binary_data->data, &ipacket->data[sub_val], sub_len);
 			binary_data->len = sub_len;
 			binary_data->data[sub_len] = '\0';
@@ -451,7 +455,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 			if (sub_val + sub_len > (int)ipacket->p_hdr->caplen) return 0;
 			if (sub_len > 63) sub_len = 63;
 
-			mmt_binary_var_data_t *binary_data = (mmt_binary_var_data_t *)extracted_data->data;
+			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			memcpy(binary_data->data, &ipacket->data[sub_val], sub_len);
 			binary_data->len = sub_len;
 			binary_data->data[sub_len] = '\0';
@@ -495,19 +499,17 @@ int mmt_check_dicom_hdr(struct dicomhdr* header) {
 	if (header->pdu_type < 1 || header->pdu_type > 7) {
 		return 0;
 	}
-	if (header->reserved != 0) {
-		return 0;
-	}
 	return 1;
 }
 
 int mmt_check_dicom_payload(struct dicomhdr* header, unsigned int packet_len) {
 	if(packet_len < PROTO_DICOM_HDRLEN + DICOM_PAYLOAD_MIN_LEN) return 0;
-	if(ntohl(header->pdu_len) != packet_len - PROTO_DICOM_HDRLEN) return 0;
+	// Do not require exact equality — PDUs are routinely fragmented or coalesced in TCP
+	if(ntohl(header->pdu_len) < DICOM_PAYLOAD_MIN_LEN) return 0;
 	return 1;
 }
 
-int mmt_check_dicom(struct dicomhdr * header, int offset, int packet_len) {
+int mmt_check_dicom(struct dicomhdr * header, unsigned int packet_len) {
 	return mmt_check_dicom_hdr(header) &&
 		mmt_check_dicom_payload(header, packet_len);
 }
@@ -518,7 +520,7 @@ int mmt_check_dicom_tcp(ipacket_t * ipacket, unsigned index) {
 
 	unsigned int packet_len = ipacket->p_hdr->caplen - dicom_offset;
 	struct dicomhdr * dicom_header = (struct dicomhdr *)&ipacket->data[dicom_offset];
-	if (!mmt_check_dicom(dicom_header, dicom_offset, packet_len))
+	if (!mmt_check_dicom(dicom_header, packet_len))
 		return 0;
 
 	classified_proto_t dicom_proto = dicom_stack_classification(ipacket);
