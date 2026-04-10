@@ -107,7 +107,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 		if(hdr->pdu_type == A_ASSOCIATE_RQ || hdr->pdu_type == A_ASSOCIATE_AC) {
 			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			int start_offset = dicom_offset + attribute_offset;
-			int length = dicom_attributes_metadata[DICOM_CALLED_AE_TITLE - 1].data_len;
+			int length = 16; // DICOM AE Title is exactly 16 bytes per PS3.8 §9.3.2
 			if (start_offset + length > (int)ipacket->p_hdr->caplen) return 0;
 			memcpy(binary_data->data, &ipacket->data[start_offset], length);
 			binary_data->len = length;
@@ -118,7 +118,7 @@ static int _extraction_att(const ipacket_t * ipacket, unsigned proto_index, attr
 		if(hdr->pdu_type == A_ASSOCIATE_RQ || hdr->pdu_type == A_ASSOCIATE_AC) {
 			mmt_binary_data_t *binary_data = (mmt_binary_data_t *)extracted_data->data;
 			int start_offset = dicom_offset + attribute_offset;
-			int length = dicom_attributes_metadata[DICOM_CALLING_AE_TITLE - 1].data_len;
+			int length = 16; // DICOM AE Title is exactly 16 bytes per PS3.8 §9.3.2
 			if (start_offset + length > (int)ipacket->p_hdr->caplen) return 0;
 			memcpy(binary_data->data, &ipacket->data[start_offset], length);
 			binary_data->len = length;
