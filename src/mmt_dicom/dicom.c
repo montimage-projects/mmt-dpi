@@ -504,8 +504,28 @@ int mmt_check_dicom_hdr(struct dicomhdr* header) {
 
 int mmt_check_dicom_payload(struct dicomhdr* header, unsigned int packet_len) {
 	if(packet_len < PROTO_DICOM_HDRLEN + DICOM_PAYLOAD_MIN_LEN) return 0;
-	// Do not require exact equality — PDUs are routinely fragmented or coalesced in TCP
-	if(ntohl(header->pdu_len) < DICOM_PAYLOAD_MIN_LEN) return 0;
+	uint32_t pdu_len = ntohl(header->pdu_len);
+
+	switch (header->pdu_type) {
+	case A_ASSOCIATE_RQ:
+	case A_ASSOCIATE_AC:
+		// Fixed fields = 68 bytes
+		if (pdu_len < 68 || pdu_len > 65535) return 0;
+		break;
+	case A_ASSOCIATE_RJ:
+	case A_RELEASE_RQ:
+	case A_RELEASE_RP:
+	case A_ABORT:
+		// These PDUs have a fixed 4-byte payload, no variable content
+		if (pdu_len != 4) return 0;
+		break;
+	case P_DATA_TF:
+		// At minimum: PDV-length(4) + context-id(1) + flags(1) = 6 bytes
+		if (pdu_len < 6) return 0;
+		break;
+	default:
+		return 0;
+	}
 	return 1;
 }
 
