@@ -4,6 +4,23 @@
 #include "mmt_common_internal_include.h"
 #include "../../include/http2.h"
 
+/*
+ * HTTP/2 frame parser hardening (issue #4, H1).
+ *
+ * The parser reads multi-byte fields (2-4 bytes) at offsets derived from
+ * attacker-controlled length fields, and in several places steps back one byte
+ * (`proto_offset - 1`) before a 4-byte read. http2_can_read() bounds every such
+ * access against the captured length: it returns 1 only when the n-byte window
+ * starting at `offset` lies fully inside [0, caplen). A negative offset (e.g. an
+ * underflowed `proto_offset - 1`) fails the check, and the (offset + n) sum is
+ * computed in 64-bit so it cannot overflow for the small values involved.
+ */
+static inline int http2_can_read(int offset, unsigned int n, unsigned int caplen) {
+	if (offset < 0)
+		return 0;
+	return ((uint64_t) offset + (uint64_t) n) <= (uint64_t) caplen;
+}
+
 classified_proto_t http2_stack_classification(ipacket_t *ipacket) {
 
 	classified_proto_t retval;
@@ -18,8 +35,8 @@ int http2_header_method_extraction(const ipacket_t *packet,
 
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
 	int attribute_offset = extracted_data->position_in_packet;
-	//ensure that we do not go out of the packet
-	if( proto_offset + attribute_offset >= packet->p_hdr->caplen )
+	//ensure that we can read the 1-byte field without leaving the packet
+	if( !http2_can_read(proto_offset + attribute_offset, 1, packet->p_hdr->caplen) )
 		return 0;
 
 	//int attr_data_len = protocol_struct->get_attribute_length(extracted_data->proto_id, extracted_data->field_id);
@@ -39,10 +56,11 @@ int http2_header_length_extraction(const ipacket_t *packet,
 	// printf("http2_offset %d \n", http2_offset);
 
 	
-	char *payload = (char*) &packet->data[http2_offset];
 	char signature_http2[] = { 0x0D, 0x0A, 0x0D, 0x0A, 0x53, 0x4D, 0x0D, 0x0A, 0x0D, 0x0A }; 	//PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n
-	if (strncmp(payload , signature_http2,
-			sizeof(signature_http2) / sizeof(signature_http2[0])) == 0) { //The first packet must be ignored
+	//bounds-check the whole signature window before comparing it
+	if (http2_can_read(http2_offset, sizeof(signature_http2), packet->p_hdr->caplen)
+			&& strncmp((char*) &packet->data[http2_offset], signature_http2,
+				sizeof(signature_http2) / sizeof(signature_http2[0])) == 0) { //The first packet must be ignored
 
 		*((unsigned int*) extracted_data->data) = 0;
 		return 1;
@@ -50,8 +68,9 @@ int http2_header_length_extraction(const ipacket_t *packet,
 
 	//char * payload= (char*) &packet->data[proto_offset ];
 	int attribute_offset = extracted_data->position_in_packet - 1;
-	//ensure that we do not go out of the packet
-	if( http2_offset + attribute_offset >= packet->p_hdr->caplen )
+	//ensure the 4-byte length field is fully inside the packet; this also
+	//guards the position-1 step-back from underflowing to a negative offset
+	if( !http2_can_read(http2_offset + attribute_offset, sizeof(unsigned int), packet->p_hdr->caplen) )
 		return 0;
 
 	//int attr_data_len = protocol_struct->get_attribute_length(extracted_data->proto_id, extracted_data->field_id);
@@ -80,8 +99,8 @@ int http2_payload_stream_id_extraction(const ipacket_t *packet,
 	// - 4 bytes for reserve
 	int method_offset = proto_offset + 9;
 
-	//not enough room
-	if (method_offset >= packet->p_hdr->caplen)
+	//not enough room to read the 1-byte method/type field
+	if (!http2_can_read(method_offset, 1, packet->p_hdr->caplen))
 		return 0;
 
 	uint8_t method_value = *((uint8_t*) &packet->data[method_offset]);
@@ -94,6 +113,10 @@ int http2_payload_stream_id_extraction(const ipacket_t *packet,
 		// we then later remove the latest byte
 		// Get http2 protocol offset
 		int offset_header_length = proto_offset - 1;
+		//bounds-check the 4-byte length read; also rejects proto_offset == 0
+		//(offset_header_length underflow)
+		if (!http2_can_read(offset_header_length, sizeof(unsigned int), packet->p_hdr->caplen))
+			return 0;
 		int header_length = ntohl(
 				*((unsigned int* ) &packet->data[offset_header_length]));
 		header_length = header_length & 0x00FFFFFF;
@@ -101,8 +124,8 @@ int http2_payload_stream_id_extraction(const ipacket_t *packet,
 		int payload_offset = header_length + 9 + proto_offset;
 		int stream_id_payload_offset = payload_offset + 5;
 
-		//ensure that we do not go out of the packet
-		if( stream_id_payload_offset >= packet->p_hdr->caplen )
+		//ensure the whole 4-byte stream id is inside the packet
+		if( !http2_can_read(stream_id_payload_offset, sizeof(unsigned int), packet->p_hdr->caplen) )
 			return 0;
 
 		*((unsigned int*) extracted_data->data) = ntohl(
@@ -122,9 +145,9 @@ int http2_payload_length_extraction(const ipacket_t *packet,
 	int method_offset = proto_offset + 9;
 
 
-	//not enough room
-	//if (method_offset >= packet->p_hdr->caplen)
-	//	return 0;
+	//not enough room to read the 1-byte method/type field
+	if (!http2_can_read(method_offset, 1, packet->p_hdr->caplen))
+		return 0;
 
 	uint8_t method_value = *((uint8_t*) &packet->data[method_offset]);
 	//int attr_data_len = protocol_struct->get_attribute_length(extracted_data->proto_id, extracted_data->field_id);
@@ -133,14 +156,18 @@ int http2_payload_length_extraction(const ipacket_t *packet,
 
 		// Get http2 protocol offset
 		int offset_header_length = proto_offset - 1;
+		//bounds-check the 4-byte length read; also rejects proto_offset == 0
+		//(offset_header_length underflow)
+		if (!http2_can_read(offset_header_length, sizeof(unsigned int), packet->p_hdr->caplen))
+			return 0;
 		int header_length = ntohl(
 				*((unsigned int* ) &packet->data[offset_header_length]));
 		header_length = header_length & 0x00FFFFFF;
 		// printf("header_length %d\n",header_length );
 		int payload_offset = header_length + 9 + proto_offset - 1;//In order to get to http2 payload you need to get the header length, adding the 9 bytes of the header.
 
-		//ensure that we do not go out of the packet
-		if( payload_offset >= packet->p_hdr->caplen )
+		//ensure the whole 4-byte payload length is inside the packet
+		if( !http2_can_read(payload_offset, sizeof(unsigned int), packet->p_hdr->caplen) )
 			return 0;
 
 		//Payload length is three bytes, while an integer is 4 bytes, so here we start from one byte before and and bitwise with 0x00FFFFFF that integer to remove last byte.
@@ -161,8 +188,8 @@ int http2_payload_data_extraction(const ipacket_t *packet, unsigned proto_index,
 	//Go to method field
 	int method_offset = proto_offset + 9;
 
-	//not enough room
-	if (method_offset >= packet->p_hdr->caplen)
+	//not enough room to read the 1-byte method/type field
+	if (!http2_can_read(method_offset, 1, packet->p_hdr->caplen))
 		return 0;
 
 	uint8_t method_value = *((uint8_t*) &packet->data[method_offset]);
@@ -171,18 +198,26 @@ int http2_payload_data_extraction(const ipacket_t *packet, unsigned proto_index,
 
 		// Get http2 protocol offset
 		int offset_header_length = proto_offset - 1;
+		//bounds-check the 4-byte length read; also rejects proto_offset == 0
+		//(offset_header_length underflow)
+		if (!http2_can_read(offset_header_length, sizeof(unsigned int), packet->p_hdr->caplen))
+			return 0;
 		int header_length = ntohl(
 				*((unsigned int* ) &packet->data[offset_header_length]));
 		header_length = header_length & 0x00FFFFFF;
 		// printf("header_length %d\n",header_length );
-		int payload_offset = header_length + 9 + proto_offset - 1;//In order to get to http2 payload you need to get the header length, adding the 9 bytes of the header. 
+		int payload_offset = header_length + 9 + proto_offset - 1;//In order to get to http2 payload you need to get the header length, adding the 9 bytes of the header.
 		//Payload length is three bytes, while an integer is 4 bytes, so here we start from one byte before and and bitwise with 0x00FFFFFF that integer to remove last byte.
+		//bounds-check the 4-byte payload-length read
+		if (!http2_can_read(payload_offset, sizeof(unsigned int), packet->p_hdr->caplen))
+			return 0;
 		int payload_length = ntohl(
 				*((unsigned int* ) &packet->data[payload_offset]));
 		payload_length &= 0x00FFFFFF;
 
 		payload_offset += 9 + 1; //why?
-		if( payload_offset <= packet->p_hdr->caplen ){
+		//use '<' so the data pointer addresses a byte still inside the packet
+		if( http2_can_read(payload_offset, 1, packet->p_hdr->caplen) ){
 			extracted_data->data = (char*) &packet->data[payload_offset];
 			//printf("payload stream id %d\n",  *((unsigned int*) extracted_data->data));
 			return 1;
@@ -200,7 +235,8 @@ int http2_stream_id_extraction(const ipacket_t *packet, unsigned proto_index,
 	int attribute_offset = (extracted_data->position_in_packet);
 
 	proto_offset += attribute_offset;
-	if( proto_offset >=packet->p_hdr->caplen )
+	//ensure the whole 4-byte stream id is inside the packet
+	if( !http2_can_read(proto_offset, sizeof(unsigned int), packet->p_hdr->caplen) )
 		return 0;
 	*((unsigned int*) extracted_data->data) = (ntohl( *((unsigned int* ) &packet->data[proto_offset])));
 	return 1;
@@ -210,17 +246,21 @@ int _http2_classify_next_proto(ipacket_t * ipacket, unsigned index) {
 	//packet offset of http2 header
 	int proto_offset = get_packet_offset_at_index(ipacket, index);
 	int http2_header_size = 0;
-	const char *payload = (char*) &ipacket->data[proto_offset];
 	const char *signature_http2 = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";	//PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n
-	if (strncmp(payload, signature_http2, strlen(signature_http2)) == 0) {
+	//only compare the preface when it is fully captured at this offset
+	if (http2_can_read(proto_offset, strlen(signature_http2), ipacket->p_hdr->caplen)
+			&& strncmp((char*) &ipacket->data[proto_offset], signature_http2, strlen(signature_http2)) == 0) {
 		return 0;
 	} else {
 
 		//extract http2 length
 		//extracted_data.position_in_packet = 1;
 		//extracted_data.data = &http2_header_size;
-		// Get http2 protocol offset
-		payload--;
+		// Get http2 protocol offset: step back one byte to read a 4-byte int.
+		//Bounds-check that read; this also rejects proto_offset == 0 underflow.
+		if (!http2_can_read(proto_offset - 1, sizeof(unsigned int), ipacket->p_hdr->caplen))
+			return 0;
+		const char *payload = (char*) &ipacket->data[proto_offset - 1];
 		http2_header_size = ntohl(*((unsigned int* ) payload));
 		http2_header_size &= 0x00FFFFFF;
 		http2_header_size = http2_header_size + 9;
@@ -299,9 +339,10 @@ int mmt_check_http2(ipacket_t *ipacket, unsigned proto_index) {
 		return 0;
 
 	//second way to calculate the offset
-	const char *payload = (char*) &ipacket->data[proto_offset];
 	const char *signature_http2 = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";	//PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n
-	if (strncmp(payload, signature_http2, strlen(signature_http2)) == 0) {
+	//only compare the preface when it is fully captured at this offset
+	if (http2_can_read(proto_offset, strlen(signature_http2), ipacket->p_hdr->caplen)
+			&& strncmp((char*) &ipacket->data[proto_offset], signature_http2, strlen(signature_http2)) == 0) {
 		classified_proto_t http2_proto = http2_stack_classification(ipacket);
 		http2_proto.offset = tcp_header_size;
 		return set_classified_proto(ipacket, proto_index + 1, http2_proto);
