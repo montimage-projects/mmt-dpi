@@ -53,6 +53,35 @@ CFLAGS += -g -Wa,--gstabs -save-temps -O3
 CXXFLAGS += -g -Wa,--gstabs -save-temps -O3
 endif
 
+# BUILD=asan to compile with AddressSanitizer + UndefinedBehaviorSanitizer.
+#   This is the verification vehicle for the memory-safety hardening work
+#   (see MASTER_IMPROVEMENT_PLAN.md, Phase 2): run crafted edge-case pcaps
+#   through a library built with BUILD=asan to catch OOB reads/writes,
+#   use-after-free and UB that an -O3 build silently tolerates.
+#
+#   Usage:
+#     make BUILD=asan MMT_BASE=/tmp/mmt-asan
+#     make BUILD=asan MMT_BASE=/tmp/mmt-asan install
+#
+#   The sanitizer flags are added to both CFLAGS and CXXFLAGS so they apply
+#   at compile time AND to the link line of the shared libraries (the .so
+#   recipes in common-{linux,osx}.mk link with $(CXXFLAGS)). The shared
+#   objects leave the ASan/UBSan runtime symbols undefined; an instrumented
+#   run resolves them by preloading the runtime, e.g.:
+#     LD_PRELOAD=$(gcc -print-file-name=libasan.so) \
+#       ASAN_OPTIONS=detect_leaks=0 LD_LIBRARY_PATH=/tmp/mmt-asan/dpi/lib \
+#       ./extract_all -t crafted.pcap
+#   (leak detection is best left to Valgrind; ASan here targets memory-safety
+#    and UB on untrusted packet input.)
+ifeq ($(BUILD),asan)
+SANITIZE_FLAGS := -g -O1 -fno-omit-frame-pointer -fno-common \
+                  -fsanitize=address,undefined \
+                  -fno-sanitize-recover=all \
+                  -DMMT_BUILD_ASAN=1
+CFLAGS   += $(SANITIZE_FLAGS)
+CXXFLAGS += $(SANITIZE_FLAGS)
+endif
+
 # SHOWLOG = 1 to show all the log from MMT_LOG() ...
 ifdef SHOWLOG
 CFLAGS   += -DDEBUG -DHTTP_PARSER_STRICT=1

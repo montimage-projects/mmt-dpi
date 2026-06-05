@@ -1,0 +1,98 @@
+# Phase 0 — baseline & sanitizer harness
+
+This directory is the **verification vehicle** for the MMT-DPI Master Improvement
+Plan (`MASTER_IMPROVEMENT_PLAN.md`, Phase 0). It establishes the regression
+baselines that every later phase is gated on, plus the `BUILD=asan` sanitizer
+profile used to validate the Phase 2 memory-safety work.
+
+Phase 0 changes **no production code** — it adds tooling and captured baselines.
+
+## What's here
+
+| File | Purpose |
+|---|---|
+| `phase0_classify.c` | Deterministic protocol-classification fingerprint tool. Prints, per pcap, sorted `count<TAB>protocol.path` lines — free of timestamps/addresses/ordering, so it diffs cleanly. |
+| `phase0_throughput.c` | Throughput baseline tool (packets/second), in-memory replay with a fresh handler per iteration. |
+| `golden_pcaps.txt` | The fixed golden pcap set (paths relative to the mmt-test `data-sets/` root). |
+| `capture_baseline.sh` | Orchestrator: build+install at `-O3`, compile the drivers, capture all baselines into `baseline/`. |
+| `baseline/classification.txt` | **The golden classification baseline.** The asserted regression oracle. |
+| `baseline/classification/` | Per-pcap fingerprints (one file each), for granular diffs. |
+| `baseline/throughput.txt` | Throughput reference snapshot (environment-dependent — compare relative deltas). |
+| `baseline/valgrind.txt` | Valgrind leak baseline, or a SKIPPED note + exact command when valgrind is absent. |
+
+## The ASan/UBSan build profile (`BUILD=asan`)
+
+Added to `rules/common.mk`. Builds the libraries with
+`-fsanitize=address,undefined -fno-sanitize-recover=all -O1 -g`. This is the
+verification vehicle for Phase 2 (run crafted edge-case pcaps through an
+ASan-built library to catch OOB reads/writes and UB).
+
+```bash
+make -C sdk clean
+make -C sdk BUILD=asan MMT_BASE=/tmp/mmt-asan
+make -C sdk BUILD=asan MMT_BASE=/tmp/mmt-asan install
+```
+
+The shared objects leave the sanitizer runtime undefined; resolve it at run time
+by preloading it (the SDK is loaded via `dlopen`, so the runtime can't be pulled
+in from the executable alone):
+
+```bash
+gcc -O1 -g -o extract_all extract_all.c \
+    -I /tmp/mmt-asan/dpi/include -L /tmp/mmt-asan/dpi/lib -lmmt_core -ldl -lpcap
+LD_PRELOAD="$(gcc -print-file-name=libasan.so)" \
+ASAN_OPTIONS=detect_leaks=0 LD_LIBRARY_PATH=/tmp/mmt-asan/dpi/lib \
+    ./extract_all -t crafted.pcap
+```
+
+(Leak detection is left to Valgrind; ASan here targets memory-safety and UB on
+untrusted packet input.)
+
+## Capturing / refreshing the baseline
+
+```bash
+# from the repo root
+tools/phase0/capture_baseline.sh                 # defaults: prefix /tmp/mmt, 300 iters
+tools/phase0/capture_baseline.sh --prefix /tmp/mmt --iterations 500 --jobs 8
+```
+
+If the mmt-test repo is not at `../mmt-test`, point the script at the data-sets:
+
+```bash
+MMT_TEST_DATASETS=/path/to/mmt-test/data-sets tools/phase0/capture_baseline.sh
+```
+
+## Using the baseline to gate a later phase
+
+After implementing a phase, re-run the capture and diff the classification
+fingerprint. **Any diff is a classification regression to explain.**
+
+```bash
+tools/phase0/capture_baseline.sh
+git diff --stat tools/phase0/baseline/
+git diff tools/phase0/baseline/classification.txt   # must be empty for phases 1-3,5,6
+```
+
+- `classification.txt` — **asserted**: must be unchanged unless the phase
+  intentionally changes classification (then update the golden in the same PR
+  and call it out in the PR body).
+- `throughput.txt` — **informational**: pps is environment-dependent; read it as
+  a relative trend (expect gains after Phase 4 LTO and Phase 5 hot-path work).
+- `valgrind.txt` — **asserted** where valgrind is available: leak summary should
+  show no growth (Phase 3 gate).
+
+## Notes & known boundaries
+
+- Plugin loading is **CWD-relative**: the SDK scans `./plugins/` first and only
+  falls back to the installed prefix when the working directory has no
+  `plugins/` directory (`src/mmt_core/src/plugins_engine.c`). The capture script
+  runs the drivers from a neutral temp directory for this reason.
+- Pcaps whose link-type `mmt_init_handler` does not support (e.g. DLT_RAW —
+  `tcp_segmented_fpm.pcap`) are recorded as `<unclassified: ...>` /
+  `<unsupported link-type>` rather than dropped, so the boundary itself is part
+  of the stable baseline.
+- `phase0_throughput` creates a **fresh handler per iteration** on purpose:
+  replaying identical packets through one persistent handler drives stateful
+  parsers and the reassembly/session tables into states never seen in real
+  capture and can crash. Per-handler init is ~0.01 ms, so this costs nothing
+  measurable.
