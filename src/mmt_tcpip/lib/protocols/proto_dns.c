@@ -1,5 +1,28 @@
 #include "dns.h"
 
+/*
+ * DNS parser hardening (issue #3, K3/M7).
+ *
+ * MMT_DNS_MAX_NAME_DEPTH bounds the recursion used while following label
+ * chains and compression pointers, so a crafted packet cannot drive the
+ * parser into a stack overflow. A well-formed DNS name is at most 255 octets
+ * (RFC 1035 §3.1) — i.e. at most ~127 labels — so this cap never rejects a
+ * legitimate name.
+ */
+#define MMT_DNS_MAX_NAME_DEPTH 128
+
+/*
+ * Returns 1 iff [p, p+n) is fully inside the captured payload, i.e. n bytes
+ * can be read starting at p without running past payload_end (one-past-last
+ * captured byte). All pointer comparisons stay within the same buffer so the
+ * arithmetic is well-defined; an out-of-range p yields a non-positive
+ * difference and fails the check.
+ */
+static inline int dns_can_read(const u_char *p, size_t n, const u_char *payload_end){
+    if(p == NULL || payload_end == NULL || p > payload_end) return 0;
+    return (size_t)(payload_end - p) >= n;
+}
+
 uint16_t bytes_to_int_extraction(const u_char *payload,int nb_bytes){
     if(payload==NULL) return -1;
     uint16_t ret = 0,i =0;
@@ -22,7 +45,12 @@ uint64_t bytes_to_uint64_extraction(const u_char *payload,int nb_bytes){
 }
 
 int dns_check_payload(const u_char * payload,int payload_packet_len){
-    if(payload_packet_len <=12){
+    /*
+     * M7: the checks below read a 16-bit word at offset 12 (bytes 12-13), so
+     * at least 14 bytes must be present. The old `<= 12` guard admitted a
+     * 13-byte payload and over-read one byte past the buffer. Require `> 13`.
+     */
+    if(payload_packet_len <= 13){
         return 0;
     }
 
@@ -215,14 +243,33 @@ void dns_free_answer(dns_answer_t *da){
 
 }
 
-dns_name_t * dns_extract_name(const u_char* dns_name_payload, const u_char* dns_payload){
-    if(dns_name_payload== NULL) return NULL;
+dns_name_t * dns_extract_name(const u_char* dns_name_payload, const u_char* dns_payload, const u_char* payload_end, int depth){
+    /*
+     * K3 hardening: every read is bounded by payload_end, recursion is
+     * depth-capped, and compression pointers must target an earlier offset
+     * still inside the captured payload (strictly backwards), which — together
+     * with the depth cap — makes circular/self compression impossible.
+     */
+    if(dns_name_payload == NULL || dns_payload == NULL || payload_end == NULL) return NULL;
+    if(depth > MMT_DNS_MAX_NAME_DEPTH) return NULL;
+    /* The length / pointer-marker byte itself must be inside the payload. */
+    if(dns_name_payload < dns_payload || !dns_can_read(dns_name_payload, 1, payload_end)) return NULL;
+
     uint16_t str_length = hex2int(dns_name_payload[0]);
     if(str_length == 0){
         return NULL;
     }else if(str_length == 192){
+        /* Compression pointer: the second byte holds the target offset. */
+        if(!dns_can_read(dns_name_payload, 2, payload_end)) return NULL;
         int offset_name = hex2int(dns_name_payload[1]);
-        dns_name_t * original_name = dns_extract_name(dns_payload + offset_name,dns_payload);
+        const u_char * target = dns_payload + offset_name;
+        /* Target must be inside the payload AND strictly before the current
+           position; otherwise it is a forward/self reference (malformed) that
+           could loop. */
+        if(target < dns_payload || target >= payload_end || target >= dns_name_payload){
+            return NULL;
+        }
+        dns_name_t * original_name = dns_extract_name(target,dns_payload,payload_end,depth + 1);
         if(original_name){
             original_name->real_length = 2;
             original_name->is_ref = 1;
@@ -232,6 +279,10 @@ dns_name_t * dns_extract_name(const u_char* dns_name_payload, const u_char* dns_
             return NULL;
         }
     }else{
+        /* Literal label: str_length content bytes follow the length byte. */
+        if(!dns_can_read(dns_name_payload + 1, str_length, payload_end)){
+            return NULL;
+        }
         dns_name_t * dns_name;
         dns_name = dns_new_name();
         if(dns_name){
@@ -244,17 +295,17 @@ dns_name_t * dns_extract_name(const u_char* dns_name_payload, const u_char* dns_
             dns_name->value[str_length]='\0';
             dns_name->length = str_length;
             dns_name->real_length = str_length;
-            dns_name->next = dns_extract_name(dns_name_payload + str_length + 1,dns_payload);
-        }   
-        return dns_name; 
+            dns_name->next = dns_extract_name(dns_name_payload + str_length + 1,dns_payload,payload_end,depth + 1);
+        }
+        return dns_name;
     }
 }
 
-dns_name_t * dns_extract_name_value(const u_char *dns_name_payload,const u_char* dns_payload){
+dns_name_t * dns_extract_name_value(const u_char *dns_name_payload,const u_char* dns_payload,const u_char* payload_end){
     if(dns_name_payload == NULL) return NULL;
     dns_name_t * q_name = dns_new_name();
     if(q_name){
-        dns_name_t * ext_name = dns_extract_name(dns_name_payload,dns_payload);
+        dns_name_t * ext_name = dns_extract_name(dns_name_payload,dns_payload,payload_end,0);
         if(ext_name){
             int name_ref = 0;
             if(ext_name->is_ref){
@@ -312,17 +363,36 @@ dns_name_t * dns_extract_name_value(const u_char *dns_name_payload,const u_char*
             q_name->value = com_name;
             q_name->value[q_name_length] = '\0';
         }
+        /*
+         * Guarantee a non-NULL value buffer. dns_extract_name() returns NULL
+         * for a root/empty name (and now, more often, for crafted/truncated
+         * input), in which case the block above is skipped and value stays
+         * NULL — callers memcpy from it (size 0), which UBSan flags as a NULL
+         * argument. Hand back an empty string instead.
+         */
+        if(q_name->value == NULL){
+            q_name->value = malloc(1);
+            if(q_name->value){
+                q_name->value[0] = '\0';
+            }
+            q_name->length = 0;
+            q_name->real_length = 0;
+        }
     }
     return q_name;
 }
 
 
-dns_query_t * dns_extract_queries(const u_char * dns_queries_payload,int nb_queries,const u_char * dns_payload){
+dns_query_t * dns_extract_queries(const u_char * dns_queries_payload,int nb_queries,const u_char * dns_payload,const u_char * payload_end){
     if(nb_queries == 0) return NULL;
-    dns_name_t * current_name = dns_extract_name_value(dns_queries_payload,dns_payload);
+    if(dns_queries_payload == NULL || dns_queries_payload >= payload_end) return NULL;
+    dns_name_t * current_name = dns_extract_name_value(dns_queries_payload,dns_payload,payload_end);
     if(current_name){
         dns_query_t * dq = dns_new_query();
-        if(dq == NULL) return NULL;
+        if(dq == NULL) {
+            dns_free_name(current_name);
+            return NULL;
+        }
         dq->name = malloc((current_name->length+1)*sizeof(char));
         if(dq->name == NULL) {
             dns_free_query(dq);
@@ -339,18 +409,34 @@ dns_query_t * dns_extract_queries(const u_char * dns_queries_payload,int nb_quer
         //     name_offset = current_name->real_length;
         // }
 
-        dq->type = bytes_to_int_extraction(dns_queries_payload + name_offset + 1,2);
-        dq->qclass = bytes_to_int_extraction(dns_queries_payload + name_offset + 3,2);
+        /* QTYPE(2) + QCLASS(2) follow the name at name_offset+1. Bound them;
+           on a truncated record keep the name and stop the chain. */
+        const u_char * rr = dns_queries_payload + name_offset + 1;
         dq->qlength = name_offset + 5;
-        dq->next = dns_extract_queries(dns_queries_payload + dq->qlength,nb_queries - 1,dns_payload); 
+        if(!dns_can_read(rr, 4, payload_end)){
+            dq->type = 0;
+            dq->qclass = 0;
+            dq->next = NULL;
+            dns_free_name(current_name);
+            return dq;
+        }
+        dq->type = bytes_to_int_extraction(rr,2);
+        dq->qclass = bytes_to_int_extraction(rr + 2,2);
+        dq->next = dns_extract_queries(dns_queries_payload + dq->qlength,nb_queries - 1,dns_payload,payload_end);
         dns_free_name(current_name);
         return dq;
     }
     return NULL;
 }
 
-void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_char *data_anwser_payload, const u_char* dns_payload){
+void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_char *data_anwser_payload, const u_char* dns_payload, const u_char* payload_end){
     if(data_anwser_payload == NULL || dns_payload == NULL || data_length == 0){
+        return NULL;
+    }
+    /* The rdata must start inside the captured payload; per-case checks below
+       bound each read against payload_end (the caller has already verified the
+       whole rdata fits, but TXT/SOA derive their own lengths from the data). */
+    if(!dns_can_read(data_anwser_payload, 1, payload_end)){
         return NULL;
     }
     uint16_t txtLength = 0;
@@ -369,6 +455,9 @@ void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_cha
         // A - IPv4 Address
         case 28:
         // AAAA - IPv6 Address
+            if(!dns_can_read(data_anwser_payload, data_length, payload_end)){
+                return NULL;
+            }
             str_value = malloc((data_length+1)*sizeof(char));
             if(str_value == NULL){
                 return NULL;
@@ -383,7 +472,7 @@ void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_cha
         // NS - Name server
         case 5:
             // CNAME - CName
-            name = dns_extract_name_value(data_anwser_payload,dns_payload);
+            name = dns_extract_name_value(data_anwser_payload,dns_payload,payload_end);
             if(name){
                 str_value = malloc((name->length+1)*sizeof(char));
                 if(str_value == NULL){
@@ -399,6 +488,10 @@ void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_cha
         case 16:
             // TXT - Text string
             txtLength = bytes_to_int_extraction(data_anwser_payload,1);
+            /* The length byte is followed by txtLength content bytes. */
+            if(!dns_can_read(data_anwser_payload + 1, txtLength, payload_end)){
+                return NULL;
+            }
             str_value = malloc((txtLength+1)*sizeof(char));
             if (str_value == NULL)
             {
@@ -413,8 +506,12 @@ void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_cha
             // MX - Mail Exchange
             amx = dns_new_answer_mx();
             if(amx){
+                if(!dns_can_read(data_anwser_payload, 2, payload_end)){
+                    dns_free_answer_mx(amx);
+                    return NULL;
+                }
                 amx->mx_pref = bytes_to_int_extraction(data_anwser_payload,2);
-                name = dns_extract_name_value(data_anwser_payload + 2,dns_payload);
+                name = dns_extract_name_value(data_anwser_payload + 2,dns_payload,payload_end);
                 if(name){
                     amx->mx_server = malloc((name->length+1)*sizeof(char));
                     if (amx->mx_server == NULL)
@@ -436,7 +533,7 @@ void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_cha
             // SOA -
             as = dns_new_answer_soa();
             if(as){
-                dns_name_t * pri_server = dns_extract_name_value(data_anwser_payload,dns_payload);
+                dns_name_t * pri_server = dns_extract_name_value(data_anwser_payload,dns_payload,payload_end);
                 uint16_t pri_server_offset = 0;
                 if(pri_server){
                     as->soa_pri_server = malloc((pri_server->length +1)*sizeof(char));
@@ -456,7 +553,7 @@ void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_cha
                     dns_free_name(pri_server);
                 }
 
-                dns_name_t *mail_box = dns_extract_name_value(data_anwser_payload + pri_server_offset,dns_payload);
+                dns_name_t *mail_box = dns_extract_name_value(data_anwser_payload + pri_server_offset,dns_payload,payload_end);
                 uint16_t mailbox_offset = 0;
                 if(mail_box){
                     as->soa_mail_box = malloc((mail_box->length +1)*sizeof(char));
@@ -476,11 +573,15 @@ void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_cha
                     dns_free_name(mail_box);
                 }
 
-                as->soa_serial_number = bytes_to_uint64_extraction(data_anwser_payload + pri_server_offset + mailbox_offset,4);
-                as->soa_refresh_interval = bytes_to_uint64_extraction(data_anwser_payload + pri_server_offset + mailbox_offset + 4,4);
-                as->soa_retry_interval = bytes_to_uint64_extraction(data_anwser_payload + pri_server_offset + mailbox_offset + 8,4);
-                as->soa_expire_limit = bytes_to_uint64_extraction(data_anwser_payload + pri_server_offset + mailbox_offset + 12,4);
-                as->soa_min_ttl = bytes_to_uint64_extraction(data_anwser_payload + pri_server_offset + mailbox_offset + 16,4);
+                /* The five 32-bit SOA fields (20 bytes) follow the two names. */
+                const u_char * soa_ints = data_anwser_payload + pri_server_offset + mailbox_offset;
+                if(dns_can_read(soa_ints, 20, payload_end)){
+                    as->soa_serial_number = bytes_to_uint64_extraction(soa_ints,4);
+                    as->soa_refresh_interval = bytes_to_uint64_extraction(soa_ints + 4,4);
+                    as->soa_retry_interval = bytes_to_uint64_extraction(soa_ints + 8,4);
+                    as->soa_expire_limit = bytes_to_uint64_extraction(soa_ints + 12,4);
+                    as->soa_min_ttl = bytes_to_uint64_extraction(soa_ints + 16,4);
+                }
             }
             txtValue = (void*)as;
             break;
@@ -491,12 +592,16 @@ void * dns_extract_answer_data(uint16_t atype, uint16_t data_length, const u_cha
     return txtValue;
 }
 
-dns_answer_t * dns_extract_answers(const u_char *dns_answers_payload,int nb_answers,const u_char * dns_payload){
+dns_answer_t * dns_extract_answers(const u_char *dns_answers_payload,int nb_answers,const u_char * dns_payload,const u_char * payload_end){
     if(nb_answers == 0) return NULL;
-    dns_name_t * current_name = dns_extract_name_value(dns_answers_payload,dns_payload);
+    if(dns_answers_payload == NULL || dns_answers_payload >= payload_end) return NULL;
+    dns_name_t * current_name = dns_extract_name_value(dns_answers_payload,dns_payload,payload_end);
     if(current_name){
         dns_answer_t * da = dns_new_answer();
-        if(da == NULL) return NULL;
+        if(da == NULL) {
+            dns_free_name(current_name);
+            return NULL;
+        }
         da->name = malloc((current_name->length+1)*sizeof(char));
         if (da->name  == NULL)
         {
@@ -512,13 +617,37 @@ dns_answer_t * dns_extract_answers(const u_char *dns_answers_payload,int nb_answ
         // }else{
             name_offset = current_name->real_length;
         // }
-        da->type = bytes_to_int_extraction(dns_answers_payload + name_offset + 1,2);
-        da->aclass = bytes_to_int_extraction(dns_answers_payload + name_offset + 3,2);
-        da->a_ttl =  bytes_to_uint64_extraction(dns_answers_payload + name_offset + 5,4);
-        da->data_length = bytes_to_int_extraction(dns_answers_payload + name_offset + 9,2);
-        da->data = dns_extract_answer_data(da->type,da->data_length,dns_answers_payload + name_offset + 11,dns_payload);
+        /* Fixed RR fields after the name: TYPE(2) CLASS(2) TTL(4) RDLENGTH(2)
+           = 10 bytes starting at name_offset+1. */
+        const u_char * rr = dns_answers_payload + name_offset + 1;
+        if(!dns_can_read(rr, 10, payload_end)){
+            da->type = 0;
+            da->aclass = 0;
+            da->a_ttl = 0;
+            da->data_length = 0;
+            da->data = NULL;
+            da->a_length = name_offset + 11;
+            da->next = NULL;
+            dns_free_name(current_name);
+            return da;
+        }
+        da->type = bytes_to_int_extraction(rr,2);
+        da->aclass = bytes_to_int_extraction(rr + 2,2);
+        da->a_ttl =  bytes_to_uint64_extraction(rr + 4,4);
+        da->data_length = bytes_to_int_extraction(rr + 8,2);
+        /* RDATA starts at name_offset+11 and is data_length bytes long. If it
+           is truncated, keep the parsed header but don't read the data. */
+        const u_char * rdata = rr + 10;
+        if(!dns_can_read(rdata, da->data_length, payload_end)){
+            da->data = NULL;
+            da->a_length = name_offset + 11 + da->data_length;
+            da->next = NULL;
+            dns_free_name(current_name);
+            return da;
+        }
+        da->data = dns_extract_answer_data(da->type,da->data_length,rdata,dns_payload,payload_end);
         da->a_length = name_offset + 11 + da->data_length;
-        da->next = dns_extract_answers(dns_answers_payload + da->a_length,nb_answers - 1,dns_payload); 
+        da->next = dns_extract_answers(dns_answers_payload + da->a_length,nb_answers - 1,dns_payload,payload_end);
         dns_free_name(current_name);
         return da;
     }
@@ -536,7 +665,8 @@ int dns_get_answers_offset(const ipacket_t * ipacket, unsigned proto_index){
     if(qdcount == 0){
         return 0;
     }else{
-        dns_query_t * dq = dns_extract_queries(ipacket->data + proto_offset + answer_payload_offset,qdcount,ipacket->data + proto_offset);
+        const u_char * payload_end = ipacket->data + ipacket->p_hdr->caplen;
+        dns_query_t * dq = dns_extract_queries(ipacket->data + proto_offset + answer_payload_offset,qdcount,ipacket->data + proto_offset,payload_end);
         if(dq){
             dns_query_t * current_query = dq;
             while(current_query){
@@ -560,7 +690,8 @@ int dns_get_auth_records_payload_offset(const ipacket_t * ipacket, unsigned prot
     int ancount_offset = 6;
     uint16_t ancount = bytes_to_int_extraction(ipacket->data + proto_offset + ancount_offset,2);
     if(ancount>0){
-        dns_answer_t * da = dns_extract_answers(ipacket->data + proto_offset + auth_records_payload_offset,ancount,ipacket->data + proto_offset);
+        const u_char * payload_end = ipacket->data + ipacket->p_hdr->caplen;
+        dns_answer_t * da = dns_extract_answers(ipacket->data + proto_offset + auth_records_payload_offset,ancount,ipacket->data + proto_offset,payload_end);
         if(da){
             dns_answer_t * current_answer = da;
             while(current_answer){
@@ -584,7 +715,8 @@ int dns_get_add_records_payload_offset(const ipacket_t * ipacket, unsigned proto
     int nscount_offset = 8;
     uint16_t nscount = bytes_to_int_extraction(ipacket->data + proto_offset + nscount_offset,2);
     if(nscount>0){
-        dns_answer_t * ns = dns_extract_answers(ipacket->data + proto_offset + add_records_payload_offset,nscount,ipacket->data + proto_offset);
+        const u_char * payload_end = ipacket->data + ipacket->p_hdr->caplen;
+        dns_answer_t * ns = dns_extract_answers(ipacket->data + proto_offset + add_records_payload_offset,nscount,ipacket->data + proto_offset,payload_end);
         if(ns){
             dns_answer_t * current_answer = ns;
             while(current_answer){
@@ -774,7 +906,8 @@ int dns_queries_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }else{
         int queries_payload_offset = 12;
-        dns_query_t * dq = dns_extract_queries(ipacket->data + proto_offset + queries_payload_offset,qdcount,ipacket->data + proto_offset);
+        const u_char * payload_end = ipacket->data + ipacket->p_hdr->caplen;
+        dns_query_t * dq = dns_extract_queries(ipacket->data + proto_offset + queries_payload_offset,qdcount,ipacket->data + proto_offset,payload_end);
         if(dq == NULL){
             return 0;
         }else{
@@ -796,7 +929,8 @@ int dns_answers_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }else{
         int answer_payload_offset = dns_get_answers_offset(ipacket,proto_index);
-        dns_answer_t * da = dns_extract_answers(ipacket->data + proto_offset + answer_payload_offset,ancount,ipacket->data + proto_offset);
+        const u_char * payload_end = ipacket->data + ipacket->p_hdr->caplen;
+        dns_answer_t * da = dns_extract_answers(ipacket->data + proto_offset + answer_payload_offset,ancount,ipacket->data + proto_offset,payload_end);
         if(da == NULL){
             return 0;
         }else{
@@ -818,7 +952,8 @@ int dns_auth_records_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }else{
         int ns_records_payload_offset = dns_get_auth_records_payload_offset(ipacket,proto_index);
-        dns_answer_t * da = dns_extract_answers(ipacket->data + proto_offset + ns_records_payload_offset,nscount,ipacket->data + proto_offset);
+        const u_char * payload_end = ipacket->data + ipacket->p_hdr->caplen;
+        dns_answer_t * da = dns_extract_answers(ipacket->data + proto_offset + ns_records_payload_offset,nscount,ipacket->data + proto_offset,payload_end);
         if(da == NULL){
             return 0;
         }else{
@@ -840,7 +975,8 @@ int dns_add_records_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }else{
         int add_records_payload_offset = dns_get_add_records_payload_offset(ipacket,proto_index);
-        dns_answer_t * da = dns_extract_answers(ipacket->data + proto_offset + add_records_payload_offset,arcount,ipacket->data + proto_offset);
+        const u_char * payload_end = ipacket->data + ipacket->p_hdr->caplen;
+        dns_answer_t * da = dns_extract_answers(ipacket->data + proto_offset + add_records_payload_offset,arcount,ipacket->data + proto_offset,payload_end);
         if(da == NULL){
             return 0;
         }else{
