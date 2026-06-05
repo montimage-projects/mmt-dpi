@@ -199,7 +199,7 @@ int http2_stream_id_extraction(const ipacket_t *packet, unsigned proto_index,
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
 	int attribute_offset = (extracted_data->position_in_packet);
 
-	proto_offset =+ attribute_offset;
+	proto_offset += attribute_offset;
 	if( proto_offset >=packet->p_hdr->caplen )
 		return 0;
 	*((unsigned int*) extracted_data->data) = (ntohl( *((unsigned int* ) &packet->data[proto_offset])));
@@ -349,7 +349,7 @@ int modify_get(uint8_t*data_out,int proto_offset,uint32_t data_out_size){
 	header_length += authority_amf_length-2;//Http2 buffers the authority and amf with 2 bytes(0xc0 0xc1)from the first packet.The code restore the first authority_amf value.
 	//The new header lenght will be the sizeof authority and amf minus 2
 	data_out[offset_header_length+1] = header_length>>16; //I update the last 24 bites
-	data_out[offset_header_length+2] = header_length>>9; //I update the last 16 bites
+	data_out[offset_header_length+2] = header_length>>8; //I update the last 16 bites
 	data_out[offset_header_length+3] = header_length ;//I update the last 8 bites
 	//printf("[modify_get]offset_header_length %02hhX %02hhX %02hhX \n",data_out[offset_header_length+1],data_out[offset_header_length+2],data_out[offset_header_length+3]);
 	return (int)(sizeof(authority_amf)-2);
