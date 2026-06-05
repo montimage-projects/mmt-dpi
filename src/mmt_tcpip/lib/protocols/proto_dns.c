@@ -540,7 +540,7 @@ int dns_get_answers_offset(const ipacket_t * ipacket, unsigned proto_index){
         if(dq){
             dns_query_t * current_query = dq;
             while(current_query){
-                answer_payload_offset += dq->qlength;   
+                answer_payload_offset += current_query->qlength;
                 dns_query_t * qnext = current_query->next;
                 dns_free_query(current_query);
                 current_query = qnext;

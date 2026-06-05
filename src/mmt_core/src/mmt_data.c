@@ -278,7 +278,7 @@ uint8_t get_session_setup_direction( const mmt_session_t *session )
 
 
 uint32_t get_protocol_id_at_index(const ipacket_t * ipacket, unsigned index) {
-    if (index > PROTO_PATH_SIZE)
+    if (index >= PROTO_PATH_SIZE)
         return -1;
     if (index < ipacket->proto_hierarchy->len)
         return ipacket->proto_hierarchy->proto_path[index];

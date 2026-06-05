@@ -50,7 +50,7 @@ void *mmt_realloc( void *x, size_t size )
    uint8_t *x0 = (uint8_t*)x - sizeof( size_t );
    size_t  psz = *((size_t*)x0);
 
-   if( size <= psz ) return NULL; // nothing to do
+   if( size <= psz ) return x; // nothing to do, existing block is large enough
 
    // ( x != NULL ) && ( size > psz )
 

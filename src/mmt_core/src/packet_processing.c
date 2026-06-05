@@ -698,7 +698,7 @@ int register_data_analysis_function_internal(protocol_t * proto, generic_session
     } else {
         if (temp->weight < temp_list->weight) {
             //The new element should be inserted at the head of the list
-            temp->next = temp;
+            temp->next = temp_list;
             temp->previous = NULL;
             temp_list->previous = temp;
             proto->data_analyser.analyse = temp;
@@ -2698,7 +2698,7 @@ static inline proto_statistics_internal_t * _get_child_protocol_stats(proto_stat
 }
 
 proto_statistics_internal_t * get_child_protocol_stats(proto_statistics_internal_t * proto_stats, uint32_t child_proto_id) {
-	return get_child_protocol_stats( proto_stats, child_proto_id);
+	return _get_child_protocol_stats( proto_stats, child_proto_id);
 }
 /**
  * Returns a pointer to the protocol statistics in the parent protocol encapsulated stats
