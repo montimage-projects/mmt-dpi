@@ -1,0 +1,35 @@
+# Phase 0 golden pcap set.
+#
+# A fixed list of representative pcaps from the mmt-test repository
+# (../mmt-test/data-sets/ relative to the mmt-dpi repo root). Each is run
+# through phase0_classify to capture a stable classification fingerprint that
+# every later phase is diffed against (see README.md).
+#
+# Format: one path per line, relative to the mmt-test data-sets root.
+# Blank lines and lines starting with '#' are ignored. Override the data-sets
+# root with the MMT_TEST_DATASETS environment variable.
+#
+# Coverage rationale: TCP out-of-order reassembly, FTP control/data + the
+# LPRT/EPRT path (Phase 2 K4), IP fragmentation + overlapping fragments
+# (Phase 2 H8 fragment-key), ICMP, and a non-IP (ARP) link-layer case.
+
+# --- TCP (out-of-order, ECN, tunnelled, segmented) ---
+tcp/tcp_bbc-out-of-order.pcap
+tcp/tcp_ecn_sample.pcap
+tcp/tcp_h223-over-tcp.pcap
+tcp/tcp_segmented_fpm.pcap
+tcp/tcp_tpncp_tcp.pcap
+
+# --- FTP (control states, transfers, multi-session) ---
+ftp/ftp_control_states.pcap
+ftp/ftp_txt.pcap
+ftp/ftp_binary.pcap
+ftp/ftp_multiple_session.pcap
+ftp/ftp_login_fail.pcap
+
+# --- IP fragmentation ---
+ip/ip_ping_local_ip_fragmentation.pcap
+ip/ip_teardrop_overlaping_ip_fragments.pcap
+
+# --- Link-layer / non-IP ---
+THALES/arp_padding.pcap

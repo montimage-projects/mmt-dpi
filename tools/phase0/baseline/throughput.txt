@@ -1,0 +1,18 @@
+# Phase 0 throughput baseline — packets/second, in-memory replay.
+# Environment-dependent: compare relative deltas, not absolute pps.
+# host: aarch64 | cpu: 20 | iterations: 200
+#
+# pcap	packets	iterations	elapsed_s	pps
+tcp/tcp_bbc-out-of-order.pcap	125	200	0.0108	2319521
+tcp/tcp_ecn_sample.pcap	479	200	0.0395	2427428
+tcp/tcp_h223-over-tcp.pcap	3189	200	0.3139	2032074
+tcp/tcp_segmented_fpm.pcap	n/a	n/a	n/a	<unsupported link-type>
+tcp/tcp_tpncp_tcp.pcap	116	200	0.0106	2182084
+ftp/ftp_control_states.pcap	31031	200	1.2006	5169060
+ftp/ftp_txt.pcap	75	200	0.0055	2708226
+ftp/ftp_binary.pcap	5967	200	0.2362	5052407
+ftp/ftp_multiple_session.pcap	482	200	0.0289	3337304
+ftp/ftp_login_fail.pcap	77	200	0.0067	2282101
+ip/ip_ping_local_ip_fragmentation.pcap	54	200	0.0027	4064898
+ip/ip_teardrop_overlaping_ip_fragments.pcap	17	200	0.0006	5631041
+THALES/arp_padding.pcap	98	200	0.0011	17794030

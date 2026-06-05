@@ -1,0 +1,4 @@
+2	meta.ethernet.ip.icmp
+64	meta.ethernet.ip.tcp.ftp
+9	meta.ethernet.ip.tcp.unknown
+2	meta.ethernet.ip.udp.unknown

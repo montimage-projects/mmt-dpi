@@ -1,0 +1,8 @@
+# Valgrind leak baseline — SKIPPED: valgrind not installed on this host.
+#
+# To capture on a host with valgrind:
+#   make -C sdk clean && make -C sdk MMT_BASE=/tmp/mmt && make -C sdk MMT_BASE=/tmp/mmt install
+#   gcc -O2 -o phase0_classify tools/phase0/phase0_classify.c \
+#       -I /tmp/mmt/dpi/include -L /tmp/mmt/dpi/lib -lmmt_core -ldl -lpcap
+#   LD_LIBRARY_PATH=/tmp/mmt/dpi/lib valgrind --leak-check=full \
+#       --show-leak-kinds=all ./phase0_classify /home/montimage/workspace/mmt/mmt-test/data-sets/ftp/ftp_multiple_session.pcap
