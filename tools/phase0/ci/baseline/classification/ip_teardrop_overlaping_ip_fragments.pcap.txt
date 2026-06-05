@@ -1,0 +1,6 @@
+5	meta.ethernet.arp
+5	meta.ethernet.ctp
+2	meta.ethernet.ip
+2	meta.ethernet.ip.icmp
+2	meta.ethernet.ip.udp.dns
+1	meta.ethernet.llc.cdp

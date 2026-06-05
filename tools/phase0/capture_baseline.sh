@@ -20,9 +20,17 @@
 #
 # Usage:
 #   tools/phase0/capture_baseline.sh [--prefix DIR] [--iterations N] [--jobs N]
+#                                    [--golden FILE] [--out DIR] [--datasets DIR]
+#
+#   --golden FILE   golden pcap manifest (default: tools/phase0/golden_pcaps.txt)
+#   --out DIR       output directory for the baseline (default: tools/phase0/baseline)
+#   --datasets DIR  pcap dataset root (overrides $MMT_TEST_DATASETS)
 #
 # Environment overrides:
 #   MMT_TEST_DATASETS  path to mmt-test data-sets (default: <repo>/../mmt-test/data-sets)
+#
+# The CI gate (.github/workflows/phase0-baseline.yml) reuses this script with a
+# small self-contained pcap subset under tools/phase0/ci/.
 #
 set -euo pipefail
 
@@ -33,25 +41,38 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PREFIX="/tmp/mmt"
 ITERATIONS=200
 JOBS="$(nproc 2>/dev/null || echo 4)"
+GOLDEN_LIST="${SCRIPT_DIR}/golden_pcaps.txt"
+OUT_DIR="${SCRIPT_DIR}/baseline"
+DATASETS_OPT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --prefix)     PREFIX="$2"; shift 2 ;;
         --iterations) ITERATIONS="$2"; shift 2 ;;
         --jobs)       JOBS="$2"; shift 2 ;;
+        --golden)     GOLDEN_LIST="$2"; shift 2 ;;
+        --out)        OUT_DIR="$2"; shift 2 ;;
+        --datasets)   DATASETS_OPT="$2"; shift 2 ;;
         -h|--help)    grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 
-DATASETS="${MMT_TEST_DATASETS:-${REPO_ROOT}/../mmt-test/data-sets}"
+# Dataset root precedence: --datasets > $MMT_TEST_DATASETS > sibling mmt-test.
+DATASETS="${DATASETS_OPT:-${MMT_TEST_DATASETS:-${REPO_ROOT}/../mmt-test/data-sets}}"
 # Resolve to an absolute path: the SDK loads its protocol plugins from a
 # CWD-relative "plugins/" directory first (plugins_engine.c), falling back to
 # the compiled-in prefix only when CWD has no "plugins/" dir. We therefore run
 # the drivers from the neutral build dir and must reference pcaps absolutely.
 DATASETS="$(cd "${DATASETS}" 2>/dev/null && pwd || echo "${DATASETS}")"
-GOLDEN_LIST="${SCRIPT_DIR}/golden_pcaps.txt"
-OUT_DIR="${SCRIPT_DIR}/baseline"
+# Make the output dir and golden list absolute too: the drivers run from a
+# neutral build dir (see above), so any relative path would resolve there.
+mkdir -p "${OUT_DIR}"
+OUT_DIR="$(cd "${OUT_DIR}" && pwd)"
+case "${GOLDEN_LIST}" in
+    /*) : ;;
+    *)  GOLDEN_LIST="$(cd "$(dirname "${GOLDEN_LIST}")" && pwd)/$(basename "${GOLDEN_LIST}")" ;;
+esac
 CLASS_DIR="${OUT_DIR}/classification"
 BUILD_DIR="$(mktemp -d)"
 trap 'rm -rf "${BUILD_DIR}"' EXIT
@@ -183,5 +204,5 @@ else
 fi
 
 echo
-say "✓ Phase 0 baseline captured under tools/phase0/baseline/"
-say "  Re-run after each phase and: git diff tools/phase0/baseline/classification.txt"
+say "✓ Phase 0 baseline captured under ${OUT_DIR}"
+say "  Re-run after each phase and: git diff ${OUT_DIR}/classification.txt"

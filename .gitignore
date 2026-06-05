@@ -71,3 +71,6 @@ WARP.md
 .aider*
 .continue/
 agent-instructions.md
+
+# Phase 0 CI gate: freshly-captured fingerprint written only on mismatch
+tools/phase0/ci/baseline/classification.actual.txt

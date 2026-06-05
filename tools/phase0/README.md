@@ -81,6 +81,39 @@ git diff tools/phase0/baseline/classification.txt   # must be empty for phases 1
 - `valgrind.txt` — **asserted** where valgrind is available: leak summary should
   show no growth (Phase 3 gate).
 
+## CI gate
+
+`.github/workflows/phase0-baseline.yml` enforces two Phase 0 gates on every push
+and PR to `main`:
+
+1. **`asan-build`** — `make BUILD=asan` must compile and the resulting library
+   must carry ASan instrumentation (`__asan_init`). Architecture-independent;
+   protects the Phase 2 verification vehicle.
+2. **`classification-gate`** — runs `tools/phase0/ci/check_classification.sh`,
+   which builds+installs the library, classifies a small **self-contained** pcap
+   subset (vendored under `ci/pcaps/`, ~0.6 MB, no dependency on the mmt-test
+   repo) and diffs the fingerprint against the committed
+   `ci/baseline/classification.txt`. Any diff fails the job.
+
+When a phase **intentionally** changes classification, refresh the CI baseline in
+the same PR. The failing job uploads the freshly-captured fingerprint as the
+`phase0-classification-actual` artifact; download it (or run the check locally)
+and copy it over the committed baseline:
+
+```bash
+tools/phase0/ci/check_classification.sh          # writes ci/baseline/classification.actual.txt on mismatch
+cp tools/phase0/ci/baseline/classification.actual.txt \
+   tools/phase0/ci/baseline/classification.txt
+```
+
+The committed CI baseline must match the CI runner (`ubuntu-latest`, x86_64).
+Protocol classification is expected to be architecture-independent, so the same
+fingerprint holds across hosts; if the runner ever disagrees, the gate fails on
+the first run and the uploaded artifact is the authoritative runner baseline to
+commit. The full local baseline under `baseline/` is the exhaustive,
+all-golden-pcaps reference and is **not** enforced by CI (it needs the mmt-test
+data-sets).
+
 ## Notes & known boundaries
 
 - Plugin loading is **CWD-relative**: the SDK scans `./plugins/` first and only

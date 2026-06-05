@@ -1,0 +1,19 @@
+# Phase 0 CI golden pcap subset.
+#
+# A small (~0.6 MB), self-contained subset of the full golden set, vendored
+# under tools/phase0/ci/pcaps/ so the CI gate
+# (.github/workflows/phase0-baseline.yml) needs no access to the separate
+# mmt-test repo. Paths are relative to tools/phase0/ci/pcaps/.
+#
+# The full golden set (tools/phase0/golden_pcaps.txt) still lives in mmt-test
+# and is the reference for local, exhaustive baselining.
+
+tcp_bbc-out-of-order.pcap
+tcp_ecn_sample.pcap
+tcp_tpncp_tcp.pcap
+ftp_txt.pcap
+ftp_login_fail.pcap
+ftp_multiple_session.pcap
+ip_ping_local_ip_fragmentation.pcap
+ip_teardrop_overlaping_ip_fragments.pcap
+arp_padding.pcap

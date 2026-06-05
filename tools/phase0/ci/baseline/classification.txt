@@ -1,0 +1,46 @@
+### tcp_bbc-out-of-order.pcap
+122	meta.ethernet.ip.tcp.http
+3	meta.ethernet.ip.tcp.unknown
+
+### tcp_ecn_sample.pcap
+476	meta.ethernet.ip.tcp.http
+3	meta.ethernet.ip.tcp.unknown
+
+### tcp_tpncp_tcp.pcap
+116	meta.ethernet.ip.tcp.unknown
+
+### ftp_txt.pcap
+1	meta.ethernet.ip.icmp
+69	meta.ethernet.ip.tcp.ftp
+4	meta.ethernet.ip.tcp.unknown
+1	meta.ethernet.ip.udp.unknown
+
+### ftp_login_fail.pcap
+2	meta.ethernet.ip.icmp
+64	meta.ethernet.ip.tcp.ftp
+9	meta.ethernet.ip.tcp.unknown
+2	meta.ethernet.ip.udp.unknown
+
+### ftp_multiple_session.pcap
+2	meta.ethernet.ip.icmp
+472	meta.ethernet.ip.tcp.ftp
+6	meta.ethernet.ip.tcp.unknown
+2	meta.ethernet.ip.udp.unknown
+
+### ip_ping_local_ip_fragmentation.pcap
+18	meta.ethernet.ip
+18	meta.ethernet.ip.icmp
+2	meta.ethernet.ip.igmp
+16	meta.ethernet.ip.udp.ssdp
+
+### ip_teardrop_overlaping_ip_fragments.pcap
+5	meta.ethernet.arp
+5	meta.ethernet.ctp
+2	meta.ethernet.ip
+2	meta.ethernet.ip.icmp
+2	meta.ethernet.ip.udp.dns
+1	meta.ethernet.llc.cdp
+
+### arp_padding.pcap
+98	meta.ethernet.arp
+
