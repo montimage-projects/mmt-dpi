@@ -10,13 +10,16 @@
  * reported pps reflects the SDK hot path. Capture this on Phase-0 `main` and
  * compare after Phase 4 (build/LTO) and Phase 5 (hot-path performance).
  *
- * A *fresh* mmt_handler is created for each iteration (per-handler init is
- * ~0.01 ms — negligible; the expensive one-time cost is init_extraction()).
- * This matters: replaying the identical packets through one persistent handler
- * drives stateful parsers and the TCP reassembly/session tables into states
- * the SDK never sees in real capture (same 5-tuple, same sequence numbers,
- * forever) and can crash. A fresh handler per pass keeps each replay a clean,
- * representative single-trace run.
+ * A *fresh* mmt_handler is created for each iteration, but only the inner
+ * packet-processing loop is timed: the per-iteration mmt_init_handler /
+ * mmt_close_handler calls are excluded from the measured window, so the
+ * reported pps reflects the SDK hot path rather than handler setup/teardown
+ * (the expensive one-time cost is init_extraction(), also outside the window).
+ * A fresh handler per pass matters: replaying the identical packets through one
+ * persistent handler drives stateful parsers and the TCP reassembly/session
+ * tables into states the SDK never sees in real capture (same 5-tuple, same
+ * sequence numbers, forever) and can crash. A fresh handler per pass keeps each
+ * replay a clean, representative single-trace run.
  *
  * Build (done by capture_baseline.sh against an installed prefix):
  *   gcc -O2 -o phase0_throughput phase0_throughput.c \
@@ -112,20 +115,23 @@ int main(int argc, char **argv) {
     }
     mmt_close_handler(mmt_handler);
 
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    /* Time only the packet-processing inner loop, accumulated across all
+     * iterations. The per-iteration handler init/close stays (a fresh handler
+     * per pass — see file header) but is kept out of the measured window. */
+    elapsed = 0.0;
     for (it = 0; it < iterations; it++) {
         mmt_handler = mmt_init_handler(datalink, 0, mmt_errbuf);
         if (mmt_handler == NULL) break;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
         for (i = 0; i < (long)n; i++) {
             packet_process(mmt_handler, &pkts[i].header, pkts[i].data);
         }
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        elapsed += (double)(t1.tv_sec - t0.tv_sec)
+                 + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
         mmt_close_handler(mmt_handler);
     }
-    clock_gettime(CLOCK_MONOTONIC, &t1);
     mmt_handler = NULL;
-
-    elapsed = (double)(t1.tv_sec - t0.tv_sec)
-            + (double)(t1.tv_nsec - t0.tv_nsec) / 1e9;
     pps = (elapsed > 0.0) ? ((double)n * (double)iterations / elapsed) : 0.0;
 
     printf("%zu\t%ld\t%.4f\t%.0f\n", n, iterations, elapsed, pps);
