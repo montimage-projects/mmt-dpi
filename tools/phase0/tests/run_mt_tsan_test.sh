@@ -7,6 +7,7 @@
 # "verified by construction" only:
 #   - #22  global registry mutexes (packet_processing.c / plugins_engine.c)
 #   - #23  per-session RADIUS parser state (proto_radius.c)
+#   - #67  handler bookkeeping map mutex (packet_processing.c)
 #
 # TSan only finds races in code built with -fsanitize=thread, and the race-prone
 # code lives INSIDE the SDK libraries. So, mirroring run_redis_resp_test.sh, we:
@@ -17,9 +18,10 @@
 #   2. Synthesize a multi-flow RADIUS pcap (pure stdlib generator).
 #   3. Compile tools/phase0/tests/mt_tsan_harness.c with -fsanitize=thread and
 #      link it against the installed TSan libraries.
-#   4. Run the harness under TSan in both replay and registry-stress modes over
-#      the RADIUS pcap and an existing TCP pcap. With -fno-sanitize-recover=all a
-#      data race aborts the process; fingerprint mismatches exit non-zero too.
+#   4. Run the harness under TSan in replay, registry-stress and handler-churn
+#      modes over the RADIUS pcap and an existing TCP pcap. With
+#      -fno-sanitize-recover=all a data race aborts the process; fingerprint
+#      mismatches exit non-zero too.
 #
 # Usage: tools/phase0/tests/run_mt_tsan_test.sh
 set -euo pipefail
@@ -92,6 +94,8 @@ run_case "replay TCP pcap" \
     replay "${TCP_PCAP}" "${NUM_THREADS}"
 run_case "registry mutex stress (#22)" \
     registry-stress "${NUM_THREADS}" 200
+run_case "concurrent handler create/destroy (#67)" \
+    handler-churn "${NUM_THREADS}" 200
 
 echo
 if [ "${rc}" -eq 0 ]; then

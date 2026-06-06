@@ -6,12 +6,14 @@
  *   - #22  global registry mutexes (configured_protocols_mutex in
  *          packet_processing.c, plugin_handlers_list_mutex in plugins_engine.c)
  *   - #23  per-session RADIUS parser state (proto_radius.c)
+ *   - #67  configured_handlers_map_mutex guarding the global handler bookkeeping
+ *          map (mmt_configured_handlers_map) in packet_processing.c
  *
  * ThreadSanitizer only detects races in code built with -fsanitize=thread, so
  * this program is meant to be compiled AND linked against a BUILD=tsan SDK
  * (see tools/phase0/tests/run_mt_tsan_test.sh). A clean TSan run is the gate.
  *
- * Two modes (selected by argv[1]):
+ * Three modes (selected by argv[1]):
  *
  *   replay <file.pcap> [num_threads]   (default mode if argv[1] is a path)
  *       Honours the documented threading contract (docs/THREADING.md): all
@@ -26,10 +28,35 @@
  *
  *       NOTE: handlers are created on the main thread (the primary
  *       init-before-workers pattern in docs/THREADING.md) rather than inside the
- *       workers. mmt_init_handler()/mmt_close_handler() mutate a global handler
- *       bookkeeping map (mmt_configured_handlers_map) without a lock, so calling
- *       them concurrently from workers is a separate, pre-existing race that is
- *       outside the #22/#23 scope this harness verifies.
+ *       workers, so this mode exercises only the lock-free hot path. The
+ *       concurrent create/destroy path itself is exercised by handler-churn
+ *       mode (#67) below.
+ *
+ *   handler-churn [num_threads] [iterations]
+ *       Spawns N threads that concurrently create AND destroy their own
+ *       mmt_handler_t in a loop (mmt_init_handler() / mmt_close_handler()),
+ *       hammering the global handler bookkeeping map (mmt_configured_handlers_map)
+ *       which is guarded by configured_handlers_map_mutex (#67). Each iteration
+ *       also registers a packet handler so the handler is fully wired before
+ *       teardown. Without the #67 lock, the concurrent insert_key_value /
+ *       delete_key_value mutations of the global map are a data race that TSan
+ *       flags here; with it, the run is clean. init_extraction()/close_extraction()
+ *       still bracket the run on the main thread (the map alloc/free stays
+ *       single-threaded per the contract).
+ *
+ *       Per the docs/THREADING.md init-before-workers contract, global protocol
+ *       *configuration* must be finalised on a single thread before concurrent
+ *       work. mmt_init_handler() enables analysis/classification on the SHARED
+ *       global protocol descriptors (enable_protocol_analysis /
+ *       enable_protocol_classification write protocol->data_analyser.status /
+ *       protocol->classify_next.status — fields read lock-free on the per-packet
+ *       hot path, so they cannot be mutex-guarded without defeating the lock-free
+ *       read design). Those writes are idempotent (always set 1) and never reset
+ *       by mmt_close_handler(), so a single main-thread warmup handler finalises
+ *       them; the concurrent phase then only reads the now-stable flags and
+ *       exercises the #67 handler-map path specifically. This descriptor-status
+ *       behaviour is a separate, pre-existing global-registry concern (#22
+ *       family), out of #67's scope.
  *
  *   registry-stress [num_threads] [iterations]
  *       Spawns N threads that concurrently HAMMER the global-registry mutation
@@ -48,6 +75,7 @@
  * Usage:
  *   mt_tsan_harness replay <file.pcap> [num_threads]
  *   mt_tsan_harness registry-stress [num_threads] [iterations]
+ *   mt_tsan_harness handler-churn [num_threads] [iterations]
  *
  * Returns 0 on success, non-zero on any fingerprint mismatch or error (and TSan,
  * built with -fno-sanitize-recover=all, aborts the process on any detected race).
@@ -465,14 +493,114 @@ static int run_registry_stress(int num_threads, int iterations) {
 }
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+/* handler-churn mode (targets #67 configured_handlers_map_mutex directly)     */
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+
+typedef struct {
+    int tid;
+    int iterations;
+    int rc;
+} churn_worker_t;
+
+/* Worker: repeatedly create and destroy its OWN handler, concurrently with the
+ * other workers. This drives the global mmt_configured_handlers_map mutations
+ * (insert_key_value in mmt_init_handler, delete_key_value in mmt_close_handler),
+ * which are serialised by configured_handlers_map_mutex (#67). Without the lock,
+ * the concurrent map mutations would be a data race that TSan flags. */
+static void *churn_worker(void *arg) {
+    churn_worker_t *w = (churn_worker_t *)arg;
+    int it;
+    /* DLT_EN10MB(1): a valid datalink so the handler initialises fully. */
+    const int datalink = 1;
+    w->rc = 0;
+    for (it = 0; it < w->iterations; it++) {
+        char           errbuf[1024];
+        mmt_handler_t *h = mmt_init_handler(datalink, 0, errbuf);
+        if (h == NULL) {
+            fprintf(stderr, "[handler-churn] mmt_init_handler failed "
+                    "(tid %d, it %d): %s\n", w->tid, it, errbuf);
+            w->rc = -1;
+            return NULL;
+        }
+        /* Fully wire the handler before tearing it down, matching real usage. */
+        register_packet_handler(h, 1, packet_handler, NULL);
+        mmt_close_handler(h);
+    }
+    return NULL;
+}
+
+static int run_handler_churn(int num_threads, int iterations) {
+    churn_worker_t workers[MAX_THREADS];
+    pthread_t      threads[MAX_THREADS];
+    int            t;
+    int            failures = 0;
+
+    if (num_threads < 2) num_threads = 2;     /* need >1 to actually contend */
+    if (num_threads > MAX_THREADS) num_threads = MAX_THREADS;
+    if (iterations < 1) iterations = 1;
+
+    init_extraction();
+    printf("[handler-churn] %d threads x %d iterations concurrently "
+           "create/destroy handlers, hammering configured_handlers_map_mutex (#67)\n",
+           num_threads, iterations);
+
+    /* Init-before-workers warmup: create+destroy one handler on the main thread
+     * so the SHARED global protocol descriptors have their analysis/classification
+     * status finalised (set to 1) before the concurrent phase. Those flags are
+     * read lock-free on the per-packet hot path and so are configured once on a
+     * single thread per docs/THREADING.md — not part of the #67 handler-map fix.
+     * After this, concurrent mmt_init_handler() only reads the stable flags, so
+     * the churn isolates the handler-map insert/delete race that #67 guards. */
+    {
+        char           errbuf[1024];
+        mmt_handler_t *warmup = mmt_init_handler(1, 0, errbuf);
+        if (warmup == NULL) {
+            fprintf(stderr, "[handler-churn] warmup mmt_init_handler failed: %s\n",
+                    errbuf);
+            close_extraction();
+            return EXIT_FAILURE;
+        }
+        mmt_close_handler(warmup);
+    }
+
+    for (t = 0; t < num_threads; t++) {
+        workers[t].tid = t;
+        workers[t].iterations = iterations;
+        workers[t].rc = 0;
+        if (pthread_create(&threads[t], NULL, churn_worker, &workers[t]) != 0) {
+            fprintf(stderr, "pthread_create failed for churn worker %d\n", t);
+            /* Join the workers already started before tearing down. */
+            for (--t; t >= 0; t--) pthread_join(threads[t], NULL);
+            close_extraction();
+            return EXIT_FAILURE;
+        }
+    }
+    for (t = 0; t < num_threads; t++) {
+        pthread_join(threads[t], NULL);
+        if (workers[t].rc != 0) failures++;
+    }
+
+    close_extraction();
+
+    if (failures == 0) {
+        printf("[handler-churn] PASS: no data race on the handler map mutex\n");
+        return EXIT_SUCCESS;
+    }
+    fprintf(stderr, "[handler-churn] FAIL: %d worker(s) failed to "
+            "create/destroy handlers\n", failures);
+    return EXIT_FAILURE;
+}
+
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 static void usage(const char *argv0) {
     fprintf(stderr,
             "Usage:\n"
             "  %s replay <file.pcap> [num_threads]\n"
             "  %s registry-stress [num_threads] [iterations]\n"
+            "  %s handler-churn [num_threads] [iterations]\n"
             "  %s <file.pcap> [num_threads]   (shorthand for replay)\n",
-            argv0, argv0, argv0);
+            argv0, argv0, argv0, argv0);
 }
 
 int main(int argc, char **argv) {
@@ -485,6 +613,12 @@ int main(int argc, char **argv) {
         int num_threads = (argc > 2) ? atoi(argv[2]) : 4;
         int iterations  = (argc > 3) ? atoi(argv[3]) : 200;
         return run_registry_stress(num_threads, iterations);
+    }
+
+    if (strcmp(argv[1], "handler-churn") == 0) {
+        int num_threads = (argc > 2) ? atoi(argv[2]) : 4;
+        int iterations  = (argc > 3) ? atoi(argv[3]) : 200;
+        return run_handler_churn(num_threads, iterations);
     }
 
     {

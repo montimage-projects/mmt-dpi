@@ -11,7 +11,15 @@ must follow to use the library safely.
    thread starts processing packets.
 2. **One handler per worker.** Each worker thread owns its own
    `mmt_handler_t` (created with `mmt_init_handler()`). A handler must not be
-   shared or used concurrently by more than one thread.
+   shared or used concurrently by more than one thread. Creating and destroying
+   handlers (`mmt_init_handler()` / `mmt_close_handler()`) *concurrently* from
+   multiple threads is supported — the global handler-bookkeeping map they mutate
+   is mutex-guarded (see below) — **provided the global protocol configuration is
+   already finalized**: the *first* `mmt_init_handler()` enables analysis /
+   classification on the shared global protocol descriptors (see the caveat under
+   *Locking*), so that first call must complete on a single thread before any
+   concurrent `mmt_init_handler()` runs. In practice this is automatic under
+   rule 1 (init-before-workers).
 3. **No registration once workers are running.** Registering or unregistering
    protocols/plugins while workers are processing packets is discouraged; if a
    defensive caller does so, the mutations are mutex-guarded (see below) but the
@@ -22,36 +30,74 @@ Following these rules makes the per-packet hot path completely lock-free.
 
 ## Global (process-wide) state
 
-Two registries are global and shared across all handlers/threads:
+Three pieces of state are global and shared across all handlers/threads:
 
 - `plugin_handlers_list` (`src/mmt_core/src/plugins_engine.c`) - linked list of
   loaded plugin handles.
 - `configured_protocols[PROTO_MAX_IDENTIFIER]` and
   `configured_protocols_names_map` (`src/mmt_core/src/packet_processing.c`) -
   the table of protocol descriptors and the name->descriptor index.
+- `mmt_configured_handlers_map` (`src/mmt_core/src/packet_processing.c`) -
+  handler-lifecycle bookkeeping: the set of live `mmt_handler_t` instances, used
+  by `iterate_through_mmt_handlers()` and force-closed at teardown. It is *not*
+  touched on the per-packet hot path.
 
-These are written only at three kinds of moment:
+These are written only at these moments:
 
 | Phase            | Functions                                                                 |
 |------------------|---------------------------------------------------------------------------|
-| Init             | `init_extraction()` (allocates `configured_protocols[]`)                   |
+| Init             | `init_extraction()` (allocates `configured_protocols[]` and `mmt_configured_handlers_map`) |
 | Plugin load      | `load_plugin()` / `load_plugins()` (append to `plugin_handlers_list`)      |
 | (Un)registration | `register_protocol()`, `unregister_protocol_by_id()`, `unregister_protocol_by_name()` |
-| Teardown         | `close_plugins()`, `free_registered_protocols()`                           |
+| Handler create/destroy | `mmt_init_handler()` (insert), `mmt_close_handler()` (delete) — mutate `mmt_configured_handlers_map` |
+| Teardown         | `close_plugins()`, `free_registered_protocols()`, `close_extraction()`     |
 
 ### Locking
 
-Each registry has a dedicated `pthread_mutex_t`:
+Each global has a dedicated `pthread_mutex_t`:
 
 - `plugin_handlers_list_mutex` guards the list mutations in `load_plugin()` and
   `close_plugins()`.
 - `configured_protocols_mutex` guards the registry mutations in
   `register_protocol()`, `unregister_protocol_by_id()` and
   `unregister_protocol_by_name()`.
+- `configured_handlers_map_mutex` guards the `mmt_configured_handlers_map`
+  mutations in `mmt_init_handler()` (insert) and `mmt_close_handler()` (delete),
+  making concurrent handler create/destroy race-free.
 
-The two locks are never held nested, so there is no lock-ordering hazard:
+The locks are never held nested, so there is no lock-ordering hazard:
 `load_plugin()` releases the plugin-list lock around `init_proto_fct()`, which is
-the call that may take `configured_protocols_mutex` via `register_protocol()`.
+the call that may take `configured_protocols_mutex` via `register_protocol()`;
+`configured_handlers_map_mutex` is held only around the single map insert/delete
+call and takes no other lock while held.
+
+The single-threaded teardown iteration in `close_extraction()` walks the map via
+`iterate_through_mmt_handlers()` (an unlocked read) and force-closes each handler
+through `mmt_close_handler()` (which takes the lock). This is safe only because
+teardown runs on a single thread per the init-before-workers contract; taking
+the lock in the iterator would self-deadlock against that nested
+`mmt_close_handler()` delete. For the same reason, `iterate_through_mmt_handlers()`
+(a public symbol) is **not** safe to call concurrently with
+`mmt_init_handler()` / `mmt_close_handler()` — it is an unlocked reader of the map.
+
+#### Caveat: shared protocol-descriptor status is not part of this lock
+
+`mmt_init_handler()` also enables analysis and classification on the **shared
+global** protocol descriptors — `enable_protocol_analysis()` /
+`enable_protocol_classification()` set `protocol->data_analyser.status` /
+`protocol->classify_next.status`. Those flags are read **lock-free on the
+per-packet hot path** (`proto_packet_analyze()`, `proto_packet_classify_next()`),
+so they deliberately cannot be mutex-guarded without defeating the lock-free read
+design; they are global configuration, expected to be set once on a single thread
+before workers run (rule 1). The writes are idempotent (always set to `1`) and are
+never reset by `mmt_close_handler()`, so once the *first* `mmt_init_handler()` has
+run, subsequent concurrent `mmt_init_handler()` calls only *read* the now-stable
+flags. Consequence: concurrent handler creation is race-free **after** that first
+single-threaded `mmt_init_handler()`; issuing the very first handler creation from
+multiple threads simultaneously (with no prior single-threaded creation) would
+race on these descriptor-status flags. This is a pre-existing global-registry
+concern (the same family as `configured_protocols_mutex`, #22), distinct from the
+handler-map lock added for #67.
 
 These mutexes are taken **only** on the (un)registration/teardown mutation
 paths. They are deliberately **not** taken on the per-packet processing hot
@@ -83,10 +129,15 @@ so they need no locking as long as the "one handler per worker" rule holds:
 
 1. On the main thread: call `init_extraction()` (which loads plugins and
    registers protocols). Wait for it to finish.
-2. Create one `mmt_handler_t` per worker thread with `mmt_init_handler()`
-   (either on the main thread before spawning, or by each worker before it
-   starts processing - both are safe because the global table is read-only by
-   then).
+2. Create one `mmt_handler_t` per worker thread with `mmt_init_handler()`.
+   Creating them on the main thread before spawning is always safe. Creating
+   them inside the workers concurrently is safe too — the handler-bookkeeping map
+   insert is guarded by `configured_handlers_map_mutex` and the global protocol
+   table is read-only by then — **as long as at least one `mmt_init_handler()`
+   has already run on a single thread** (so the shared protocol-descriptor
+   analysis/classification status flags are finalized; see the caveat under
+   *Locking*). The simplest way to guarantee that is to create the handlers on
+   the main thread.
 3. Each worker feeds packets only to *its own* handler.
 4. On shutdown: stop all workers first, free each handler with
    `mmt_close_handler()`, then call the global teardown
@@ -101,7 +152,7 @@ SDK itself is built with the `BUILD=tsan` profile (see `rules/common.mk`) and th
 harness is compiled and linked against that instrumented build — including the
 dlopen'd `libmmt_tcpip.so` protocol plugin.
 
-The harness has two modes:
+The harness has three modes:
 
 - **`replay`** — follows the documented init-before-workers contract:
   `init_extraction()`, all registration, and one *own* `mmt_handler_t` per worker
@@ -117,6 +168,14 @@ The harness has two modes:
   `unregister_protocol_by_name`), hammering `configured_protocols_mutex` directly
   (issue #22). This is intentionally *not* the normal runtime pattern; it drives
   the lock so TSan can confirm the mutex serialises the registry mutations.
+- **`handler-churn`** — spawns N threads that concurrently create and destroy
+  their own `mmt_handler_t` in a loop (`mmt_init_handler()` /
+  `mmt_close_handler()`), hammering the global handler bookkeeping map
+  (`mmt_configured_handlers_map`) guarded by `configured_handlers_map_mutex`
+  (issue #67). Without that lock the concurrent `insert_key_value` /
+  `delete_key_value` map mutations are a data race that TSan flags; with it the
+  run is clean. `init_extraction()`/`close_extraction()` still bracket the run on
+  the main thread, so the map alloc/free stays single-threaded.
 
 Run it locally:
 
