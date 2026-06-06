@@ -91,3 +91,40 @@ so they need no locking as long as the "one handler per worker" rule holds:
 4. On shutdown: stop all workers first, free each handler with
    `mmt_close_handler()`, then call the global teardown
    (`close_plugins()` / `free_registered_protocols()`) on a single thread.
+
+## Verification (ThreadSanitizer harness)
+
+The contract above is mechanically verified by a multi-threaded harness
+(`tools/phase0/tests/mt_tsan_harness.c`) built and run under ThreadSanitizer.
+Because TSan only detects races in code compiled with `-fsanitize=thread`, the
+SDK itself is built with the `BUILD=tsan` profile (see `rules/common.mk`) and the
+harness is compiled and linked against that instrumented build — including the
+dlopen'd `libmmt_tcpip.so` protocol plugin.
+
+The harness has two modes:
+
+- **`replay`** — follows the documented init-before-workers contract:
+  `init_extraction()`, all registration, and one *own* `mmt_handler_t` per worker
+  are all created on the main thread; then N worker threads run concurrently,
+  each replaying the *same* read-only packet array through its own handler (the
+  lock-free per-packet hot path). Each worker builds an order-independent
+  classification fingerprint; the harness asserts every worker's fingerprint
+  equals a single-thread baseline. Replaying a synthetic multi-flow RADIUS pcap
+  exercises the per-session RADIUS parser state (issue #23) concurrently across
+  threads.
+- **`registry-stress`** — spawns N threads that concurrently drive the global
+  registry mutation API (`unregister_protocol_by_id` /
+  `unregister_protocol_by_name`), hammering `configured_protocols_mutex` directly
+  (issue #22). This is intentionally *not* the normal runtime pattern; it drives
+  the lock so TSan can confirm the mutex serialises the registry mutations.
+
+Run it locally:
+
+```sh
+bash tools/phase0/tests/run_mt_tsan_test.sh
+```
+
+The script builds + installs the `BUILD=tsan` SDK into a temporary prefix,
+synthesizes the RADIUS pcap, compiles the harness, and runs it under TSan
+(`-fno-sanitize-recover=all`, so any detected race aborts). CI runs the same
+script in the `tsan-mt-harness` job of `.github/workflows/phase0-baseline.yml`.

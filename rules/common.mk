@@ -126,6 +126,36 @@ CFLAGS   += $(SANITIZE_FLAGS)
 CXXFLAGS += $(SANITIZE_FLAGS)
 endif
 
+# BUILD=tsan to compile with ThreadSanitizer.
+#   This is the verification vehicle for the Phase 6 thread-safety hardening
+#   work (issue #65, gating issues #22 registry mutexes and #23 per-session
+#   RADIUS state). TSan only detects data races in code compiled with
+#   -fsanitize=thread, and the race-prone code lives INSIDE the SDK libraries
+#   (configured_protocols_mutex in packet_processing.c, plugin_handlers_list_mutex
+#   in plugins_engine.c, per-session RADIUS state in proto_radius.c). So the SDK
+#   itself must be built with this profile and the multi-threaded harness
+#   (tools/phase0/tests/mt_tsan_harness.c) compiled + linked against it.
+#
+#   Usage:
+#     make BUILD=tsan MMT_BASE=/tmp/mmt-tsan
+#     make BUILD=tsan MMT_BASE=/tmp/mmt-tsan install
+#
+#   See tools/phase0/tests/run_mt_tsan_test.sh for the full build-install-run
+#   pipeline and docs/THREADING.md for what the harness verifies.
+#
+#   As with the asan profile, the flags go on both CFLAGS and CXXFLAGS so they
+#   reach the shared-library link lines (the .so recipes link with $(CXXFLAGS)).
+#   The TSan runtime is linked directly into the instrumented harness; the .so
+#   objects leave the runtime symbols undefined and resolve them at load time.
+ifeq ($(BUILD),tsan)
+SANITIZE_FLAGS := -g -O1 -fno-omit-frame-pointer -fno-common \
+                  -fsanitize=thread \
+                  -fno-sanitize-recover=all \
+                  -DMMT_BUILD_TSAN=1
+CFLAGS   += $(SANITIZE_FLAGS)
+CXXFLAGS += $(SANITIZE_FLAGS)
+endif
+
 # SHOWLOG = 1 to show all the log from MMT_LOG() ...
 ifdef SHOWLOG
 CFLAGS   += -DDEBUG -DHTTP_PARSER_STRICT=1
