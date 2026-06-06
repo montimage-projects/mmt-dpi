@@ -58,6 +58,11 @@ endif
 ifeq ($(BUILD),asan)
 MMT_RELEASE_BUILD :=
 endif
+# BUILD=tsan (issue #65): like asan, disable release hardening/LTO/FORTIFY so the
+# ThreadSanitizer runtime and its instrumentation are not perturbed.
+ifeq ($(BUILD),tsan)
+MMT_RELEASE_BUILD :=
+endif
 
 ifeq ($(MMT_RELEASE_BUILD),1)
 ifneq (,$(filter gcc clang,$(CC)))
@@ -125,8 +130,10 @@ $(SDKLIB)/$(LIBCORE).so.$(VERSION):   LDLIBS += -ldl -lpthread
 # them at load time when the MMT framework dlopen()s them into one address
 # space, so they cannot satisfy --no-undefined. BUILD=asan also leaves the
 # ASan/UBSan runtime symbols undefined by design (resolved via LD_PRELOAD, see
-# common.mk), so the guard is skipped for the sanitizer profile.
-ifneq ($(BUILD),asan)
+# common.mk), so the guard is skipped for the sanitizer profile. BUILD=tsan does
+# the same with the ThreadSanitizer runtime symbols (issue #65), so it is
+# skipped too.
+ifeq (,$(filter asan tsan,$(BUILD)))
 $(SDKLIB)/$(LIBCORE).so.$(VERSION):    LDFLAGS += -Wl,-z,defs
 endif
 ifdef ENABLESEC
