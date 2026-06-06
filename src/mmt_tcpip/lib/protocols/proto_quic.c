@@ -26,6 +26,23 @@
 
 #define SEQ_CONV(ARR) (ARR[0] | ARR[1] | ARR[2] | ARR[3] | ARR[4] | ARR[5] << 8)
 
+/*
+ * Minimum number of payload bytes the QUIC public-header classifier may touch.
+ *
+ * The detection path reads, in the worst case:
+ *   - payload[0] and payload[1]                 (public flags + first byte)
+ *   - sequence():  connect_id() returns up to 9 (CID_LEN_8 + 1), then the SEQ
+ *                  loop reads payload[cid_offs + i] for i in 0..seq_lens-1 with
+ *                  seq_lens up to 6 -> highest index 9 + 5 = 14 (15 bytes).
+ *   - version path: connect_id() up to 9, then payload[ver_offs..ver_offs+3]
+ *                   -> highest index 9 + 3 = 12 (13 bytes).
+ *
+ * 15 bytes covers every access. The UDP-with-payload selection mask only
+ * guarantees a single payload byte, so without this gate a 1..14 byte UDP
+ * datagram on port 80/443 over-reads past the captured payload (issue #6, H3).
+ */
+#define QUIC_MIN_PAYLOAD_LEN 15
+
 
 #ifdef PROTO_QUIC
 
@@ -57,13 +74,17 @@ static int connect_id(const unsigned char pflags)
         return cid_len + 1;
 }
 
-static int sequence(const unsigned char *payload)
+static int sequence(const unsigned char *payload, int payload_len)
 {
     unsigned char conv[6] = {0};
     u_int seq_value = -1;
     int seq_lens;
     int cid_offs;
     int i;
+
+        // Need at least the public-flags byte to derive SEQ/CID lengths.
+        if (payload_len < 1)
+            return -1;
 
         // Search SEQ bytes length.
         switch (payload[0] & QUIC_SEQ_MASK)
@@ -78,7 +99,10 @@ static int sequence(const unsigned char *payload)
         // Retrieve SEQ offset.
         cid_offs = connect_id(payload[0]);
 
-        if (cid_offs >= 0 && seq_lens > 0)
+        // Re-check the remaining length before walking the SEQ bytes: the loop
+        // reads payload[cid_offs .. cid_offs + seq_lens - 1], so that highest
+        // index must stay inside the captured payload (issue #6, H3).
+        if (cid_offs >= 0 && seq_lens > 0 && cid_offs + seq_lens <= payload_len)
         {
             for (i = 0; i < seq_lens; i++)
                 conv[i] = payload[cid_offs + i];
@@ -105,10 +129,19 @@ int mmt_check_quic(ipacket_t * ipacket, unsigned index)
 			    {
 			     MMT_LOG(PROTO_QUIC,MMT_LOG_DEBUG, "exclude quic.\n");
 			     MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_QUIC);
+				// Minimum-length gate: the public-header reads below touch up to
+				// QUIC_MIN_PAYLOAD_LEN bytes, but the selection mask only guarantees
+				// one payload byte. Bail out on short datagrams before any multi-byte
+				// read so a truncated/crafted packet cannot over-read (issue #6, H3).
+			     if (packet->payload_packet_len < QUIC_MIN_PAYLOAD_LEN)
+			     {
+			       MMT_LOG(PROTO_QUIC,MMT_LOG_DEBUG, "exclude quic.\n");
+			       return 0;
+			     }
 				// Settings without version. First check if PUBLIC FLAGS & SEQ bytes are 0x0. SEQ must be 1 at least.
 			     if ((packet->payload[0] == 0x00 && packet->payload[1] != 0x00) || ((packet->payload[0] & QUIC_NO_V_RES_RSV) == 0))
 			     {
-			       if (sequence(packet->payload) < 1)
+			       if (sequence(packet->payload, packet->payload_packet_len) < 1)
 			       {
 			         
 			         MMT_LOG(PROTO_QUIC,MMT_LOG_DEBUG, "exclude quic.\n");
@@ -126,8 +159,11 @@ int mmt_check_quic(ipacket_t * ipacket, unsigned index)
 			     {
 				  // Skip CID length.
 			       ver_offs = connect_id(packet->payload[0]);
-			       
-			       if (ver_offs >= 0)
+
+			       // Re-check remaining length: the version match below reads
+			       // payload[ver_offs .. ver_offs + 3], so those 4 bytes must stay
+			       // inside the captured payload (issue #6, H3).
+			       if (ver_offs >= 0 && ver_offs + 4 <= packet->payload_packet_len)
 			       {
 			         unsigned char vers[] = {packet->payload[ver_offs], packet->payload[ver_offs + 1],
 			          packet->payload[ver_offs + 2], packet->payload[ver_offs + 3]};
