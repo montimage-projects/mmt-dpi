@@ -5,15 +5,16 @@
 
 /**
  * Returns the offset of the first white space character given a printable text string.
- * It should be used only on strings we know are safe for this.
+ * The scan is bounded by max so it can be used safely on non NUL-terminated
+ * payloads: it never reads past str[max - 1].
  * @param str the string we are searching in
- * @return the offset of the first occurence of a white space
+ * @param max the maximum number of octets to inspect (e.g. the remaining payload length)
+ * @return the offset of the first occurence of a white space, or max if none is found
  */
-int get_next_white_space_offset_no_limit(const char * str) {
+int get_next_white_space_offset_no_limit(const char * str, int max) {
     int offset = 0;
-    while (isgraph(*str)) {
+    while (offset < max && isgraph((unsigned char) str[offset])) {
         offset++;
-        str++;
     }
 
     return offset;
@@ -21,15 +22,16 @@ int get_next_white_space_offset_no_limit(const char * str) {
 
 /**
  * Returns the offset of the first non white space character given a printable text string.
- * It should be used only on strings we know are safe for this.
+ * The scan is bounded by max so it can be used safely on non NUL-terminated
+ * payloads: it never reads past str[max - 1].
  * @param str the string we are searching in
- * @return the offset of the first occurence of a non white space
+ * @param max the maximum number of octets to inspect (e.g. the remaining payload length)
+ * @return the offset of the first occurence of a non white space, or max if none is found
  */
-int get_next_non_white_space_offset_no_limit(const char * str) {
+int get_next_non_white_space_offset_no_limit(const char * str, int max) {
     int offset = 0;
-    while (isspace(*str)) {
+    while (offset < max && isspace((unsigned char) str[offset])) {
         offset++;
-        str++;
     }
 
     return offset;
@@ -182,7 +184,7 @@ int get_field_len(const char * str, int line_len) {
     }
 
     //colon--;
-    while (isspace(*colon)) {
+    while (colon > str && isspace((unsigned char) *colon)) {
         colon--;
     }
     return (colon - str);
