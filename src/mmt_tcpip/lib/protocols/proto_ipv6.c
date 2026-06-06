@@ -25,6 +25,29 @@ bool ipv6_session_comp(void * key1, void * key2) {
     return comp_val < 0;
 }
 
+/**
+ * Hash of an IPv6 session key, consistent with ipv6_session_comp: it mixes
+ * exactly the fields that comparison distinguishes — next_proto, both ports and
+ * the 16 bytes of each interned IPv6 address — so that any two keys that compare
+ * equal hash to the same value. FNV-1a over the packed 5-tuple.
+ */
+uint64_t ipv6_session_hash(void * key) {
+    mmt_session_key_t * s = (mmt_session_key_t *) key;
+    const unsigned char * lip = (const unsigned char *) s->lower_ip;
+    const unsigned char * hip = (const unsigned char *) s->higher_ip;
+    uint64_t h = 1469598103934665603ULL; // FNV-1a 64-bit offset basis
+    #define MMT_FNV1A(b) do { h ^= (uint8_t)(b); h *= 1099511628211ULL; } while (0)
+    MMT_FNV1A(s->next_proto);
+    MMT_FNV1A(s->lower_ip_port & 0xFF);
+    MMT_FNV1A((s->lower_ip_port >> 8) & 0xFF);
+    MMT_FNV1A(s->higher_ip_port & 0xFF);
+    MMT_FNV1A((s->higher_ip_port >> 8) & 0xFF);
+    for (int i = 0; i < IPv6_ALEN; i++) MMT_FNV1A(lip[i]);
+    for (int i = 0; i < IPv6_ALEN; i++) MMT_FNV1A(hip[i]);
+    #undef MMT_FNV1A
+    return h;
+}
+
 static inline
 int is_extention_header(uint8_t next_header) {
     switch (next_header) {
@@ -1495,6 +1518,7 @@ int init_proto_ipv6_struct() {
         register_pre_post_classification_functions(protocol_struct, ipv6_pre_classification_function, ipv6_post_classification_function);
 
         register_sessionizer_function(protocol_struct, ip6_sessionizer, ip6_session_cleanup_on_timeout, ipv6_session_comp);
+        register_session_hash_function(protocol_struct, ipv6_session_hash);
 
         register_proto_context_init_cleanup_function(protocol_struct, setup_ipv6_context, ipv6_context_cleanup, NULL);
 

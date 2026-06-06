@@ -93,6 +93,15 @@ typedef uint64_t mmt_key_t;
 typedef bool (*generic_comparison_fct) (void * key_1, void * key_2); //public function
 
 /**
+ * Signature of a function that computes a hash value for a key given by its address.
+ * Used by the per-flow session store (an open-hashing table) to bucket sessions by
+ * a packed 5-tuple. Keys that compare equal under the matching generic_comparison_fct
+ * MUST produce the same hash value, otherwise lookups will miss. The returned value
+ * may span the full 64-bit range; the table reduces it modulo the bucket count.
+ */
+typedef uint64_t (*generic_hash_fct) (void * key); //public function
+
+/**
  * Signature of the function comparing two unsigned int keys. An implementing function must return true
  * if the value of key1 is strictly lower than the value of key2; false is returned otherwise. (strict weak ordering operation).
  */
