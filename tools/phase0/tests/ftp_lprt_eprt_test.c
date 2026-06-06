@@ -19,6 +19,11 @@
  *       str_get_indexes() without checking the delimiter count, reading past
  *       the returned array on a truncated "EPRT |2" command.
  *
+ *   #35 ftp_get_data_client_port_from_EPRT() dereferenced indexes[3] (and
+ *       indexes[2]) from str_get_indexes() without checking for NULL or a
+ *       sufficient delimiter count — a NULL-deref / out-of-bounds read on a
+ *       malformed or truncated EPRT command (follow-up to #8).
+ *
  * The library is built with BUILD=asan and this file is compiled with
  * -fsanitize=address,undefined -fno-sanitize-recover=all (see the runner
  * run_ftp_lprt_eprt_test.sh), so any out-of-bounds write/read aborts the
@@ -33,6 +38,7 @@
 /* Parsers under test — exported from proto_ftp.c (no public header). */
 extern char *ftp_get_data_client_addr_v6_from_LPRT(char *payload);
 extern char *ftp_get_data_client_addr_v6_from_EPRT(char *payload);
+extern unsigned short ftp_get_data_client_port_from_EPRT(char *payload);
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -163,12 +169,54 @@ static void test_eprt(void)
     }
 }
 
+static void test_eprt_port(void)
+{
+    printf("[#35] EPRT port delimiter validation + well-formed decode\n");
+
+    /* Well-formed EPRT IPv4: the port sits between the 3rd and 4th "|".
+     * From the proto_ftp.c docstring example. Must still decode to 6275. */
+    {
+        char *in = dup_payload("EPRT |1|132.235.1.2|6275|");
+        unsigned short port = ftp_get_data_client_port_from_EPRT(in);
+        CHECK(port == 6275, "well-formed EPRT extracts port 6275");
+        free(in);
+    }
+
+    /* Truncated EPRT with a single "|": pre-fix read indexes[3]/indexes[2]
+     * past the 2-element array returned by str_get_indexes(). Must return 0. */
+    {
+        char *in = dup_payload("EPRT |2");
+        unsigned short port = ftp_get_data_client_port_from_EPRT(in);
+        CHECK(port == 0, "truncated EPRT (one delimiter) returns 0 safely");
+        free(in);
+    }
+
+    /* Two delimiters only: indexes[2] == -1, so the indexes[3] read was OOB
+     * pre-fix. Must be rejected by the delimiter-count guard. */
+    {
+        char *in = dup_payload("EPRT |1|132.235.1.2");
+        unsigned short port = ftp_get_data_client_port_from_EPRT(in);
+        CHECK(port == 0, "EPRT missing the port delimiter returns 0 safely");
+        free(in);
+    }
+
+    /* No delimiters at all: str_get_indexes returns NULL, so indexes[3] was a
+     * NULL-deref pre-fix. */
+    {
+        char *in = dup_payload("EPRT 2");
+        unsigned short port = ftp_get_data_client_port_from_EPRT(in);
+        CHECK(port == 0, "EPRT with no delimiter returns 0 safely");
+        free(in);
+    }
+}
+
 int main(void)
 {
-    printf("== ftp_lprt_eprt_test (issue #8, K4) ==\n");
+    printf("== ftp_lprt_eprt_test (issue #8, K4; issue #35) ==\n");
     test_lprt_wellformed();
     test_lprt_overflow_inputs();
     test_eprt();
+    test_eprt_port();
 
     printf("\n%d/%d checks passed\n", g_checks - g_failures, g_checks);
     if (g_failures) {
