@@ -5,7 +5,18 @@
 #include "mmt_common_internal_include.h"
 
 bool ipv4_addr_comp(void * l_ip, void * r_ip) {
-    return (*((uint32_t *) l_ip) < *((uint32_t *) r_ip));
+    /*
+     * Issue #57: one of these pointers can be &iph->saddr/&iph->daddr, which
+     * points into the byte-aligned packet buffer (build_ipv4_session_key stores
+     * the raw header pointers before they are resolved to aligned id structs).
+     * Dereferencing a uint32_t at a misaligned address is UB and aborts under
+     * -fsanitize=alignment, so read the 4 octets with memcpy (a single load on
+     * targets with native unaligned access — no hot-path cost).
+     */
+    uint32_t l, r;
+    memcpy(&l, l_ip, sizeof(l));
+    memcpy(&r, r_ip, sizeof(r));
+    return (l < r);
 }
 
 bool ipv6_addr_comp(void * l_ip, void * r_ip) {
@@ -129,7 +140,9 @@ static inline mmt_ip4_id_t * _get_ip4_id(internal_ip_proto_context_t * tcpip_con
         memset(retval, 0, sizeof (mmt_ip4_id_t));
 
         retval->count = 0;
-        retval->ip = *ip;
+        /* Issue #57: ip may point into the byte-aligned packet buffer
+         * (&iph->saddr); copy the 4 octets instead of an aligned load. */
+        memcpy(&retval->ip, ip, sizeof(retval->ip));
         if( _insertID4(tcpip_context, retval) == 0) {
             //The insertion of the IP failed. This is really bad.
             //We should free this IP, return NULL, otherwise the workflow will be corrupted

@@ -54,6 +54,28 @@ extern "C" {
 #include <netinet/udp.h>
 #endif
 
+/*
+ * Issue #57 — alignment-safe views over the (byte-aligned) packet buffer.
+ *
+ * Network header pointers are routinely formed by casting "&data[offset]" of a
+ * char-aligned capture buffer to a multi-byte header struct. struct
+ * iphdr/tcphdr/udphdr require 2-/4-byte alignment for their fields, so when the
+ * offset is odd (or merely not 4-aligned) dereferencing a field through such a
+ * pointer is a misaligned access: undefined behaviour that aborts under
+ * -fsanitize=alignment (the BUILD=asan profile, no-recover) and is non-portable
+ * in release builds.
+ *
+ * These typedefs alias the same structs with the alignment requirement lowered
+ * to 1, so the compiler emits alignment-safe loads. On architectures with
+ * native unaligned access (x86_64, aarch64) each field access still lowers to a
+ * single load instruction — there is no hot-path cost. Only the cast target /
+ * pointer-variable type changes; field-access expressions and classification
+ * behaviour are unchanged.
+ */
+typedef struct iphdr  __attribute__((aligned(1))) mmt_una_iphdr_t;
+typedef struct tcphdr __attribute__((aligned(1))) mmt_una_tcphdr_t;
+typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
+
 /* generic timestamp counter type */
 #define MMT_INTERNAL_TIMESTAMP_TYPE		uint32_t
 
@@ -311,10 +333,29 @@ extern "C" {
 #endif
 
     /* the get_uXX will return raw network packet bytes !! */
+/*
+ * Issue #57: these accessors read multi-byte integers straight out of the
+ * byte-aligned packet payload. The historical "*(uint16_t*)(p+o)" form is a
+ * misaligned load whenever (p+o) is not naturally aligned — undefined
+ * behaviour that aborts under -fsanitize=alignment (BUILD=asan, no-recover).
+ * Read the bytes with memcpy instead: the compiler lowers a fixed-size memcpy
+ * to a single (unaligned) load on targets with native unaligned access
+ * (x86_64, aarch64), so there is no hot-path cost, and the returned value is
+ * identical. get_u8 is a single byte and is already alignment-safe.
+ */
+static inline uint16_t mmt_una_read_u16(const void *p, unsigned long o) {
+    uint16_t v; memcpy(&v, (const uint8_t *)p + o, sizeof(v)); return v;
+}
+static inline uint32_t mmt_una_read_u32(const void *p, unsigned long o) {
+    uint32_t v; memcpy(&v, (const uint8_t *)p + o, sizeof(v)); return v;
+}
+static inline uint64_t mmt_una_read_u64(const void *p, unsigned long o) {
+    uint64_t v; memcpy(&v, (const uint8_t *)p + o, sizeof(v)); return v;
+}
 #define get_u8(X,O)  (*(uint8_t *)(((uint8_t *)X) + O))
-#define get_u16(X,O)  (*(uint16_t *)(((uint8_t *)X) + O))
-#define get_u32(X,O)  (*(uint32_t *)(((uint8_t *)X) + O))
-#define get_u64(X,O)  (*(uint64_t *)(((uint8_t *)X) + O))
+#define get_u16(X,O)  mmt_una_read_u16((X), (O))
+#define get_u32(X,O)  mmt_una_read_u32((X), (O))
+#define get_u64(X,O)  mmt_una_read_u64((X), (O))
 
     /* new definitions to get little endian from network bytes */
 #define get_ul8(X,O) get_u8(X,O)

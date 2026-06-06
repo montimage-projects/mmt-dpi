@@ -107,7 +107,10 @@ void ip_dgram_cleanup( ip_dgram_t *dg )
  *      0 - No problem
  */
 
-int ip_dgram_update( ip_dgram_t *dg, const struct iphdr *ip, unsigned len ,unsigned caplen)
+/* Issue #57: ip is an alignment-safe view (mmt_una_iphdr_t) over the byte-
+ * aligned packet buffer, so the tot_len/frag_off/id field reads below are
+ * alignment-safe (single loads on targets with native unaligned access). */
+int ip_dgram_update( ip_dgram_t *dg, const mmt_una_iphdr_t *ip, unsigned len ,unsigned caplen)
 {
    unsigned ip_len =  ntohs( ip->tot_len  );
    unsigned ip_off = (ntohs( ip->frag_off ) & IP_OFFSET) << 3;

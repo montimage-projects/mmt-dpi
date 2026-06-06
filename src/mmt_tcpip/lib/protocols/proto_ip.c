@@ -1,5 +1,6 @@
 
 #include <string.h> // memcpy()
+#include <stddef.h> // offsetof()
 
 #include "mmt_core.h"
 #include "plugin_defs.h"
@@ -11,6 +12,12 @@
 #include "proto_ip_dgram.h"
 #define _STDC_FORMAT_MARCROS
 #include <inttypes.h>
+
+/*
+ * Issue #57: the mmt_una_iphdr_t / mmt_una_tcphdr_t / mmt_una_udphdr_t
+ * alignment-safe header views used below are defined centrally in
+ * mmt_tcpip_internal_defs_macros.h (included via mmt_common_internal_include.h).
+ */
 
 /**
  * IP protocol references:
@@ -119,7 +126,7 @@ int ip_version_extraction(const ipacket_t * packet, unsigned proto_index,
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
 
-    struct iphdr * ip_hdr = (struct iphdr *) (& packet->data[proto_offset]);
+    mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) (& packet->data[proto_offset]);
     *((unsigned char *) extracted_data->data) = ip_hdr->version;
     return 1;
 }
@@ -132,7 +139,7 @@ int ip_ihl_extraction(const ipacket_t * packet, unsigned proto_index,
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
 
-    struct iphdr * ip_hdr = (struct iphdr *) (& packet->data[proto_offset]);
+    mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) (& packet->data[proto_offset]);
     *((unsigned char *) extracted_data->data) = ip_hdr->ihl * 4;
     return 1;
 }
@@ -249,7 +256,7 @@ int ip_options_extraction(const ipacket_t * packet, unsigned proto_index, attrib
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
 
-    struct iphdr * ip_hdr = (struct iphdr *) (& packet->data[proto_offset]);
+    mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) (& packet->data[proto_offset]);
     int ihl = ip_hdr->ihl;
     extracted_data->data = NULL;
     if (ihl > 5) {
@@ -267,7 +274,7 @@ int ip_opts_type_extraction(const ipacket_t * packet, unsigned proto_index, attr
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
 
-    struct iphdr * ip_hdr = (struct iphdr *) (& packet->data[proto_offset]);
+    mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) (& packet->data[proto_offset]);
     int ihl = ip_hdr->ihl;
     if (ihl > 5) {
         general_byte_to_byte_extraction(packet, proto_index, extracted_data);
@@ -283,7 +290,7 @@ int ip_padding_check_extraction(const ipacket_t * packet, unsigned proto_index, 
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
 
-    struct iphdr * ip_hdr = (struct iphdr *) (& packet->data[proto_offset]);
+    mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) (& packet->data[proto_offset]);
     int ihl = ip_hdr->ihl;
     if (ihl > 5) {
         int total_opt_len = (ihl - 5) * 4;
@@ -359,7 +366,7 @@ static int _extract_l4s_metrics(const ipacket_t * packet, unsigned proto_index, 
 	//int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
 	//int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
 
-	struct iphdr * ip_hdr = (struct iphdr *) (& packet->data[proto_offset]);
+	mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) (& packet->data[proto_offset]);
 	int ihl = ip_hdr->ihl;
 
 	if (ihl < 5)
@@ -428,7 +435,7 @@ int _extract_jitter(const ipacket_t * packet, unsigned proto_index, attribute_t 
 uint8_t build_ipv4_session_key(u_char * ip_packet, unsigned ip_packet_len, mmt_session_key_t * ipv4_session) {
     uint8_t retval;
     uint16_t sport = 0, dport = 0;
-    struct iphdr * iph = (struct iphdr *) ip_packet;
+    mmt_una_iphdr_t * iph = (mmt_una_iphdr_t *) ip_packet;
     ipv4_session->next_proto = iph->protocol;
     /* tcp / udp detection — only read the L4 source/dest ports when the
      * captured data actually holds the 4 port octets that follow the IP
@@ -438,13 +445,13 @@ uint8_t build_ipv4_session_key(u_char * ip_packet, unsigned ip_packet_len, mmt_s
     unsigned l4_off = (unsigned) iph->ihl * 4;
     if (ipv4_session->next_proto == 6) {
         if (l4_off + 4u <= ip_packet_len) {
-            const struct tcphdr *tcph = (struct tcphdr *) & ip_packet[l4_off];
+            const mmt_una_tcphdr_t *tcph = (mmt_una_tcphdr_t *) & ip_packet[l4_off];
             sport = ntohs(tcph->source);
             dport = ntohs(tcph->dest);
         }
     } else if (ipv4_session->next_proto == 17) {
         if (l4_off + 4u <= ip_packet_len) {
-            const struct udphdr *udph = (struct udphdr *) & ip_packet[l4_off];
+            const mmt_una_udphdr_t *udph = (mmt_una_udphdr_t *) & ip_packet[l4_off];
             sport = ntohs(udph->source);
             dport = ntohs(udph->dest);
         }
@@ -505,7 +512,7 @@ uint8_t build_ipv4_session_key(u_char * ip_packet, unsigned ip_packet_len, mmt_s
 int ip_classify_next_proto(ipacket_t * ipacket, unsigned index) {
     /* If we get here, then the packet is not fragmented. */
     int offset = get_packet_offset_at_index(ipacket, index);
-    const struct iphdr * ip_hdr = (struct iphdr *) & ipacket->data[offset];
+    const mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) & ipacket->data[offset];
 
     classified_proto_t retval;
     retval.offset = -1;
@@ -1333,8 +1340,21 @@ int ip_session_cleanup_on_timeout(void * protocol_context, mmt_session_t * timed
  * collide on the same reassembly entry). */
 mmt_key_t ip_fragment_key(const struct iphdr *ip)
 {
-    mmt_key_t key = ((mmt_key_t) ip->saddr << 32) | (mmt_key_t) ip->daddr;
-    key ^= (mmt_key_t) ip->id;
+    /*
+     * Issue #57: ip may point into the byte-aligned packet buffer, so read the
+     * 32-/16-bit header fields with memcpy rather than dereferencing the struct
+     * directly (a misaligned multi-byte load is UB and aborts under
+     * -fsanitize=alignment). memcpy of a fixed small size lowers to a single
+     * load on architectures with native unaligned access — no hot-path cost.
+     */
+    const uint8_t *raw = (const uint8_t *) ip;
+    uint32_t saddr, daddr;
+    uint16_t id;
+    memcpy(&saddr, raw + offsetof(struct iphdr, saddr), sizeof(saddr));
+    memcpy(&daddr, raw + offsetof(struct iphdr, daddr), sizeof(daddr));
+    memcpy(&id,    raw + offsetof(struct iphdr, id),    sizeof(id));
+    mmt_key_t key = ((mmt_key_t) saddr << 32) | (mmt_key_t) daddr;
+    key ^= (mmt_key_t) id;
     return key;
 }
 
@@ -1353,9 +1373,9 @@ static inline int ip_process_fragment( ipacket_t *ipacket, unsigned index )
         return 0;
     }
 
-    const struct iphdr *ip = (struct iphdr *)(ipacket->data + off);
+    const mmt_una_iphdr_t *ip = (mmt_una_iphdr_t *)(ipacket->data + off);
 
-    key = ip_fragment_key( ip );
+    key = ip_fragment_key( (const struct iphdr *) ip );
     if ( !hashmap_get( map, key, (void**)&dg )) {
         dg = ip_dgram_alloc();
         hashmap_insert_kv( map, key, dg );
@@ -1400,7 +1420,7 @@ static inline int ip_process_fragment( ipacket_t *ipacket, unsigned index )
     return 1;
 }
 
-static inline int mmt_iph_is_fragmented(const struct iphdr *iph)
+static inline int mmt_iph_is_fragmented(const mmt_una_iphdr_t *iph)
 {
     //#ifdef REQUIRE_FULL_PACKETS
     unsigned ip_off = (ntohs( iph->frag_off ) & IP_OFFSET) << 3;
@@ -1414,7 +1434,7 @@ static inline int mmt_iph_is_fragmented(const struct iphdr *iph)
 void * ip_sessionizer(void * protocol_context, ipacket_t * ipacket, unsigned index, int * is_new_session)
 {
     int offset = get_packet_offset_at_index(ipacket, index);
-    const struct iphdr * ip_hdr = (struct iphdr *) & ipacket->data[offset];
+    const mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) & ipacket->data[offset];
     mmt_session_key_t ipv4_session_key;
     // ipv4_session_key.lower_ip = NULL;
     // ipv4_session_key.higher_ip = NULL;
@@ -1441,7 +1461,7 @@ void * ip_sessionizer(void * protocol_context, ipacket_t * ipacket, unsigned ind
     }
     // re-point to the reassempled IP header if reassembly took place
     // points to the same pointer if no fragmentation
-    ip_hdr = (struct iphdr *) & ipacket->data[offset];
+    ip_hdr = (mmt_una_iphdr_t *) & ipacket->data[offset];
 
     // Get the session of this packet and set it to the packet's session
     packet_direction = build_ipv4_session_key((u_char *) ip_hdr,
@@ -1626,7 +1646,7 @@ int ip_post_classification_function(ipacket_t * ipacket, unsigned index) {
     mmt_tcpip_internal_packet_t * packet = ipacket->internal_packet;
 
     int ip_offset = get_packet_offset_at_index(ipacket, index);
-    const struct iphdr * ip_hdr = (struct iphdr *) & ipacket->data[ip_offset];
+    const mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) & ipacket->data[ip_offset];
 
     uint32_t time = ((uint64_t) ipacket->p_hdr->ts.tv_sec) * MMT_MICRO_IN_SEC + ipacket->p_hdr->ts.tv_usec;
     packet->tick_timestamp = time;
