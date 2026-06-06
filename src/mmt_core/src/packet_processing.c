@@ -1412,8 +1412,10 @@ int init_extraction()
     for (; i < PROTO_MAX_IDENTIFIER; i++) {
         configured_protocols[i] = (protocol_t *) mmt_malloc(sizeof (protocol_t));
         if (!configured_protocols[i]) {
-            fprintf(stderr, "Error during initialization, Exiting\n");
-            exit(0);
+            // B5: allocation failed - report an error to the caller instead of
+            // killing the host process with exit().
+            fprintf(stderr, "Error during initialization (out of memory)\n");
+            return 0;
         }
         memset(configured_protocols[i], '\0', sizeof (protocol_t));
         configured_protocols[i]->is_registered = PROTO_NOT_REGISTERED;
@@ -1423,12 +1425,19 @@ int init_extraction()
 
     /////////// INITILIZING PROTO_META & PROTO_UNKNOWN //////////////////
     if (!init_proto_meta_struct() || !init_proto_unknown_struct()) {
-        fprintf(stderr, "Error initializing meta and unkown protocols\n Exiting\n");
-        exit(0);
+        // B5: report initialization failure instead of exit()ing the host.
+        fprintf(stderr, "Error initializing meta and unknown protocols\n");
+        return 0;
     }
     /////////////////////////////////////////////
 
-    package_dependent_init();
+    // B5: propagate a package_dependent_init() / plugin init failure to the
+    // caller (init_extraction() returns int; callers such as
+    // simple_traffic_reporting already check it) rather than continuing blindly.
+    if (!package_dependent_init()) {
+        fprintf(stderr, "Error during package-dependent initialization\n");
+        return 0;
+    }
 
     init_plugins();
     mmt_configured_handlers_map = init_map_space(pointer_comp_fn_pt);

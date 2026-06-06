@@ -81,6 +81,16 @@ MMT_HARDEN_CFLAGS  += -flto=auto
 MMT_HARDEN_LDFLAGS += -flto=auto
 endif
 
+# TUNE=native (opt-in, NEVER the default - B5). When explicitly requested on the
+# command line (make TUNE=native ...) the build targets the CPU of the build
+# host with -march=native -mtune=native. This is UNSAFE for a redistributed
+# shared library: native code generation can emit instructions (AVX-512, BMI2,
+# ...) that SIGILL on older baseline CPUs. It is therefore gated behind an
+# explicit opt-in and left off by default so the distributed .so stays portable.
+ifeq ($(TUNE),native)
+MMT_HARDEN_CFLAGS += -march=native -mtune=native
+endif
+
 CFLAGS   += $(MMT_HARDEN_CFLAGS)
 CXXFLAGS += $(MMT_HARDEN_CFLAGS) $(MMT_HARDEN_LDFLAGS)
 

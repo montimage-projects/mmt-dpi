@@ -206,8 +206,17 @@ LIBDICOM_OBJECTS := \
 
 $(LIBDICOM_OBJECTS): CFLAGS +=  -Wno-unused-variable -fPIC
 
-$(CORE_OBJECTS) $(TCPIP_OBJECTS): CFLAGS += -D_MMT_BUILD_SDK $(patsubst %,-I%,$(SRCINC))
-$(CORE_OBJECTS) $(TCPIP_OBJECTS): CXXFLAGS += -D_MMT_BUILD_SDK $(patsubst %,-I%,$(SRCINC))
+# Extra diagnostic warnings (B5). These surface latent defects - format-string
+# bugs, NULL dereferences, variable-length arrays - for triage. They are
+# deliberately NOT -Werror: they only emit warnings, so the build still exits 0
+# (golden/ASan gates stay green). Scoped to MMT's own core + tcpip sources to
+# keep the output actionable rather than flooding it with diagnostics from the
+# vendored/generated third-party code (http_parser, asn1c, ...). Override with
+# MMT_WARN_FLAGS= on the command line to silence them.
+MMT_WARN_FLAGS ?= -Wextra -Wformat=2 -Wformat-security -Wnull-dereference -Wvla
+
+$(CORE_OBJECTS) $(TCPIP_OBJECTS): CFLAGS += -D_MMT_BUILD_SDK $(MMT_WARN_FLAGS) $(patsubst %,-I%,$(SRCINC))
+$(CORE_OBJECTS) $(TCPIP_OBJECTS): CXXFLAGS += -D_MMT_BUILD_SDK $(MMT_WARN_FLAGS) $(patsubst %,-I%,$(SRCINC))
 
 LIBMOBILE_OBJECTS := \
 	$(patsubst %.c,%.o,$(wildcard $(SRCDIR)/mmt_mobile/*.c))     \
