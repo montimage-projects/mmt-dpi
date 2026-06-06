@@ -192,6 +192,8 @@ struct mmt_session_struct {
     void * tcp_segment_list[2]; // TCP Payload of session
     uint8_t * session_payload[2]; // TCP Payload of session
     uint32_t session_payload_len[2]; // session payload len
+    void * segment_arena; // Issue #20: per-flow arena backing the TCP segment
+                          // nodes + payload copies; freed on session teardown.
 };
 
 /**

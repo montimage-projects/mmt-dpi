@@ -41,6 +41,18 @@ typedef struct tcp_seg_struct
  */
 tcp_seg_t *tcp_seg_new(uint64_t packet_id, uint64_t seq, uint64_t next_seq, uint64_t ack, uint16_t len, uint8_t *data);
 
+/* Forward declaration of the per-flow arena (defined in mmt_core.h). */
+struct mmt_arena_s;
+
+/**
+ * Issue #20 (P2): create a TCP segment whose node and payload copy are both
+ * carved from a per-flow arena instead of two separate malloc()s. The arena is
+ * released wholesale on session teardown, so these segments must NOT be passed
+ * to tcp_seg_free()/tcp_seg_free_list(). `payload` is copied (len bytes).
+ * @return NULL on arena OOM.
+ */
+tcp_seg_t *tcp_seg_new_in_arena(struct mmt_arena_s *arena, uint64_t packet_id, uint64_t seq, uint64_t next_seq, uint64_t ack, uint16_t len, const uint8_t *payload);
+
 /**
  * Free an TCP segment
  * @param node TCP segment to be free
