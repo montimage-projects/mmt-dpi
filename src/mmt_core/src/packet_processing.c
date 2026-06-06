@@ -3252,6 +3252,20 @@ int proto_packet_process(ipacket_t * ipacket, proto_statistics_internal_t * pare
         }
         process_packet_handler(ipacket);
     }
+    else
+    {
+        // The analyzer returned MMT_DROP or MMT_SKIP, so we leave the function
+        // here without going through process_packet_handler() -- the only path
+        // that calls clean_packet(). In reassembly mode the ipacket is
+        // heap-allocated by process_packet_with_reassembly(), so skipping
+        // cleanup leaks it (and its dynamically reassembled data buffer). Run
+        // the same cleanup hook on these exit paths so the ipacket is freed on
+        // DROP/SKIP too. For the embedded (non-reassembly) current_ipacket,
+        // clean_packet() only releases a reallocated data buffer and is a
+        // no-op otherwise, so this is safe and never double-frees: this branch
+        // is mutually exclusive with the process_packet_handler() call above.
+        ipacket->mmt_handler->clean_packet(ipacket);
+    }
     return target;
 }
 
