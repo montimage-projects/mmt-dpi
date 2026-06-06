@@ -53,6 +53,7 @@ int udp_pre_classification_function(ipacket_t * ipacket, unsigned index) {
 
     //Set the offset for the next proto anyway! we might not get there
     ipacket->proto_headers_offset->proto_path[index + 1] = sizeof( struct udphdr );
+    invalidate_packet_offset_cache(ipacket); // Issue #19: direct offset write
 
     MMT_SAVE_AS_BITMASK(packet->detection_bitmask, packet->detected_protocol_stack[0]);
 

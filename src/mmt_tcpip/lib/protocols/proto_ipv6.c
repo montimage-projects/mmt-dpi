@@ -497,6 +497,9 @@ void *ip6_sessionizer(void *protocol_context, ipacket_t *ipacket, unsigned index
                     session->proto_classif_status.len = new_len;
                     // debug("[IP6] New protocol_path len %d", new_len);
                 }
+                // Issue #19: the session offset path was rewritten in place; if
+                // the packet shares this buffer the memoized cache is now stale.
+                invalidate_packet_offset_cache(ipacket);
             }
 
         }
