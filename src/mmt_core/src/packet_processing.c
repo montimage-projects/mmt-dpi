@@ -1304,6 +1304,12 @@ void mmt_close_handler(mmt_handler_t *mmt_handler) {
     // Free IP streams hashtable
     hashmap_free(mmt_handler->ip_streams);
 
+    // Free the registered evasion handler, if any
+    if (mmt_handler->evasion_handler != NULL) {
+        mmt_free(mmt_handler->evasion_handler);
+        mmt_handler->evasion_handler = NULL;
+    }
+
     //Remove the handler from the registered handlers in the global context
     delete_key_value(mmt_configured_handlers_map, mmt_handler);
 
@@ -1906,7 +1912,11 @@ int register_evasion_handler(mmt_handler_t *mmt_handler, generic_evasion_handler
             fprintf(stderr,"[ERROR] register_evasion_handler - Evasion handler function has been registered already!");
             return 0;
         }
-        evasion_handler_t * new_evasion_handler = (evasion_handler_t *) malloc(sizeof(evasion_handler_t));
+        evasion_handler_t * new_evasion_handler = (evasion_handler_t *) mmt_malloc(sizeof(evasion_handler_t));
+        if (new_evasion_handler == NULL) {
+            fprintf(stderr,"[ERROR] register_evasion_handler - Failed to allocate evasion handler!");
+            return 0;
+        }
         new_evasion_handler->function = evasion_handler;
         new_evasion_handler->args = user_args;
         mmt_handler->evasion_handler = new_evasion_handler;
