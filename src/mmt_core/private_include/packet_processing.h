@@ -365,6 +365,7 @@ struct protocol_struct {
     generic_get_attribute_scope get_attribute_scope; /**< function pointer that indicates the scope of an attribute */
     generic_get_attribute_extraction_function get_attribute_extraction_function; /**< function pointer that indicates the extraction function to use for a given attribute of this protocol */
     generic_comparison_fct session_key_compare; /**< Pointer to the session keys comparison function. Will exist if the proto has a session context. */
+    generic_hash_fct session_key_hash; /**< Pointer to the session key hash function (packed 5-tuple). Used to back the session store with a hash table. May be NULL (falls back to a slow constant hash). */
 
     mmt_classify_next_t classify_next; /**< For internal use. MUST not be changed. */
     mmt_analyser_t data_analyser; /**< For internal use. Must not be chagned.*/

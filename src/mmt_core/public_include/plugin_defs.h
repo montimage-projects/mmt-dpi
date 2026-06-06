@@ -277,6 +277,20 @@ MMTAPI void MMTCALL register_sessionizer_function(
 );
 
 /**
+ * Registers the session key hash function for the protocol identified by the given @param protocol_struct.
+ * The session store is a hash table keyed on a packed 5-tuple; this function supplies the hash used to
+ * bucket sessions. It MUST be consistent with the comparison function registered via
+ * register_sessionizer_function: any two keys that compare equal MUST hash to the same value.
+ * If no hash function is registered, the session store falls back to a correct but slow constant hash.
+ * @param protocol_struct The protocol structure.
+ * @param session_key_hash_fct The function that hashes a session key.
+ */
+MMTAPI void MMTCALL register_session_hash_function(
+    protocol_t *protocol_struct,
+    generic_hash_fct session_key_hash_fct
+);
+
+/**
  * Registers a protocol context cleanup function for the protocol identified by the given @param protocol_struct.
  * @param protocol_struct The protocol structure.
  * @param context_init_fct The protocol context initialization function.

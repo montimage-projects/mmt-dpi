@@ -1,6 +1,7 @@
 #include "hash_utils.h"
 #include <map>
-#include <unordered_map>
+#include <cstdint>
+#include <cstddef>
 
 using namespace std;
 
@@ -8,6 +9,120 @@ using namespace std;
 
 typedef std::map<void *, void *, bool(*)(void *, void *) > MMT_Map;
 typedef std::map<uint32_t, void *, bool(*)(uint32_t, uint32_t)> MMT_IntMap;
+
+//////////////// Per-flow session store ////////////////
+//
+// An open-addressing (linear-probing) hash table keyed on a packed 5-tuple,
+// replacing the previous O(log n) std::map<void*,void*> session store
+// (issue #17). Open addressing keeps the slots in one contiguous array, so a
+// lookup is a cache-friendly linear scan rather than the pointer-chasing of a
+// red-black tree or a chained hash map — the property that actually makes this
+// the biggest hot-path win.
+//
+// Correctness vs. the old std::map: equality is derived from the protocol's
+// strict-weak-ordering comparison function exactly as std::map computed
+// equivalence — two keys are the same entry iff neither compares less than the
+// other — so classification is byte-for-byte unchanged. The per-slot cached
+// hash is compared first, so the (relatively expensive) comparison function is
+// only invoked on a hash match. The hash function must be consistent with that
+// equality (equal keys hash equally); a NULL hash degrades to a correct but
+// slow constant hash rather than crashing.
+
+namespace {
+
+// finalizer (fmix64 from MurmurHash3) — decorrelates the supplied hash from the
+// power-of-two slot index so a weak low-bit distribution does not cluster.
+static inline uint64_t mmt_mix64(uint64_t h) {
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdULL;
+    h ^= h >> 33;
+    h *= 0xc4ceb9fe1a85ec53ULL;
+    h ^= h >> 33;
+    return h;
+}
+
+// Slots are 16 bytes (two pointers) so four pack into a 64-byte cache line —
+// the dense layout is what makes linear probing fast. Empty/tombstone states
+// are encoded in the key pointer rather than a separate field: real session
+// keys are heap-allocated mmt_session_t structures, so NULL and the 0x1
+// sentinel can never collide with a live key.
+static void * const MMT_SLOT_EMPTY = NULL;
+static void * const MMT_SLOT_TOMB  = reinterpret_cast<void *>(static_cast<uintptr_t>(1));
+
+struct mmt_session_slot {
+    void * key;
+    void * value;
+};
+
+struct mmt_session_table {
+    mmt_session_slot *     slots;
+    size_t                 cap;        // power of two
+    size_t                 size;       // live (occupied) slots
+    size_t                 used;       // occupied + tombstones (drives resize)
+    generic_comparison_fct comp;
+    generic_hash_fct       hash;
+
+    uint64_t hash_of(void * k) const {
+        return mmt_mix64(hash ? hash(k) : 0);
+    }
+    // Equivalence as std::map computed it from a strict weak ordering: two keys
+    // are the same entry iff neither orders before the other.
+    bool key_equal(void * a, void * b) const {
+        return !comp(a, b) && !comp(b, a);
+    }
+};
+
+static const size_t MMT_SESSION_INITIAL_CAP = 16; // power of two
+
+static void mmt_session_alloc_slots(mmt_session_table * t, size_t cap) {
+    t->slots = (mmt_session_slot *) calloc(cap, sizeof(mmt_session_slot));
+    t->cap   = cap;
+    // calloc zero-fills -> every slot's key is NULL (MMT_SLOT_EMPTY).
+}
+
+// Insert a known-unique key into a tombstone-free table (used during resize).
+static void mmt_session_put_raw(mmt_session_table * t, void * key, void * value) {
+    size_t mask = t->cap - 1;
+    size_t i = (size_t) t->hash_of(key) & mask;
+    while (t->slots[i].key != MMT_SLOT_EMPTY) {
+        i = (i + 1) & mask;
+    }
+    t->slots[i].key   = key;
+    t->slots[i].value = value;
+}
+
+static void mmt_session_resize(mmt_session_table * t, size_t new_cap) {
+    mmt_session_slot * old = t->slots;
+    size_t old_cap = t->cap;
+    mmt_session_alloc_slots(t, new_cap);
+    t->used = t->size; // tombstones dropped on rehash
+    for (size_t i = 0; i < old_cap; i++) {
+        void * k = old[i].key;
+        if (k != MMT_SLOT_EMPTY && k != MMT_SLOT_TOMB) {
+            mmt_session_put_raw(t, k, old[i].value);
+        }
+    }
+    free(old);
+}
+
+} // namespace
+
+void * init_session_map_space(generic_comparison_fct comp_fct, generic_hash_fct hash_fct) {
+    mmt_session_table * t = (mmt_session_table *) malloc(sizeof(mmt_session_table));
+    t->size = 0;
+    t->used = 0;
+    t->comp = comp_fct;
+    t->hash = hash_fct;
+    mmt_session_alloc_slots(t, MMT_SESSION_INITIAL_CAP);
+    return reinterpret_cast<void *>(t);
+}
+
+void delete_session_map_space(void * sessionmap) {
+    mmt_session_table * t = reinterpret_cast<mmt_session_table *>(sessionmap);
+    if (t == NULL) return;
+    free(t->slots);
+    free(t);
+}
 
 void * init_map_space(generic_comparison_fct comp_fct) {
     return reinterpret_cast<void*> (new MMT_Map(comp_fct));
@@ -47,7 +162,39 @@ int insert_int_key_value(void * maplist, uint32_t key, void * value) {
 }
 
 int insert_session_into_protocol_context(void * protocol_context, void * key, void * value) {
-    return insert_key_value(((protocol_instance_t *) protocol_context)->sessions_map, key, value);
+    mmt_session_table * t = reinterpret_cast<mmt_session_table *>(((protocol_instance_t *) protocol_context)->sessions_map);
+
+    // Keep the load factor <= 0.7. Grow only when the live population is dense;
+    // if the slots are mostly tombstones (delete-heavy churn from session
+    // timeouts) rehash in place at the same capacity to reclaim them.
+    if ((t->used + 1) * 10 >= t->cap * 7) {
+        size_t new_cap = (t->size * 2 >= t->cap) ? (t->cap << 1) : t->cap;
+        mmt_session_resize(t, new_cap);
+    }
+
+    size_t mask = t->cap - 1;
+    size_t i = (size_t) t->hash_of(key) & mask;
+    size_t tomb = 0;
+    bool have_tomb = false;
+    void * k;
+    while ((k = t->slots[i].key) != MMT_SLOT_EMPTY) {
+        if (k == MMT_SLOT_TOMB) {
+            if (!have_tomb) { tomb = i; have_tomb = true; }
+        } else if (t->key_equal(k, key)) {
+            // Duplicate key: mirror the old std::map behaviour (no overwrite).
+            printf("FROM InsertSession got a problem: hash_utils.cpp - insert_session_into_protocol_context() \n");
+            return 0;
+        }
+        i = (i + 1) & mask;
+    }
+    size_t dst = have_tomb ? tomb : i;
+    if (t->slots[dst].key == MMT_SLOT_EMPTY) {
+        t->used++; // reusing a tombstone does not change the load count
+    }
+    t->slots[dst].key   = key;
+    t->slots[dst].value = value;
+    t->size++;
+    return 1;
 }
 
 int update_key_value(void * maplist, void * key, void * new_value) {
@@ -85,7 +232,17 @@ void * find_int_key_value(void * maplist, uint32_t key) {
 }
 
 void * get_session_from_protocol_context_by_session_key(void * protocol_context, void * key) {
-    return find_key_value(((protocol_instance_t *) protocol_context)->sessions_map, key);
+    mmt_session_table * t = reinterpret_cast<mmt_session_table *>(((protocol_instance_t *) protocol_context)->sessions_map);
+    size_t mask = t->cap - 1;
+    size_t i = (size_t) t->hash_of(key) & mask;
+    void * k;
+    while ((k = t->slots[i].key) != MMT_SLOT_EMPTY) {
+        if (k != MMT_SLOT_TOMB && t->key_equal(k, key)) {
+            return t->slots[i].value;
+        }
+        i = (i + 1) & mask;
+    }
+    return NULL;
 }
 
 int delete_key_value(void * maplist, void * key) {
@@ -109,7 +266,22 @@ int delete_int_key_value(void * maplist, uint32_t key) {
 }
 
 int delete_session_from_protocol_context(void * protocol_context, void * key) {
-    return delete_key_value(((protocol_instance_t *) protocol_context)->sessions_map, key);
+    mmt_session_table * t = reinterpret_cast<mmt_session_table *>(((protocol_instance_t *) protocol_context)->sessions_map);
+    size_t mask = t->cap - 1;
+    size_t i = (size_t) t->hash_of(key) & mask;
+    void * k;
+    while ((k = t->slots[i].key) != MMT_SLOT_EMPTY) {
+        if (k != MMT_SLOT_TOMB && t->key_equal(k, key)) {
+            // Tombstone the slot: a probe sequence may run through it, so it
+            // cannot be reset to EMPTY (that would truncate later lookups).
+            t->slots[i].key   = MMT_SLOT_TOMB;
+            t->slots[i].value = NULL;
+            t->size--;
+            return 1;
+        }
+        i = (i + 1) & mask;
+    }
+    return 1; // not found: mirror the old delete_key_value (always returns 1)
 }
 
 void clear_map_space(void * maplist) {
@@ -136,7 +308,12 @@ void delete_int_map_space(void * maplist) {
 
 
 void clear_sessions_from_protocol_context(void * protocol_context) {
-    return clear_map_space(((protocol_instance_t *) protocol_context)->sessions_map);
+    mmt_session_table * t = reinterpret_cast<mmt_session_table *>(((protocol_instance_t *) protocol_context)->sessions_map);
+    if (t != NULL && t->slots != NULL) {
+        memset(t->slots, 0, t->cap * sizeof(mmt_session_slot)); // every key -> NULL (empty)
+        t->size = 0;
+        t->used = 0;
+    }
 }
 
 void mapspace_iteration_callback(void * maplist, generic_mapspace_iteration_callback fct, void * args) {
@@ -156,8 +333,15 @@ void int_mapspace_iteration_callback(void * maplist, generic_mapspace_iteration_
 }
 
 void protocol_sessions_iteration_callback(void * protocol_context, generic_mapspace_iteration_callback fct, void * args) {
-    if(((protocol_instance_t *) protocol_context)->sessions_map != NULL)
-        mapspace_iteration_callback(((protocol_instance_t *) protocol_context)->sessions_map, fct, args);
+    mmt_session_table * t = reinterpret_cast<mmt_session_table *>(((protocol_instance_t *) protocol_context)->sessions_map);
+    if (t != NULL && t->slots != NULL) {
+        for (size_t i = 0; i < t->cap; i++) {
+            void * k = t->slots[i].key;
+            if (k != MMT_SLOT_EMPTY && k != MMT_SLOT_TOMB) {
+                fct(k, t->slots[i].value, args);
+            }
+        }
+    }
 }
 //////////////// Wrapper End
 
