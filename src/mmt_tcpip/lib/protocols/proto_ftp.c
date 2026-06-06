@@ -1088,11 +1088,24 @@ inline static uint32_t ftp_get_data_client_addr_from_EPRT(char * payload) {
  * Example: EPRT |2|2002:5183:4383::5183:4383|1031
  * @return             Client IP address
  */
-inline static char * ftp_get_data_client_addr_v6_from_EPRT(char * payload) {
+char * ftp_get_data_client_addr_v6_from_EPRT(char * payload) {
     // Get all the indexes of "|" in payload
     int * indexes = str_get_indexes(payload, "|");
+    /* Malformed EPRT (fewer than three "|" delimiters) must not be parsed:
+     * str_get_indexes returns NULL when no delimiter is present, and a short
+     * delimiter list leaves indexes[2] == -1, which would make `len` negative
+     * (huge once cast for malloc/memcpy). */
+    if(indexes == NULL) return NULL;
+    if(indexes[0] == -1 || indexes[1] == -1 || indexes[2] == -1){
+        free(indexes);
+        return NULL;
+    }
     char * str_addr;
     int len = indexes[2] - indexes[1];
+    if(len <= 0){
+        free(indexes);
+        return NULL;
+    }
     str_addr = (char*)malloc(len);
     if(str_addr == NULL) {
         free(indexes);
@@ -1207,23 +1220,52 @@ inline static uint32_t ftp_get_addr_from_parameter(char * payload, uint32_t payl
  * port addres of port address length: 4,7 -> port = 4*16^2 + 7*16^0 = 1031
  * @return             an address
  */
-inline static char * ftp_get_data_client_addr_v6_from_LPRT(char * payload) {
-    // Get all the indexes of "|" in payload
+/*
+ * Maximum length, in characters, of the textual IPv6 address built from an
+ * LPRT/EPRT command. A full IPv6 address is 8 groups of 4 hex digits joined by
+ * 7 colons = 39 characters, but this parser emits at most 32 hex characters
+ * (it does not separate every group), so the historical 33-byte buffer
+ * (32 chars + NUL) is kept. The accumulation below is hard-bounded to this
+ * length to make a heap overflow impossible regardless of the input.
+ */
+#define FTP_V6_ADDR_MAX_LEN 32
+/* RFC 1639 IPv6 host-address-length is 16 octets; reject anything larger so a
+ * forged length cannot drive unbounded growth of the address string. */
+#define FTP_V6_HOST_ADDR_MAX_OCTETS 16
+
+char * ftp_get_data_client_addr_v6_from_LPRT(char * payload) {
     char * str_addr;
 
-    str_addr = (char*)malloc(33);
+    /* calloc so the buffer is NUL-terminated/zeroed before the first append —
+     * the legacy code read the buffer (strstr/strcat) while still uninitialised
+     * when the first octet was zero. */
+    str_addr = (char*)calloc(FTP_V6_ADDR_MAX_LEN + 1, sizeof(char));
     if(str_addr == NULL) return NULL;
-    char *temp = NULL;
+    size_t addr_len = 0; /* current length of str_addr, excluding the NUL */
+
     char *payload_copy = str_copy(payload);
-    temp = strtok(payload_copy,",");
+    if(payload_copy == NULL){
+        free(str_addr);
+        return NULL;
+    }
+    char *temp = strtok(payload_copy,",");
     int index = 0;
     int host_address_length = 0;
     int found_address = 0;
     while(temp!=NULL){
-        
+
         if(index == 1){
             host_address_length = atoi(temp);
-            found_address = 1;            
+            /* Validate the declared host-address length: a negative or
+             * oversized value is malformed input — stop and return what we
+             * have (an empty string) rather than trusting it as a loop bound. */
+            if(host_address_length <= 0 ||
+               host_address_length > FTP_V6_HOST_ADDR_MAX_OCTETS){
+                free(payload_copy);
+                str_addr[0] = '\0';
+                return str_addr;
+            }
+            found_address = 1;
             temp = strtok(NULL,",");
             index++;
             continue;
@@ -1231,59 +1273,54 @@ inline static char * ftp_get_data_client_addr_v6_from_LPRT(char * payload) {
 
         if(found_address == 1){
             int temp_nb = atoi(temp);
+            /* Each address element encodes a single octet: validate 0..255.
+             * Anything outside that range is malformed — stop parsing so a
+             * huge value cannot overflow the fixed hvalue buffer below. */
+            if(temp_nb < 0 || temp_nb > 255){
+                free(payload_copy);
+                str_addr[addr_len] = '\0';
+                return str_addr;
+            }
             if(temp_nb!=0){
-                char * hvalue = NULL;
+                /* temp_nb is validated to 0..255 above; mask to a byte so the
+                 * value is provably one or two hex digits. "0FF:" (4 chars) is
+                 * then the longest rendering — 8 bytes is comfortably bounded
+                 * and snprintf can never overrun it. */
+                unsigned octet = (unsigned)temp_nb & 0xFFu;
+                char hvalue[8];
                 if(host_address_length%2==1 && host_address_length!=1){
-                    hvalue = (char*) malloc(4);
-                    if(hvalue!=NULL){
-                        if (temp_nb < 16)
-                        {
-                            sprintf(hvalue, "0%X:", temp_nb);
-                            hvalue[3] = '\0';
-                        }
-                        else
-                        {
-                            sprintf(hvalue, "%X:", temp_nb);
-                            hvalue[3] = '\0';
-                        }
-                    }
-                }else{
-                    hvalue = (char*) malloc(3);
-                    if(hvalue!=NULL){
-                        if (temp_nb < 16)
-                        {
-                            sprintf(hvalue, "0%X", temp_nb);
-                            hvalue[2] = '\0';
-                        }
-                        else
-                        {
-                            sprintf(hvalue, "%X", temp_nb);
-                            hvalue[2] = '\0';
-                        }
-                    }
-                    
-                }
-                if(hvalue!=NULL){
-                    if (index == 2)
-                    {
-                        strcpy(str_addr, hvalue);
-                    }
+                    if (octet < 16)
+                        snprintf(hvalue, sizeof(hvalue), "0%X:", octet);
                     else
-                    {
-                        strcat(str_addr, hvalue);
-                    }
-                    free(hvalue);
+                        snprintf(hvalue, sizeof(hvalue), "%X:", octet);
+                }else{
+                    if (octet < 16)
+                        snprintf(hvalue, sizeof(hvalue), "0%X", octet);
+                    else
+                        snprintf(hvalue, sizeof(hvalue), "%X", octet);
+                }
+                /* Bounded accumulation: append only what still fits in the
+                 * 32-char window — never an unbounded strcat. */
+                size_t hlen = strlen(hvalue);
+                if(addr_len + hlen <= FTP_V6_ADDR_MAX_LEN){
+                    memcpy(str_addr + addr_len, hvalue, hlen);
+                    addr_len += hlen;
+                    str_addr[addr_len] = '\0';
                 }
             }else{
-                if(strstr(str_addr,"::")==0){
-                    strcat(str_addr,":");
+                if(strstr(str_addr,"::")==NULL){
+                    if(addr_len + 1 <= FTP_V6_ADDR_MAX_LEN){
+                        str_addr[addr_len++] = ':';
+                        str_addr[addr_len] = '\0';
+                    }
                 }
             }
 
             host_address_length--;
             debug("[PROTO_FTP] host_address_length: %d",host_address_length);
             if(host_address_length==0){
-                str_addr[32]='\0';
+                str_addr[addr_len]='\0';
+                free(payload_copy);
                 return str_addr;
             }
             temp = strtok(NULL,",");
@@ -1293,7 +1330,8 @@ inline static char * ftp_get_data_client_addr_v6_from_LPRT(char * payload) {
             index++;
         }
     }
-    str_addr[32] = '\0';
+    str_addr[addr_len] = '\0';
+    free(payload_copy);
     return str_addr;
 }
 
@@ -2758,7 +2796,11 @@ void ftp_request_packet(ipacket_t *ipacket, unsigned index, ftp_control_session_
             char *ipv6_address_from_EPRT = ftp_get_data_client_addr_v6_from_EPRT(payload);
             current_data_session->data_conn->c_addr_v6 = (char*)malloc(33*sizeof(char));
             if (current_data_session->data_conn->c_addr_v6!=NULL){
-                strcpy(current_data_session->data_conn->c_addr_v6, ipv6_address_from_EPRT);
+                /* Bounded copy into the fixed 33-byte buffer: an EPRT address
+                 * field longer than 32 chars must not overflow it. Always leave
+                 * a valid NUL-terminated string, even on malformed input. */
+                snprintf(current_data_session->data_conn->c_addr_v6, 33, "%s",
+                         ipv6_address_from_EPRT != NULL ? ipv6_address_from_EPRT : "");
             }
             free(ipv6_address_from_EPRT);
         }else{
@@ -2783,7 +2825,10 @@ void ftp_request_packet(ipacket_t *ipacket, unsigned index, ftp_control_session_
             debug("[PROTO_FTP] %lu ipv6_address_from_LPRT: %s",ipacket->packet_id,ipv6_address_from_LPRT);
             current_data_session->data_conn->c_addr_v6 = (char*)malloc(33*sizeof(char));
             if (current_data_session->data_conn->c_addr_v6 !=NULL){
-                strcpy(current_data_session->data_conn->c_addr_v6, ipv6_address_from_LPRT);
+                /* Bounded copy into the fixed 33-byte buffer. Always leave a
+                 * valid NUL-terminated string, even on malformed input. */
+                snprintf(current_data_session->data_conn->c_addr_v6, 33, "%s",
+                         ipv6_address_from_LPRT != NULL ? ipv6_address_from_LPRT : "");
             }
             free(ipv6_address_from_LPRT);
         }else{
