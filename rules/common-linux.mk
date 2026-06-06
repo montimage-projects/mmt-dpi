@@ -6,8 +6,9 @@ $(CORE_OBJECTS) $(TCPIP_OBJECTS): CXXFLAGS += -fPIC
 ifdef ENABLESEC
 $(FUZZ_OBJECTS) $(SECURITY_OBJECTS): CFLAGS   += -fPIC
 $(FUZZ_OBJECTS) $(SECURITY_OBJECTS): CXXFLAGS += -fPIC
-$(SECURITY_OBJECTS): CFLAGS += -I/usr/include/libxml2
-$(FUZZ_OBJECTS): CFLAGS += -I/usr/include/libxml2
+# libxml2 include path via pkg-config (with guarded fallback), see common.mk.
+$(SECURITY_OBJECTS): CFLAGS += $(LIBXML2_CFLAGS)
+$(FUZZ_OBJECTS): CFLAGS += $(LIBXML2_CFLAGS)
 endif
 
 #  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -90,6 +91,35 @@ endif   # release builds only
 #  L I N U X   L I B R A R I E S
 #  - - - - - - - - - - - - - - -
 
+#  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#  P E R - L I B R A R Y   L I N K   F L A G S   ( B3, B4 )
+#  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Link libraries now live on the link line (the .so recipes append $(LDLIBS),
+# and $(LDFLAGS) for linker options). $(LDLIBS) defaults to -lm (common.mk);
+# the protocol libs that historically declared nghttp2, and the ENABLESEC
+# engines that use libxml2, add theirs here.
+$(SDKLIB)/$(LIBTCPIP).so.$(VERSION):  LDLIBS += $(NGHTTP2_LIBS)
+$(SDKLIB)/$(LIBMOBILE).so.$(VERSION): LDLIBS += $(NGHTTP2_LIBS)
+# libmmt_core dlopen()s the protocol plugins; keep -ldl explicit so the link is
+# self-contained under -Wl,-z,defs even on toolchains that split libdl out of
+# libc.
+$(SDKLIB)/$(LIBCORE).so.$(VERSION):   LDLIBS += -ldl
+
+# -Wl,-z,defs (a.k.a. --no-undefined) makes the linker fail on any unresolved
+# symbol. Only libmmt_core is fully self-contained: the protocol plugins
+# (tcpip, tmobile, business_app, tdicom) and the ENABLESEC engines deliberately
+# leave core symbols (mmt_malloc, register_protocol, ...) undefined and resolve
+# them at load time when the MMT framework dlopen()s them into one address
+# space, so they cannot satisfy --no-undefined. BUILD=asan also leaves the
+# ASan/UBSan runtime symbols undefined by design (resolved via LD_PRELOAD, see
+# common.mk), so the guard is skipped for the sanitizer profile.
+ifneq ($(BUILD),asan)
+$(SDKLIB)/$(LIBCORE).so.$(VERSION):    LDFLAGS += -Wl,-z,defs
+endif
+ifdef ENABLESEC
+$(SDKLIB)/$(LIBSECURITY).so.$(VERSION): LDLIBS += $(LIBXML2_LIBS)
+$(SDKLIB)/$(LIBFUZZ).so.$(VERSION):     LDLIBS += $(LIBXML2_LIBS)
+endif
 
 libraries: \
 	$(SDKLIB)/$(LIBCORE).so \
@@ -108,7 +138,7 @@ $(SDKLIB)/$(LIBCORE).so: $(SDKLIB)/$(LIBCORE).so.$(VERSION)
 
 $(SDKLIB)/$(LIBCORE).so.$(VERSION): $(SDKLIB)/$(LIBCORE).a
 	@echo "[LIBRARY] $(notdir $@)"
-	$(QUIET) $(CXX) $(CXXFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBCORE).so
+	$(QUIET) $(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBCORE).so $(LDLIBS)
 
 # TCP/IP
 
@@ -116,7 +146,7 @@ $(SDKLIB)/$(LIBTCPIP).so: $(SDKLIB)/$(LIBTCPIP).so.$(VERSION)
 
 $(SDKLIB)/$(LIBTCPIP).so.$(VERSION): $(SDKLIB)/$(LIBTCPIP).a
 	@echo "[LIBRARY] $(notdir $@)"
-	$(QUIET) $(CXX) $(CXXFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBTCPIP).so
+	$(QUIET) $(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBTCPIP).so $(LDLIBS)
 
 $(SDKLIB)/$(LIBTCPIP).so: $(SDKLIB)/$(LIBTCPIP).so.$(VERSION)
 
@@ -125,14 +155,14 @@ $(SDKLIB)/$(LIBMOBILE).so: $(SDKLIB)/$(LIBMOBILE).so.$(VERSION)
 
 $(SDKLIB)/$(LIBMOBILE).so.$(VERSION): $(SDKLIB)/$(LIBMOBILE).a
 	@echo "[LIBRARY] $(notdir $@)"
-	$(QUIET) $(CXX) $(CXXFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBMOBILE).so
+	$(QUIET) $(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBMOBILE).so $(LDLIBS)
 
 # BUSINESS APP/PROTOCOLS
 $(SDKLIB)/$(LIBBAPP).so: $(SDKLIB)/$(LIBBAPP).so.$(VERSION)
 
 $(SDKLIB)/$(LIBBAPP).so.$(VERSION): $(SDKLIB)/$(LIBBAPP).a
 	@echo "[LIBRARY] $(notdir $@)"
-	$(QUIET) $(CXX) $(CXXFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBBAPP).so
+	$(QUIET) $(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBBAPP).so $(LDLIBS)
 
 ifdef ENABLESEC
 # FUZZ
@@ -141,7 +171,7 @@ $(SDKLIB)/$(LIBFUZZ).so: $(SDKLIB)/$(LIBFUZZ).so.$(VERSION)
 
 $(SDKLIB)/$(LIBFUZZ).so.$(VERSION): $(SDKLIB)/$(LIBFUZZ).a
 	@echo "[LIBRARY] $(notdir $@)"
-	$(QUIET) $(CXX) $(CXXFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBFUZZ).so
+	$(QUIET) $(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBFUZZ).so $(LDLIBS)
 
 # SECURITY
 
@@ -149,7 +179,7 @@ $(SDKLIB)/$(LIBSECURITY).so: $(SDKLIB)/$(LIBSECURITY).so.$(VERSION)
 
 $(SDKLIB)/$(LIBSECURITY).so.$(VERSION): $(SDKLIB)/$(LIBSECURITY).a
 	@echo "[LIBRARY] $(notdir $@)"
-	$(QUIET) $(CXX) $(CXXFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBSECURITY).so
+	$(QUIET) $(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBSECURITY).so $(LDLIBS)
 endif
 
 # DICOM
@@ -157,4 +187,4 @@ $(SDKLIB)/$(LIBDICOM).so: $(SDKLIB)/$(LIBDICOM).so.$(VERSION)
 
 $(SDKLIB)/$(LIBDICOM).so.$(VERSION): $(SDKLIB)/$(LIBDICOM).a
 	@echo "[LIBRARY] $(notdir $@)"
-	$(QUIET) $(CXX) $(CXXFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBDICOM).so
+	$(QUIET) $(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -o $@ -Wl,--whole-archive $^ -Wl,--no-whole-archive -Wl,--soname=$(LIBDICOM).so $(LDLIBS)

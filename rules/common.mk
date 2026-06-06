@@ -27,16 +27,51 @@ endif
 # DEFINE FLAG FOR COMPILE COMMAND
 #  - - - - -
 
-CFLAGS   := -lm -Wall -DVERSION=\"$(VERSION)\" -DGIT_VERSION=\"$(GIT_VERSION)\" -DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"
-CXXFLAGS := -lm -Wall -DVERSION=\"$(VERSION)\" -DGIT_VERSION=\"$(GIT_VERSION)\" -DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"
+CFLAGS   := -Wall -DVERSION=\"$(VERSION)\" -DGIT_VERSION=\"$(GIT_VERSION)\" -DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"
+CXXFLAGS := -Wall -DVERSION=\"$(VERSION)\" -DGIT_VERSION=\"$(GIT_VERSION)\" -DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"
 
-# NDEBUG = 1 to show all message come from debug(), ...
+# NDEBUG = 1 to show all messages from debug(), ... (i.e. keep asserts/debug()
+# enabled by NOT defining the standard NDEBUG macro). The default build defines
+# -DNDEBUG.
+#   NOTE: the previous form "CFLAGS += $(CFLAGS)" was a bug - it appended CFLAGS
+#   to itself (duplicating every flag) instead of toggling the NDEBUG macro.
 ifdef NDEBUG
-CFLAGS   += $(CFLAGS)
-CXXFLAGS += $(CXXFLAGS)
+# NDEBUG=1 requested -> leave -DNDEBUG undefined so debug()/assert() stay active.
 else
 CFLAGS   += -DNDEBUG
 CXXFLAGS += -DNDEBUG
+endif
+
+#  - - - - -
+# LINK FLAGS / LINK LIBRARIES (B3, B4)
+#  - - - - -
+# -lm and -lnghttp2 are LINK libraries, not compile flags. Carrying them in
+# CFLAGS made them silent no-ops (a "-c" compile never invokes the linker).
+# They now live in LDFLAGS/LDLIBS and are added to the shared-library link
+# recipes (see common-linux.mk). -L must point at a DIRECTORY, never at a file -
+# the old "-L/usr/lib/.../libnghttp2.so" was a no-op and has been dropped.
+LDFLAGS ?=
+LDLIBS  := -lm
+
+# nghttp2: prefer pkg-config, fall back to the historical hardcoded paths so the
+# build still succeeds where the .pc file is absent (guarded - never emit empty
+# flags that would silently break the link).
+ifeq ($(shell pkg-config --exists libnghttp2 2>/dev/null && echo yes),yes)
+NGHTTP2_CFLAGS := $(shell pkg-config --cflags libnghttp2)
+NGHTTP2_LIBS   := $(shell pkg-config --libs libnghttp2)
+else
+NGHTTP2_CFLAGS := -I/usr/include/nghttp2
+NGHTTP2_LIBS   := -lnghttp2
+endif
+
+# libxml2 (only the ENABLESEC security/fuzz engines need it): replace the
+# hardcoded -I/usr/include/libxml2 with pkg-config, same guarded fallback.
+ifeq ($(shell pkg-config --exists libxml-2.0 2>/dev/null && echo yes),yes)
+LIBXML2_CFLAGS := $(shell pkg-config --cflags libxml-2.0)
+LIBXML2_LIBS   := $(shell pkg-config --libs libxml-2.0)
+else
+LIBXML2_CFLAGS := -I/usr/include/libxml2
+LIBXML2_LIBS   := -lxml2
 endif
 
 # DEBUG = 1 to enable debug mode
@@ -155,12 +190,12 @@ TCPIP_OBJECTS := \
 LIBBAPP_OBJECTS := \
  $(patsubst %.c,%.o,$(wildcard $(SRCDIR)/mmt_business_app/*.c))
 
-$(LIBBAPP_OBJECTS): CFLAGS +=  -lm -Wno-unused-variable -fPIC
+$(LIBBAPP_OBJECTS): CFLAGS +=  -Wno-unused-variable -fPIC
 
 LIBDICOM_OBJECTS := \
  $(patsubst %.c,%.o,$(wildcard $(SRCDIR)/mmt_dicom/*.c))
 
-$(LIBDICOM_OBJECTS): CFLAGS +=  -lm -Wno-unused-variable -fPIC
+$(LIBDICOM_OBJECTS): CFLAGS +=  -Wno-unused-variable -fPIC
 
 $(CORE_OBJECTS) $(TCPIP_OBJECTS): CFLAGS += -D_MMT_BUILD_SDK $(patsubst %,-I%,$(SRCINC))
 $(CORE_OBJECTS) $(TCPIP_OBJECTS): CXXFLAGS += -D_MMT_BUILD_SDK $(patsubst %,-I%,$(SRCINC))
@@ -181,9 +216,11 @@ LIBMOBILE_INC := $(SRCINC)          \
 	$(SRCDIR)/mmt_mobile/asn1c/s1ap  \
 	$(SRCDIR)/mmt_mobile/asn1c/ngap
 
-$(LIBMOBILE_OBJECTS): CFLAGS +=  -Wno-unused-but-set-variable -lm -Wno-unused-variable -fPIC -lnghttp2 -D_MMT_BUILD_SDK $(patsubst %,-I%,$(LIBMOBILE_INC))
+# Link libraries (-lm, -lnghttp2) belong on the link line (LDLIBS), not here:
+# the nghttp2 include path is provided via $(NGHTTP2_CFLAGS) for any header use.
+$(LIBMOBILE_OBJECTS): CFLAGS +=  -Wno-unused-but-set-variable -Wno-unused-variable -fPIC $(NGHTTP2_CFLAGS) -D_MMT_BUILD_SDK $(patsubst %,-I%,$(LIBMOBILE_INC))
 
-$(TCPIP_OBJECTS): CFLAGS +=   -I/usr/include/nghttp2 -lnghttp2 -L/usr/lib/x86_64-linux-gnu/libnghttp2.so
+$(TCPIP_OBJECTS): CFLAGS +=   $(NGHTTP2_CFLAGS)
 ifdef ENABLESEC
 FUZZ_OBJECTS := \
  $(patsubst %.c,%.o,$(wildcard $(SRCDIR)/mmt_fuzz_engine/*.c))
