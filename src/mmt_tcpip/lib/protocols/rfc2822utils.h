@@ -121,9 +121,9 @@ extern "C" {
 
     int get_next_header_line_length(const char * msg, int msg_len, int * code);
 
-    int get_next_white_space_offset_no_limit(const char * str);
+    int get_next_white_space_offset_no_limit(const char * str, int max);
 
-    int get_next_non_white_space_offset_no_limit(const char * str);
+    int get_next_non_white_space_offset_no_limit(const char * str, int max);
 
     int get_field_len(const char * str, int line_len);
 

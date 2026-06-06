@@ -314,7 +314,7 @@ static inline int get_request_method_uri_offset(const char *msg, int msg_len, in
         *method = MMT_HTTP_REPORT_CODE;
     }
 
-    while (isspace(msg[uri_offset])) {
+    while (uri_offset < msg_len && isspace((unsigned char) msg[uri_offset])) {
         uri_offset++;
     }
     return uri_offset;
@@ -340,7 +340,7 @@ static inline int get_response_code_offset(const char *msg, int msg_len, char **
         *version = (char *) MHD_HTTP_VERSION_0_9;
     }
 
-    while (isspace(msg[code_offset])) {
+    while (code_offset < msg_len && isspace((unsigned char) msg[code_offset])) {
         code_offset++;
     }
 
@@ -369,7 +369,7 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
 
         //This is a request; update the session context accordingly
         if (line_first_element_offset) {
-            int uri_len = get_next_white_space_offset_no_limit((const char*)&ipacket->data[offset + line_first_element_offset]);
+            int uri_len = get_next_white_space_offset_no_limit((const char*)&ipacket->data[offset + line_first_element_offset], hlen - line_first_element_offset);
             http->http_method   = method;
             http->requested_uri = (char *) mmt_malloc(uri_len + 1);
             memcpy(http->requested_uri, &ipacket->data[offset + line_first_element_offset], uri_len);
@@ -390,7 +390,7 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
         hlen = get_next_header_line_length((const char*)&ipacket->data[offset], ipacket->p_hdr->len - offset, &code);
         while (hlen > 2) {
             int header_id, header_index, value_offset, value_len, field_len;
-            line_first_element_offset = get_next_non_white_space_offset_no_limit((const char*)&ipacket->data[offset]);
+            line_first_element_offset = get_next_non_white_space_offset_no_limit((const char*)&ipacket->data[offset], hlen);
 
             //printf("LFE_Offset %i - offset %i - hlen %i \n", line_first_element_offset, offset, hlen);
             // No need to include "line_first_element_offset" coz most probably it will be zero

@@ -127,8 +127,6 @@ uint32_t mmt_bytestream_to_ipv4(const uint8_t * str, uint16_t max_chars_to_read,
     return htonl(val);
 }
 
-static const uint16_t NEW_LINE = ntohs(0x0d0a);
-
 void _mmt_parse_packet_line_info(ipacket_t * ipacket){
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     uint32_t a;
@@ -188,7 +186,13 @@ void _mmt_parse_packet_line_info(ipacket_t * ipacket){
     packet->packet_id = ipacket->packet_id;
 
     for (a = 0; likely( a < end ); a++) {
-        if ( get_u16(packet->payload, a) == NEW_LINE ) {
+        /* Byte-wise CRLF test: the previous get_u16() read a uint16 at an
+         * attacker-controlled (often odd) offset, which is an unaligned load
+         * (ctype/alignment UB). Comparing the two bytes individually is
+         * endian-independent and alignment-safe. Both bytes are in bounds:
+         * the loop guard `a < end` (end == payload_packet_len - 1) keeps
+         * a + 1 <= payload_packet_len - 1. */
+        if ( packet->payload[a] == 0x0d && packet->payload[a + 1] == 0x0a ) {
 
             line_length =  &packet->payload[a] - packet->line[packet->parsed_lines].ptr;
             packet->line[packet->parsed_lines].len = line_length;
@@ -202,7 +206,7 @@ void _mmt_parse_packet_line_info(ipacket_t * ipacket){
                 switch ( str[0] ) {
                 case 'H':
                     if (str[1] == 'T') {
-                        if (packet->parsed_lines == 0 && str[2] == 'T' && str[3] == 'P' && str[4] == '/' && str[5] == '1' && str[6] == '.') {
+                        if (packet->parsed_lines == 0 && line_length >= 9 && str[2] == 'T' && str[3] == 'P' && str[4] == '/' && str[5] == '1' && str[6] == '.') {
                             // Start of response
                             // printf("start RESPONSE: %lu, %lu\n", ipacket->session->session_id, packet->packet_id);
                             packet->http_response.ptr = &str[9];
@@ -235,6 +239,12 @@ void _mmt_parse_packet_line_info(ipacket_t * ipacket){
                     break;
                 case 'C':
                 case 'c':
+                    // str[8] is the discriminating byte for the Content-*/Connection/
+                    // Cookie headers; guard the read so a truncated "C" line cannot
+                    // dereference past the parsed line (and its trailing CRLF).
+                    if (line_length < 9) {
+                        break;
+                    }
                     switch ( str[8] ) {
                     case 'T':
                         if (
@@ -354,7 +364,7 @@ void _mmt_parse_packet_line_info(ipacket_t * ipacket){
             if ( packet->empty_line_position != 0 || (a + 2) >= packet->payload_packet_len ) {
                 return;
             }
-        } // End of get_u16(packet->payload, a) == NEW_LINE
+        } // End of CRLF match (payload[a] == 0x0d && payload[a + 1] == 0x0a)
     }// End of for loop
     if (packet->parsed_lines > 0) {
         packet->line[packet->parsed_lines].len =
