@@ -408,8 +408,8 @@ void free_ftp_control_session(ftp_control_session_t *ftp_control) {
     free_ftp_response(ftp_control->last_response);
     free_ftp_user(ftp_control->user);
     if (ftp_control->session_feats != NULL) free(ftp_control->session_feats);
-    if (ftp_control->session_feats != NULL) free(ftp_control->session_syst);
-    if (ftp_control->session_feats != NULL) free(ftp_control->current_dir);
+    if (ftp_control->session_syst != NULL) free(ftp_control->session_syst);
+    if (ftp_control->current_dir != NULL) free(ftp_control->current_dir);
     free_ftp_data_session(ftp_control->current_data_session);
     free_ftp_control_session(ftp_control->next);
     free(ftp_control);
@@ -3195,8 +3195,36 @@ void * setup_ftp_context(void * proto_context, void * args) {
     ftp_control_session_t * ftp_list_control_conns;
     ftp_list_control_conns = (ftp_control_session_t*)malloc(sizeof(ftp_control_session_t));
     if(ftp_list_control_conns == NULL) return NULL;
+    /* This head is a sentinel: only ->next is ever read (real control sessions
+     * are appended there). Zero every field so the NULL-guarded
+     * free_ftp_control_session() can safely walk and release the whole chain on
+     * teardown without dereferencing uninitialised sentinel pointers. */
+    memset(ftp_list_control_conns, 0, sizeof(ftp_control_session_t));
     ftp_list_control_conns->next = NULL;
     return (void*)ftp_list_control_conns;
+}
+
+/**
+ * Release the per-handler FTP protocol context allocated by setup_ftp_context().
+ *
+ * The context is the head of the ftp_control_session_t list stored in the
+ * protocol instance's "args" field (see ftp_get_list_control_session()). The
+ * list and everything it owns (per-session str_copy/str_combine strings, user
+ * credentials, file metadata, connection tuples, ...) are released here on
+ * handler teardown. Without this, mmt_close_handler() left the whole tree
+ * leaked (Valgrind: 80B definitely + 933B indirectly lost). The signature
+ * matches generic_proto_context_cleanup_function: proto_context is the
+ * protocol_instance_t* and the allocated context lives at its ->args field.
+ */
+void cleanup_ftp_context(void * proto_context, void * args) {
+    if (proto_context == NULL) return;
+    protocol_instance_t * configured_protocol = (protocol_instance_t *) proto_context;
+    ftp_control_session_t * ftp_list_control_conns =
+            (ftp_control_session_t *) configured_protocol->args;
+    if (ftp_list_control_conns != NULL) {
+        free_ftp_control_session(ftp_list_control_conns);
+        configured_protocol->args = NULL;
+    }
 }
 
 
@@ -3216,7 +3244,7 @@ int init_proto_ftp_struct() {
         for (; i < FTP_ATTRIBUTES_NB; i++) {
             register_attribute_with_protocol(protocol_struct, &ftp_attributes_metadata[i]);
         }
-        register_proto_context_init_cleanup_function(protocol_struct, setup_ftp_context, NULL, NULL);
+        register_proto_context_init_cleanup_function(protocol_struct, setup_ftp_context, cleanup_ftp_context, NULL);
         register_session_data_analysis_function(protocol_struct, ftp_session_data_analysis);
         mmt_init_classify_me_ftp();
 
