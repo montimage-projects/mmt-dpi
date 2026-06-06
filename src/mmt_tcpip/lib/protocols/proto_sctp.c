@@ -112,7 +112,7 @@ static inline uint32_t _get_next_proto_id( uint8_t type ) {
 static int sctp_classify_next_proto(ipacket_t * ipacket, unsigned index) {
 	int offset = get_packet_offset_at_index(ipacket, index);
 
-	const struct sctphdr *hdr = (struct sctphdr *) & ipacket->data[offset];
+	const mmt_una_sctphdr_t *hdr = (const mmt_una_sctphdr_t *) & ipacket->data[offset];
 	uint32_t next_proto = _get_next_proto_id( hdr->type );
 	if( next_proto == PROTO_UNKNOWN )
 		return 0;
@@ -134,13 +134,13 @@ static int sctp_classify_next_proto(ipacket_t * ipacket, unsigned index) {
 static int sctp_classify_next_chunk(ipacket_t * ipacket, unsigned index) {
 	int current_chunk_offset = get_packet_offset_at_index(ipacket, index);
 
-	const struct sctp_chunkhdr *current_chunk_hdr = (struct sctp_chunkhdr *) & ipacket->data[current_chunk_offset];
+	const mmt_una_sctp_chunkhdr_t *current_chunk_hdr = (const mmt_una_sctp_chunkhdr_t *) & ipacket->data[current_chunk_offset];
 	const uint16_t current_chunk_len = ntohs(current_chunk_hdr->length);
 
 	//ensure that we still have room for the next chunk
 	if( current_chunk_offset + current_chunk_len + sizeof( struct sctp_chunkhdr ) <= ipacket->p_hdr->caplen ){
 		//the next chunk is started after this chunk
-		const struct sctp_chunkhdr *next_chunk_hdr = (struct sctp_chunkhdr *) & ipacket->data[current_chunk_offset + current_chunk_len];
+		const mmt_una_sctp_chunkhdr_t *next_chunk_hdr = (const mmt_una_sctp_chunkhdr_t *) & ipacket->data[current_chunk_offset + current_chunk_len];
 
 		//padding
 		if( next_chunk_hdr->length == 0 )

@@ -111,7 +111,10 @@ void ipv6_dgram_cleanup(ipv6_dgram_t *dg)
  *      0 - No problem
  */
 
-int ipv6_dgram_update(ipv6_dgram_t *dg, const struct ipv6hdr *ip, unsigned caplen, uint16_t fragment_offset, uint16_t payload_offset, uint8_t more_fragment, uint16_t ext_header_len)
+/* Issue #59: ip is an alignment-safe view (mmt_una_ipv6hdr_t) over the byte-
+ * aligned capture buffer, mirroring ip_dgram_update() from PR #58 (#57), so the
+ * ntohs(ip->payload_len) read below is a single alignment-safe load. */
+int ipv6_dgram_update(ipv6_dgram_t *dg, const mmt_una_ipv6hdr_t *ip, unsigned caplen, uint16_t fragment_offset, uint16_t payload_offset, uint8_t more_fragment, uint16_t ext_header_len)
 {
    const uint8_t *payload = (const uint8_t *)ip + payload_offset;
    uint16_t payload_len = ntohs(ip->payload_len) - ext_header_len;

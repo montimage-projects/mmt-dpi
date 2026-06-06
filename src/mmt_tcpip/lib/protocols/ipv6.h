@@ -89,6 +89,23 @@ extern "C" {
         uint16_t flag;
         uint32_t ident;
     };
+
+    /*
+     * Issue #59: the IPv6 header and the fragment extension header are formed by
+     * casting "&data[offset]" of the byte-aligned capture buffer to these
+     * structs and dereferencing multi-byte fields (payload_len, flag, ident,
+     * flow_label, ...). When offset is not naturally aligned that deref is a
+     * misaligned access — UB that aborts under -fsanitize=alignment (BUILD=asan)
+     * and is non-portable in release builds. These typedefs alias the same
+     * structs with the alignment requirement lowered to 1, so the compiler emits
+     * alignment-safe loads. On targets with native unaligned access (x86_64,
+     * aarch64) each field access still lowers to a single load — no hot-path
+     * cost; only the cast/pointer type changes, field expressions are unchanged.
+     * Mirrors the mmt_una_{iphdr,tcphdr,udphdr}_t views added in PR #58 (#57).
+     */
+    typedef struct ipv6hdr          __attribute__((aligned(1))) mmt_una_ipv6hdr_t;
+    typedef struct ext_hdr_fragment __attribute__((aligned(1))) mmt_una_ext_hdr_fragment_t;
+
     int init_ip6_proto_struct();
 
 #ifdef	__cplusplus

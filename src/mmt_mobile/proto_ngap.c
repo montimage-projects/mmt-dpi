@@ -21,7 +21,16 @@ static bool _is_valid_by_sctp_ports( const ipacket_t *ipacket ){
 	//https://www.etsi.org/deliver/etsi_ts/138400_138499/138412/15.00.00_60/ts_138412v150000p.pdf
 	//The SCTP Destination Port number value assigned by IANA to be used for NGAP is 38412.
 	const uint16_t sctp_port_for_ngap = htons( 38412 );
-	if( sctp_hdr->dest != sctp_port_for_ngap )
+	/*
+	 * Issue #59: sctp_hdr points into the byte-aligned capture buffer, so read
+	 * the 16-bit destination port with memcpy rather than dereferencing the
+	 * struct directly (a misaligned load is UB and aborts under
+	 * -fsanitize=alignment). memcpy of a fixed small size lowers to a single
+	 * load — no hot-path cost. Mirrors ip_fragment_key() in PR #58.
+	 */
+	uint16_t sctp_dst;
+	memcpy(&sctp_dst, &sctp_hdr->dest, sizeof(sctp_dst));
+	if( sctp_dst != sctp_port_for_ngap )
 		return false;
 	return true;
 }

@@ -25,6 +25,14 @@ struct mmt_yahoo_header {
     uint32_t session_id;
 };
 
+/*
+ * Issue #59: this header overlays the byte-aligned packet->payload; reading
+ * len/service/status through a strict cast is a misaligned access (UB, aborts
+ * under BUILD=asan -fsanitize=alignment). This view lowers the alignment
+ * requirement to 1 for alignment-safe single-load reads. Mirrors PR #58 (#57).
+ */
+typedef struct mmt_yahoo_header __attribute__((aligned(1))) mmt_una_yahoo_header_t;
+
 /* This function checks the pattern '<Ymsg Command=' in line 8 of parsed lines or
  * in the payload*/
 static uint8_t mmt_check_for_YmsgCommand(uint16_t len, const uint8_t * ptr) {
@@ -48,7 +56,7 @@ static void mmt_int_yahoo_add_connection(ipacket_t * ipacket, mmt_protocol_type_
 
 static uint8_t check_ymsg(const uint8_t * payload, uint16_t payload_packet_len) {
 
-    const struct mmt_yahoo_header *yahoo = (struct mmt_yahoo_header *) payload;
+    const mmt_una_yahoo_header_t *yahoo = (const mmt_una_yahoo_header_t *) payload;
 
     uint16_t yahoo_len_parsed = 0;
     do {
@@ -59,7 +67,7 @@ static uint8_t check_ymsg(const uint8_t * payload, uint16_t payload_packet_len) 
         if (ylen >= payload_packet_len || yahoo_len_parsed >= payload_packet_len)
             break;
 
-        yahoo = (struct mmt_yahoo_header *) (payload + yahoo_len_parsed);
+        yahoo = (const mmt_una_yahoo_header_t *) (payload + yahoo_len_parsed);
     } while (mmt_memcmp(yahoo->YMSG_str, "YMSG", 4) == 0);
 
     if (yahoo_len_parsed == payload_packet_len)
@@ -75,7 +83,7 @@ static void mmt_search_yahoo_tcp(ipacket_t * ipacket) {
     struct mmt_internal_tcpip_id_struct *src = ipacket->internal_packet->src;
     struct mmt_internal_tcpip_id_struct *dst = ipacket->internal_packet->dst;
 
-    const struct mmt_yahoo_header *yahoo = (struct mmt_yahoo_header *) packet->payload;
+    const mmt_una_yahoo_header_t *yahoo = (const mmt_una_yahoo_header_t *) packet->payload;
     if (packet->payload_packet_len == 0) {
         return;
     }

@@ -158,6 +158,17 @@ extern "C" {
         uint16_t length;
     };
 
+    /*
+     * Issue #59: sctphdr / sctp_chunkhdr overlay "&ipacket->data[offset]" of the
+     * byte-aligned capture buffer; reading multi-byte fields (vtag, checksum,
+     * length, ...) through a strict cast is a misaligned access (UB, aborts under
+     * BUILD=asan -fsanitize=alignment). These views lower the alignment
+     * requirement to 1 for alignment-safe single-load reads. Mirrors the
+     * mmt_una_* views added in PR #58 (#57).
+     */
+    typedef struct sctphdr      __attribute__((aligned(1))) mmt_una_sctphdr_t;
+    typedef struct sctp_chunkhdr __attribute__((aligned(1))) mmt_una_sctp_chunkhdr_t;
+
     struct sctp_datahdr {
         uint8_t type;
         uint8_t flags;

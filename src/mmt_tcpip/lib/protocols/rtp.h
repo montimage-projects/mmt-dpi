@@ -47,6 +47,15 @@ extern "C" {
         uint32_t csrc;
     };
 
+    /*
+     * Issue #59: rtphdr overlays "&ipacket->data[offset]" of the byte-aligned
+     * capture buffer; reading seq/tstmp/ssrc through a strict cast is a
+     * misaligned access (UB, aborts under BUILD=asan -fsanitize=alignment). This
+     * view lowers the alignment requirement to 1 for alignment-safe single-load
+     * reads. Mirrors the mmt_una_* views added in PR #58 (#57).
+     */
+    typedef struct rtphdr __attribute__((aligned(1))) mmt_una_rtphdr_t;
+
     typedef struct rtp_payload_mime_type_struct {
         int encoding_code;
         int media_type;
