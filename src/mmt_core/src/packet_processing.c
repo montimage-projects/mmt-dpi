@@ -2572,7 +2572,18 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
                 ipacket->proto_headers_offset = &session->proto_headers_offset;
 
             }else{
-                // TODO: copy value
+                // Copy the session offsets into a per-packet heap buffer.
+                // proto_session_management runs once per protocol layer (see the
+                // index+1 recursion in proto_packet_process), so without freeing
+                // here every encapsulated/embedded session layer would leak the
+                // buffer allocated by the previous layer (clean_packet_with_reassembly
+                // frees only the final pointer). Free the previous buffer first, but
+                // never free the shared per-handler alias used as the initial value
+                // (&last_received_packet.proto_headers_offset, set in
+                // process_packet_with_reassembly) which is not heap-allocated.
+                if (ipacket->proto_headers_offset != &ipacket->mmt_handler->last_received_packet.proto_headers_offset) {
+                    mmt_free(ipacket->proto_headers_offset);
+                }
                 ipacket->proto_headers_offset      = (proto_hierarchy_t*)mmt_malloc(sizeof(proto_hierarchy_t));
                 memcpy(ipacket->proto_headers_offset,&session->proto_headers_offset,sizeof(proto_hierarchy_t));
             }
