@@ -79,43 +79,101 @@ extern "C" {
     ///////////// INTERNAL MACROS - MUST BE UPDATED WITH EVERY VERSION /////////////
     ////////////////////////////////////////////////////////////////////////////////
 
-    /* The current number of protocols is 432! bitmask is 7 * 64bits*/
+    /*
+     * Protocol bitmask: one bit per protocol id (bit p == protocol id p).
+     *
+     * The number of 64-bit words MUST cover the full protocol-id space, i.e.
+     * every id in [0, PROTO_MAX_IDENTIFIER). PROTO_MAX_IDENTIFIER (mmt_core.h)
+     * is currently 1000, which needs (1000 >> 6) + 1 = 16 words.
+     *
+     * The array was historically [10] (640 bits, valid ids 0..639), which
+     * silently overflowed for any id >= 640 -- e.g. PROTO_MQTT (657),
+     * PROTO_INT (658) and PROTO_QUIC_IETF (661) all index bitmask[10], a
+     * global-buffer-overflow (issues #51 and #52). Keep this value derived from
+     * PROTO_MAX_IDENTIFIER; the _Static_assert below guards it against drift in
+     * any translation unit that also sees mmt_core.h.
+     */
+#define MMT_PROTOCOL_BITMASK_NUM_WORDS 16
 
     typedef struct mmt_protocol_bitmask_struct {
-        uint64_t bitmask[10];
+        uint64_t bitmask[MMT_PROTOCOL_BITMASK_NUM_WORDS];
     } mmt_protocol_bitmask_t;
 #define MMT_PROTOCOL_BITMASK struct mmt_protocol_bitmask_struct
 
+#if defined(PROTO_MAX_IDENTIFIER) && !defined(__cplusplus) \
+    && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+    _Static_assert(MMT_PROTOCOL_BITMASK_NUM_WORDS * 64 >= PROTO_MAX_IDENTIFIER,
+        "mmt_protocol_bitmask is too small to hold all protocol ids up to "
+        "PROTO_MAX_IDENTIFIER; bump MMT_PROTOCOL_BITMASK_NUM_WORDS");
+#endif
+
+    /* Per-word helpers covering EVERY word of the (resized) bitmask. Driven by
+     * MMT_PROTOCOL_BITMASK_NUM_WORDS so full-width coverage cannot drift out of
+     * sync with the array size. Implemented as inline functions because the
+     * matching macros are used in expression context (e.g. MMT_BITMASK_COMPARE
+     * inside an if). */
+    static inline int mmt_bitmask_compare(const mmt_protocol_bitmask_t *a,
+                                          const mmt_protocol_bitmask_t *b) {
+        int _i;
+        for (_i = 0; _i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _i++)
+            if (a->bitmask[_i] & b->bitmask[_i]) return 1;
+        return 0;
+    }
+    static inline int mmt_bitmask_match(const mmt_protocol_bitmask_t *a,
+                                        const mmt_protocol_bitmask_t *b) {
+        int _i;
+        for (_i = 0; _i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _i++)
+            if (a->bitmask[_i] != b->bitmask[_i]) return 0;
+        return 1;
+    }
+    /* all protocols in b are also in a */
+    static inline int mmt_bitmask_contains_bitmask(const mmt_protocol_bitmask_t *a,
+                                                   const mmt_protocol_bitmask_t *b) {
+        int _i;
+        for (_i = 0; _i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _i++)
+            if ((a->bitmask[_i] & b->bitmask[_i]) != b->bitmask[_i]) return 0;
+        return 1;
+    }
+    static inline int mmt_bitmask_contains_negated_bitmask(const mmt_protocol_bitmask_t *a,
+                                                           const mmt_protocol_bitmask_t *b) {
+        int _i;
+        for (_i = 0; _i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _i++)
+            if ((a->bitmask[_i] & ~b->bitmask[_i]) != ~b->bitmask[_i]) return 0;
+        return 1;
+    }
+    static inline int mmt_bitmask_is_zero(const mmt_protocol_bitmask_t *a) {
+        int _i;
+        for (_i = 0; _i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _i++)
+            if (a->bitmask[_i] != 0) return 0;
+        return 1;
+    }
 
 
-#define MMT_SAVE_AS_BITMASK(bmask,value)           \
-  {                   \
-  (bmask).bitmask[0] = 0;               \
-  (bmask).bitmask[1] = 0;               \
-  (bmask).bitmask[2] = 0;               \
-  (bmask).bitmask[3] = 0;               \
-  (bmask).bitmask[4] = 0;               \
-  (bmask).bitmask[5] = 0;               \
-  (bmask).bitmask[6] = 0;               \
-  (bmask).bitmask[(value) >> 6] = (((uint64_t)1)<<((value) & 0x3F));     \
-}
 
-#define MMT_BITMASK_COMPARE(a,b) (((a).bitmask[0]) & ((b).bitmask[0]) || ((a).bitmask[1]) & ((b).bitmask[1]) || ((a).bitmask[2]) & ((b).bitmask[2]) || ((a).bitmask[3]) & ((b).bitmask[3]) || ((a).bitmask[4]) & ((b).bitmask[4]) || ((a).bitmask[5]) & ((b).bitmask[5]) || ((a).bitmask[6]) & ((b).bitmask[6]))
+#define MMT_SAVE_AS_BITMASK(bmask,value)                                        \
+  do {                                                                          \
+    int _mmt_bm_i;                                                              \
+    for (_mmt_bm_i = 0; _mmt_bm_i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _mmt_bm_i++)\
+      (bmask).bitmask[_mmt_bm_i] = 0;                                           \
+    (bmask).bitmask[(value) >> 6] = (((uint64_t)1) << ((value) & 0x3F));        \
+  } while (0)
+
+#define MMT_BITMASK_COMPARE(a,b) mmt_bitmask_compare(&(a),&(b))
 #define MMT_COMPARE_IPV6_ADDRESSES(x,y) ((((uint64_t *)(x))[0]) < (((uint64_t *)(y))[0]) || ( (((uint64_t *)(x))[0]) == (((uint64_t *)(y))[0]) && (((uint64_t *)(x))[1]) < (((uint64_t *)(y))[1])) )
-#define MMT_BITMASK_MATCH(a,b) (((a).bitmask[0]) == ((b).bitmask[0]) && ((a).bitmask[1]) == ((b).bitmask[1]) && ((a).bitmask[2]) == ((b).bitmask[2]) && ((a).bitmask[3]) == ((b).bitmask[3]) && ((a).bitmask[4]) == ((b).bitmask[4]) && ((a).bitmask[5]) == ((b).bitmask[5]) && ((a).bitmask[6]) == ((b).bitmask[6]))
+#define MMT_BITMASK_MATCH(a,b) mmt_bitmask_match(&(a),&(b))
 
     // all protocols in b are also in a
-#define MMT_BITMASK_CONTAINS_BITMASK(a,b)  ((((a).bitmask[0] & (b).bitmask[0]) == (b).bitmask[0]) && (((a).bitmask[1] & (b).bitmask[1]) == (b).bitmask[1]) && (((a).bitmask[2] & (b).bitmask[2]) == (b).bitmask[2]) && (((a).bitmask[3] & (b).bitmask[3]) == (b).bitmask[3]) && (((a).bitmask[4] & (b).bitmask[4]) == (b).bitmask[4]) && (((a).bitmask[5] & (b).bitmask[5]) == (b).bitmask[5]) && (((a).bitmask[6] & (b).bitmask[6]) == (b).bitmask[6]))
+#define MMT_BITMASK_CONTAINS_BITMASK(a,b) mmt_bitmask_contains_bitmask(&(a),&(b))
 
 
-#define MMT_BITMASK_ADD(a,b)   {(a).bitmask[0] |= (b).bitmask[0]; (a).bitmask[1] |= (b).bitmask[1]; (a).bitmask[2] |= (b).bitmask[2]; (a).bitmask[3] |= (b).bitmask[3]; (a).bitmask[4] |= (b).bitmask[4]; (a).bitmask[5] |= (b).bitmask[5]; (a).bitmask[6] |= (b).bitmask[6];}
-#define MMT_BITMASK_AND(a,b)   {(a).bitmask[0] &= (b).bitmask[0]; (a).bitmask[1] &= (b).bitmask[1]; (a).bitmask[2] &= (b).bitmask[2]; (a).bitmask[3] &= (b).bitmask[3]; (a).bitmask[4] &= (b).bitmask[4]; (a).bitmask[5] &= (b).bitmask[5]; (a).bitmask[6] &= (b).bitmask[6];}
-#define MMT_BITMASK_DEL(a,b)   {(a).bitmask[0] = (a).bitmask[0] & (~((b).bitmask[0])); (a).bitmask[1] = (a).bitmask[1] & ( ~((b).bitmask[1])); (a).bitmask[2] = (a).bitmask[2] & (~((b).bitmask[2])); (a).bitmask[3] = (a).bitmask[3] & (~((b).bitmask[3])); (a).bitmask[4] = (a).bitmask[4] & (~((b).bitmask[4])); (a).bitmask[5] = (a).bitmask[5] & (~((b).bitmask[5])); (a).bitmask[6] = (a).bitmask[6] & (~((b).bitmask[6]));}
+#define MMT_BITMASK_ADD(a,b)   do { int _mmt_bm_i; for (_mmt_bm_i = 0; _mmt_bm_i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _mmt_bm_i++) (a).bitmask[_mmt_bm_i] |= (b).bitmask[_mmt_bm_i]; } while (0)
+#define MMT_BITMASK_AND(a,b)   do { int _mmt_bm_i; for (_mmt_bm_i = 0; _mmt_bm_i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _mmt_bm_i++) (a).bitmask[_mmt_bm_i] &= (b).bitmask[_mmt_bm_i]; } while (0)
+#define MMT_BITMASK_DEL(a,b)   do { int _mmt_bm_i; for (_mmt_bm_i = 0; _mmt_bm_i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _mmt_bm_i++) (a).bitmask[_mmt_bm_i] &= ~((b).bitmask[_mmt_bm_i]); } while (0)
 
-#define MMT_BITMASK_SET(a,b)   {(a).bitmask[0] = ((b).bitmask[0]); (a).bitmask[1] = (b).bitmask[1]; (a).bitmask[2] = (b).bitmask[2]; (a).bitmask[3] = (b).bitmask[3]; (a).bitmask[4] = (b).bitmask[4]; (a).bitmask[5] = (b).bitmask[5]; (a).bitmask[6] = (b).bitmask[6];}
+#define MMT_BITMASK_SET(a,b)   do { int _mmt_bm_i; for (_mmt_bm_i = 0; _mmt_bm_i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _mmt_bm_i++) (a).bitmask[_mmt_bm_i] = (b).bitmask[_mmt_bm_i]; } while (0)
 
-#define MMT_BITMASK_RESET(a)   {((a).bitmask[0]) = 0; ((a).bitmask[1]) = 0; ((a).bitmask[2]) = 0; ((a).bitmask[3]) = 0; ((a).bitmask[4]) = 0; ((a).bitmask[5]) = 0; ((a).bitmask[6]) = 0;}
-#define MMT_BITMASK_SET_ALL(a)   {((a).bitmask[0]) = 0xFFFFFFFFFFFFFFFFULL; ((a).bitmask[1]) = 0xFFFFFFFFFFFFFFFFULL; ((a).bitmask[2]) = 0xFFFFFFFFFFFFFFFFULL; ((a).bitmask[3]) = 0xFFFFFFFFFFFFFFFFULL; ((a).bitmask[4]) = 0xFFFFFFFFFFFFFFFFULL; ((a).bitmask[5]) = 0xFFFFFFFFFFFFFFFFULL; ((a).bitmask[6]) = 0xFFFFFFFFFFFFFFFFULL;}
+#define MMT_BITMASK_RESET(a)   do { int _mmt_bm_i; for (_mmt_bm_i = 0; _mmt_bm_i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _mmt_bm_i++) (a).bitmask[_mmt_bm_i] = 0; } while (0)
+#define MMT_BITMASK_SET_ALL(a) do { int _mmt_bm_i; for (_mmt_bm_i = 0; _mmt_bm_i < MMT_PROTOCOL_BITMASK_NUM_WORDS; _mmt_bm_i++) (a).bitmask[_mmt_bm_i] = 0xFFFFFFFFFFFFFFFFULL; } while (0)
 
     /* this is a very very tricky macro *g*,
      * the compiler will remove all shifts here if the protocol is static...
@@ -130,12 +188,13 @@ extern "C" {
   ((bmask).bitmask[(value) >> 6] & (((uint64_t)1)<<((value) & 0x3F)))      \
 
 
-#define MMT_BITMASK_DEBUG_OUTPUT_BITMASK_STRING  "%llu , %llu , %llu, %llu, %llu, %llu, %llu"
-#define MMT_BITMASK_DEBUG_OUTPUT_BITMASK_VALUE(bm) (bm).bitmask[0] , (bm).bitmask[1] , (bm).bitmask[2], (bm).bitmask[3], (bm).bitmask[4], (bm).bitmask[5], (bm).bitmask[6]
+/* Debug helper: prints all MMT_PROTOCOL_BITMASK_NUM_WORDS (16) words. */
+#define MMT_BITMASK_DEBUG_OUTPUT_BITMASK_STRING  "%llu , %llu , %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu, %llu"
+#define MMT_BITMASK_DEBUG_OUTPUT_BITMASK_VALUE(bm) (bm).bitmask[0] , (bm).bitmask[1] , (bm).bitmask[2], (bm).bitmask[3], (bm).bitmask[4], (bm).bitmask[5], (bm).bitmask[6], (bm).bitmask[7], (bm).bitmask[8], (bm).bitmask[9], (bm).bitmask[10], (bm).bitmask[11], (bm).bitmask[12], (bm).bitmask[13], (bm).bitmask[14], (bm).bitmask[15]
 
-#define MMT_BITMASK_IS_ZERO(a) ( (a).bitmask[0] == 0 && (a).bitmask[1] == 0 && (a).bitmask[2] == 0 && (a).bitmask[3] == 0 && (a).bitmask[4] == 0 && (a).bitmask[5] == 0 && (a).bitmask[6] == 0)
+#define MMT_BITMASK_IS_ZERO(a) mmt_bitmask_is_zero(&(a))
 
-#define MMT_BITMASK_CONTAINS_NEGATED_BITMASK(a,b) ((((a).bitmask[0] & ~(b).bitmask[0]) == ~(b).bitmask[0]) && (((a).bitmask[1] & ~(b).bitmask[1]) == ~(b).bitmask[1]) && (((a).bitmask[2] & ~(b).bitmask[2]) == ~(b).bitmask[2]) && (((a).bitmask[3] & ~(b).bitmask[3]) == ~(b).bitmask[3]) && (((a).bitmask[4] & ~(b).bitmask[4]) == ~(b).bitmask[4]) && (((a).bitmask[5] & ~(b).bitmask[5]) == ~(b).bitmask[5]) && (((a).bitmask[6] & ~(b).bitmask[6]) == ~(b).bitmask[6]))
+#define MMT_BITMASK_CONTAINS_NEGATED_BITMASK(a,b) mmt_bitmask_contains_negated_bitmask(&(a),&(b))
 
 #define MMT_PARSE_PACKET_LINE_INFO(ipacket, packet)                        \
                         if (packet->packet_lines_parsed_complete != 1) {        \
