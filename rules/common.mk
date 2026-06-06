@@ -59,9 +59,18 @@ LDLIBS  := -lm
 ifeq ($(shell pkg-config --exists libnghttp2 2>/dev/null && echo yes),yes)
 NGHTTP2_CFLAGS := $(shell pkg-config --cflags libnghttp2)
 NGHTTP2_LIBS   := $(shell pkg-config --libs libnghttp2)
-else
+else ifeq ($(shell printf 'int main(void){return 0;}' | $(CC) -x c - -lnghttp2 -o /dev/null 2>/dev/null && echo yes),yes)
+# No pkg-config metadata, but the linker can still locate libnghttp2.
 NGHTTP2_CFLAGS := -I/usr/include/nghttp2
 NGHTTP2_LIBS   := -lnghttp2
+else
+# libnghttp2 is not installed. No built MMT library references any nghttp2_*
+# symbol (the flag was historically a silent no-op on the compile line), so we
+# emit nothing here rather than force "-lnghttp2" onto the link line and break
+# the build where the library is absent (e.g. minimal CI images). When the
+# library IS present it is still routed to the link line by the branches above.
+NGHTTP2_CFLAGS :=
+NGHTTP2_LIBS   :=
 endif
 
 # libxml2 (only the ENABLESEC security/fuzz engines need it): replace the
