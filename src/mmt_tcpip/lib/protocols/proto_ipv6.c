@@ -207,7 +207,7 @@ int build_ipv6_session_key(ipacket_t * ipacket, int offset, mmt_session_key_t * 
 
     ipv6_session->next_proto = next_hdr;
 
-    if (ipacket->p_hdr->caplen >= (offset + next_offset + 2)) { //The packet contains the first 2 octets of the next header (sufficient to get port numbers)
+    if (ipacket->p_hdr->caplen >= (offset + next_offset + 4)) { //The packet contains the 4 L4 octets (source + destination ports) that follow the IPv6 header chain — both 16-bit ports are read below, so all 4 must be captured
         // tcp / udp detection
         if (ipv6_session->next_proto == 6) {
             const struct tcphdr *tcph = (struct tcphdr *) & ipacket->data[offset + next_offset];
@@ -252,6 +252,27 @@ int ip6_session_cleanup_on_timeout(void * protocol_context, mmt_session_t * time
     return 0;
 }
 
+/* Compute the IPv6 fragment-reassembly hash key from the low 32 bits of the
+ * source and destination addresses and the fragment identification.
+ *
+ * The low 32-bit words are extracted with memcpy from the last four octets of
+ * each 16-byte address (s6_addr[12..15]). The previous code derived them with
+ * `*(uint64_t *)(&ip6h->saddr + 12)`: because `&ip6h->saddr` has type
+ * `struct in6_addr *`, the `+ 12` scaled by sizeof(struct in6_addr) (16) and
+ * read 192 bytes past the address — an out-of-bounds, also-unaligned 64-bit
+ * load. All three components are folded into the 64-bit key without discarding
+ * any bits (the old double `<<= 32` dropped the first address word). */
+mmt_key_t ip6_fragment_key(const struct ipv6hdr *ip6h,
+                           const struct ext_hdr_fragment *frag_header)
+{
+    uint32_t saddr_low, daddr_low;
+    memcpy(&saddr_low, &ip6h->saddr.s6_addr[12], sizeof(saddr_low));
+    memcpy(&daddr_low, &ip6h->daddr.s6_addr[12], sizeof(daddr_low));
+    mmt_key_t key = ((mmt_key_t) saddr_low << 32) | (mmt_key_t) daddr_low;
+    key ^= (mmt_key_t) frag_header->ident;
+    return key;
+}
+
 static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
 {
     mmt_handler_t *mmt = ipacket->mmt_handler;
@@ -272,11 +293,7 @@ static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
     uint8_t more_fragment = ntohs(frag_header->flag) & 0x0001;
     uint16_t frag_offset = ntohs(frag_header->flag) >> 3;
 
-    key = *(uint64_t *)(&ip6h->saddr + 12);
-    key <<= 32;
-    key |= *(uint64_t *)(&ip6h->daddr + 12);
-    key <<= 32;
-    key |= frag_header->ident;
+    key = ip6_fragment_key(ip6h, frag_header);
     if (!hashmap_get(map, key, (void **)&dg))
     {
         dg = ipv6_dgram_alloc();

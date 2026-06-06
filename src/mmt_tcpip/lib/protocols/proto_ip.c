@@ -402,20 +402,29 @@ int _extract_jitter(const ipacket_t * packet, unsigned proto_index, attribute_t 
  */
 
 
-static inline uint8_t build_ipv4_session_key(u_char * ip_packet, mmt_session_key_t * ipv4_session) {
+uint8_t build_ipv4_session_key(u_char * ip_packet, unsigned ip_packet_len, mmt_session_key_t * ipv4_session) {
     uint8_t retval;
     uint16_t sport = 0, dport = 0;
     struct iphdr * iph = (struct iphdr *) ip_packet;
     ipv4_session->next_proto = iph->protocol;
-    /* tcp / udp detection */
+    /* tcp / udp detection — only read the L4 source/dest ports when the
+     * captured data actually holds the 4 port octets that follow the IP
+     * header. ihl is a 4-bit field (max 60 bytes), so the header offset plus
+     * the 4 port octets must fit within ip_packet_len; otherwise the ports
+     * default to 0 (no out-of-bounds read on a truncated capture). */
+    unsigned l4_off = (unsigned) iph->ihl * 4;
     if (ipv4_session->next_proto == 6) {
-        const struct tcphdr *tcph = (struct tcphdr *) & ip_packet[iph->ihl * 4];
-        sport = ntohs(tcph->source);
-        dport = ntohs(tcph->dest);
+        if (l4_off + 4u <= ip_packet_len) {
+            const struct tcphdr *tcph = (struct tcphdr *) & ip_packet[l4_off];
+            sport = ntohs(tcph->source);
+            dport = ntohs(tcph->dest);
+        }
     } else if (ipv4_session->next_proto == 17) {
-        const struct udphdr *udph = (struct udphdr *) & ip_packet[iph->ihl * 4];
-        sport = ntohs(udph->source);
-        dport = ntohs(udph->dest);
+        if (l4_off + 4u <= ip_packet_len) {
+            const struct udphdr *udph = (struct udphdr *) & ip_packet[l4_off];
+            sport = ntohs(udph->source);
+            dport = ntohs(udph->dest);
+        }
     }
     // ipv4_session->lower_ip = (void*)mmt_malloc(sizeof(iph->saddr));
     // ipv4_session->higher_ip = (void*)mmt_malloc(sizeof(iph->daddr));
@@ -1293,6 +1302,19 @@ int ip_session_cleanup_on_timeout(void * protocol_context, mmt_session_t * timed
     return 0;
 }
 
+/* Compute the IPv4 fragment-reassembly hash key from the source/destination
+ * addresses and the IP identification field. All three are mixed into the
+ * 64-bit key without discarding any of them: the previous formulation shifted
+ * the key left by 32 bits a second time after folding in daddr, which silently
+ * dropped saddr entirely (so unrelated datagrams sharing a daddr and id would
+ * collide on the same reassembly entry). */
+mmt_key_t ip_fragment_key(const struct iphdr *ip)
+{
+    mmt_key_t key = ((mmt_key_t) ip->saddr << 32) | (mmt_key_t) ip->daddr;
+    key ^= (mmt_key_t) ip->id;
+    return key;
+}
+
 static inline int ip_process_fragment( ipacket_t *ipacket, unsigned index )
 {
     mmt_handler_t *mmt = ipacket->mmt_handler;
@@ -1310,11 +1332,7 @@ static inline int ip_process_fragment( ipacket_t *ipacket, unsigned index )
 
     const struct iphdr *ip = (struct iphdr *)(ipacket->data + off);
 
-    key   = ip->saddr;
-    key <<= 32;
-    key  |= ip->daddr;
-    key <<= 32;
-    key  |= ip->id;
+    key = ip_fragment_key( ip );
     if ( !hashmap_get( map, key, (void**)&dg )) {
         dg = ip_dgram_alloc();
         hashmap_insert_kv( map, key, dg );
@@ -1403,7 +1421,8 @@ void * ip_sessionizer(void * protocol_context, ipacket_t * ipacket, unsigned ind
     ip_hdr = (struct iphdr *) & ipacket->data[offset];
 
     // Get the session of this packet and set it to the packet's session
-    packet_direction = build_ipv4_session_key((u_char *) ip_hdr, &ipv4_session_key);
+    packet_direction = build_ipv4_session_key((u_char *) ip_hdr,
+            ipacket->p_hdr->caplen - (unsigned) offset, &ipv4_session_key);
 
     mmt_session_t * session = get_session(protocol_context, & ipv4_session_key, ipacket, is_new_session);
     if (session) {
