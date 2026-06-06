@@ -41,20 +41,36 @@ struct ssl_extension_struct {
     uint8_t val;
 };
 
+/*
+ * Read a big-endian (network-order) 16-bit value at byte offset `off`.
+ * Equivalent to ntohs(get_u16(payload, off)) but byte-assembled, so it is
+ * safe on payload pointers that are not 2-byte aligned. The get_u16 macro
+ * casts to uint16_t* and dereferences, which is undefined behaviour on a
+ * misaligned address (UBSan -fsanitize=alignment); TLS record fields sit at
+ * odd offsets (1 and 3) so that fires on real captures (issue #5, H2).
+ */
+static inline uint16_t ssl_read_u16_be(const uint8_t * payload, int off){
+    return (uint16_t)(((uint16_t)payload[off] << 8) | (uint16_t)payload[off + 1]);
+}
+
 int ssl_is_tls_record_header(const uint8_t * payload, int payload_len){
-    if(payload_len == 0) return 0;
+    /* A TLS/SSL record header is 5 bytes: 1 content-type + 2 version +
+     * 2 length. Reject anything shorter before reading any of those fields,
+     * otherwise the content-type/version/length reads below run off the end
+     * of the captured payload (issue #5, H2). */
+    if(payload_len < 5) return 0;
     uint8_t content_type = payload[0];
     if(content_type <20 || content_type > 24){
         // Incorrect content type
         return 0;
     }
-    uint16_t version = ntohs(get_u16(payload, 1));
+    uint16_t version = ssl_read_u16_be(payload, 1);
     if(version < 768 || version > 771){
         // Incorrect version: 3.0 (768), 1.0 (769), 1.1 (770), 1.2 (771)
         return 0;
     }
-    
-    uint16_t length = ntohs(get_u16(payload, 3));
+
+    uint16_t length = ssl_read_u16_be(payload, 3);
     if(payload_len < length){
         // Invalid payload length
         return 0;
@@ -70,9 +86,14 @@ int tls_get_number_records(const ipacket_t * ipacket){
     int offset = packet->payload_packet_len - payload_len;
     if(ssl_is_tls_record_header(packet->payload + offset,payload_len)){
         // SSL packet
-        while(payload_len > 0){
+        /* Require a full 5-byte record header to remain before reading the
+         * record length, so the walk can never advance past the payload end
+         * (issue #5, H2). The header re-check at the bottom enforces the same
+         * bound for each subsequent record; this guard makes the top-of-loop
+         * read self-evidently safe regardless of that invariant. */
+        while(payload_len >= 5){
             nb_record++;
-            int tls_total_length = ntohs(get_u16(packet->payload + offset, 3)) + 5;
+            int tls_total_length = ssl_read_u16_be(packet->payload + offset, 3) + 5;
             offset += tls_total_length;
             payload_len -= tls_total_length;
             if(ssl_is_tls_record_header(packet->payload + offset,payload_len)!=1){
