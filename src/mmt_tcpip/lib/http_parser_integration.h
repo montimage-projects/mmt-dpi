@@ -67,8 +67,10 @@ inline static void * init_stream_processor()
  * Frees an internal HTTP parsing processor store.
  **/
 inline static void * close_stream_processor(stream_processor_t * sp) {
-  if(sp->hfield!=NULL) free(sp->hfield);
-  if(sp->hvalue!=NULL) free(sp->hvalue);
+  // Issue #20 (M5): hfield/hvalue are now allocated via mmt_realloc(), so they
+  // must be released with mmt_free() (reconciled malloc/free -> mmt_*).
+  if(sp->hfield!=NULL) mmt_free(sp->hfield);
+  if(sp->hvalue!=NULL) mmt_free(sp->hvalue);
   mmt_free( sp );
   return NULL;
 }

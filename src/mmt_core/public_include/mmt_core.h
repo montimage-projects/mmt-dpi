@@ -1024,6 +1024,28 @@ MMTAPI void* MMTCALL mmt_malloc  ( size_t size );
 MMTAPI void* MMTCALL mmt_realloc ( void *x, size_t size );
 MMTAPI void  MMTCALL mmt_free    ( void *x );
 
+/**
+ * Per-flow arena (slab) allocator.
+ *
+ * A bump-pointer block allocator intended for per-session/per-flow scratch
+ * storage (e.g. the TCP segment list): allocations are carved from large blocks
+ * and are NEVER individually freed - the whole arena is released in one shot
+ * with mmt_arena_destroy(). This collapses per-packet malloc/free churn into a
+ * single create/destroy pair per flow. Returned blocks are 16-byte aligned and
+ * carry NO size prefix (unlike mmt_malloc), so they must not be passed to
+ * mmt_free()/mmt_realloc().
+ */
+typedef struct mmt_arena_s mmt_arena_t;
+
+/** Create an arena. block_size is the default block payload (0 -> 16 KiB). */
+MMTAPI mmt_arena_t* MMTCALL mmt_arena_create ( size_t block_size );
+/** Carve `size` aligned bytes from the arena (NULL on OOM). */
+MMTAPI void*        MMTCALL mmt_arena_alloc  ( mmt_arena_t *arena, size_t size );
+/** Release all but one block and rewind, so the arena can be reused. */
+MMTAPI void         MMTCALL mmt_arena_reset  ( mmt_arena_t *arena );
+/** Free the arena and every block carved from it. */
+MMTAPI void         MMTCALL mmt_arena_destroy( mmt_arena_t *arena );
+
 static inline int mmt_memcmp( const void *x, const void *y, size_t size ){
     const char *s1 = (char*)x, *s2 = (char*)y;
     int ret;

@@ -27,16 +27,14 @@ int header_field_cb (http_parser *p, const char *buf, size_t len)
 {
   stream_processor_t * sp = (stream_processor_t *) p->data;
 
-  // if(len>=1024){
-  //   fprintf(stderr, "[error] Header field length is too big: %zu - %s\n", len,buf);
-  //   return 0;
-  // }
-  if(sp->hfield!=NULL){
-    free(sp->hfield);
-  }
-  sp->hfield = malloc((len+1)*sizeof(char));
-  if(sp->hfield == NULL) return 0;
-  strncpy(sp->hfield, buf, len);
+  // Issue #20 (M5): reuse the header-field buffer across headers instead of the
+  // free()+malloc() churn on every field. mmt_realloc() reuses the existing
+  // allocation in place whenever it is already large enough (no allocator call),
+  // and grows it only when a longer field arrives. Reconciled malloc -> mmt_*.
+  char * nf = (char *) mmt_realloc(sp->hfield, len + 1);
+  if(nf == NULL) return 0; // old buffer left intact, freed at teardown
+  sp->hfield = nf;
+  memcpy(sp->hfield, buf, len);
   sp->hfield[len] = '\0';
   //fprintf(stdout, "Header: %s : ", sp->hfield);
   return 0;
@@ -50,13 +48,12 @@ int header_field_cb (http_parser *p, const char *buf, size_t len)
 int header_value_cb (http_parser *p, const char *buf, size_t len)
 {
   stream_processor_t * sp = (stream_processor_t *) p->data;
-  if(sp->hvalue!=NULL){
-    free(sp->hvalue);
-  }
-  sp->hvalue = malloc((len+1)*sizeof(char));
-  if (sp->hvalue == NULL)
-    return 0;
-  strncpy(sp->hvalue, buf, len);
+  // Issue #20 (M5): reuse the header-value buffer across headers (see
+  // header_field_cb). mmt_realloc() grows only when a longer value arrives.
+  char * nv = (char *) mmt_realloc(sp->hvalue, len + 1);
+  if (nv == NULL) return 0; // old buffer left intact, freed at teardown
+  sp->hvalue = nv;
+  memcpy(sp->hvalue, buf, len);
   sp->hvalue[len] = '\0';
 
   mmt_generic_header_line_t hdr; // Just to return a positive value :)

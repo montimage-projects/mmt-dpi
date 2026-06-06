@@ -2530,6 +2530,7 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
                 session->session_payload[1] = NULL;
                 session->tcp_segment_list[0] = NULL;
                 session->tcp_segment_list[1] = NULL;
+                session->segment_arena = NULL; // Issue #20: lazily created on first TCP segment
                 mmt_handler->sessions_count += 1;
                 mmt_handler->active_sessions_count += 1;
 

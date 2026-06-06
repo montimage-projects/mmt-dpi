@@ -407,8 +407,13 @@ static attribute_metadata_t tcp_attributes_metadata[TCP_ATTRIBUTES_NB] = {
 };
 
 void clean_session_payload(mmt_session_t * session, unsigned index){
-    tcp_seg_free_list(session->tcp_segment_list[session->last_packet_direction]);
-    tcp_seg_free_list(session->tcp_segment_list[!session->last_packet_direction]);
+    // Issue #20 (P2): the TCP segment nodes and their payload copies (both
+    // directions) live in a single per-flow arena - free them all in one shot
+    // instead of walking each list and free()-ing every node/buffer.
+    mmt_arena_destroy((mmt_arena_t *) session->segment_arena);
+    session->segment_arena = NULL;
+    session->tcp_segment_list[0] = NULL;
+    session->tcp_segment_list[1] = NULL;
     if (session->session_payload[session->last_packet_direction] ) free(session->session_payload[session->last_packet_direction]);
     if (session->session_payload[!session->last_packet_direction] ) free(session->session_payload[!session->last_packet_direction]);
 }
@@ -553,11 +558,17 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
     }
     // Update segment list
     if (packet->payload_packet_len > 0) {
-        // Copy data
-        uint8_t * data = (uint8_t * )malloc(packet->payload_packet_len * sizeof(uint8_t));
-        memcpy(data, packet->payload, packet->payload_packet_len);
-        // Create a new segment
-        tcp_seg_t * new_seg = tcp_seg_new(ipacket->packet_id, ntohl(packet->tcp->seq), ntohl(packet->tcp->seq) + packet->payload_packet_len, ntohl(packet->tcp->ack) ,packet->payload_packet_len, data);
+        // Issue #20 (P2): back the per-segment node + its payload copy with a
+        // per-flow arena so the per-packet malloc/free churn collapses into a
+        // single mmt_arena_destroy() on session teardown (clean_session_payload).
+        if (ipacket->session->segment_arena == NULL) {
+            ipacket->session->segment_arena = (void*) mmt_arena_create(0);
+        }
+        mmt_arena_t * arena = (mmt_arena_t *) ipacket->session->segment_arena;
+        // Create a new segment (node + payload copy carved from the arena). The
+        // arena is reclaimed wholesale on teardown, so segments that fail to
+        // insert (duplicates) are simply abandoned in place - never freed here.
+        tcp_seg_t * new_seg = tcp_seg_new_in_arena(arena, ipacket->packet_id, ntohl(packet->tcp->seq), ntohl(packet->tcp->seq) + packet->payload_packet_len, ntohl(packet->tcp->ack) ,packet->payload_packet_len, packet->payload);
         if (new_seg != NULL){
             if (ipacket->session->tcp_segment_list[ipacket->session->last_packet_direction] == NULL){
                 ipacket->session->tcp_segment_list[ipacket->session->last_packet_direction] = (void*) new_seg;
@@ -565,9 +576,8 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
             } else {
                 tcp_seg_t * root = tcp_seg_insert((tcp_seg_t *) ipacket->session->tcp_segment_list[ipacket->session->last_packet_direction], new_seg);
                 if ( root == NULL){
-                    // Cannot insert new segment, need to do something
-                    // fprintf(stderr,"[tcp_pre_classification_function] Cannot insert new segment: %lu\n",ipacket->packet_id);
-                    tcp_seg_free(new_seg);
+                    // Cannot insert new segment (duplicate seq): abandon it in
+                    // the arena - it will be reclaimed on session teardown.
                 } else {
                     // Do something if success
                     ipacket->session->tcp_segment_list[ipacket->session->last_packet_direction] = root;

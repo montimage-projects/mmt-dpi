@@ -3,6 +3,7 @@
  * to store the TCP segment
  */
 #include "tcp_segment.h"
+#include "mmt_core.h"   // Issue #20: per-flow arena allocator (mmt_arena_*)
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
@@ -33,6 +34,28 @@ tcp_seg_t * tcp_seg_new(uint64_t packet_id, uint64_t seq, uint64_t next_seq, uin
 		new_seg->prev = NULL;
 		return new_seg;
 	}
+}
+
+/**
+ * Issue #20 (P2): create a TCP segment with its node and payload copy carved
+ * from a per-flow arena (one bump-allocation each, no per-segment malloc/free).
+ */
+tcp_seg_t * tcp_seg_new_in_arena(struct mmt_arena_s * arena, uint64_t packet_id, uint64_t seq, uint64_t next_seq, uint64_t ack, uint16_t len, const uint8_t * payload){
+	if (arena == NULL) return NULL;
+	uint8_t * data = (uint8_t *) mmt_arena_alloc((mmt_arena_t *) arena, len);
+	if (data == NULL) return NULL;
+	memcpy(data, payload, len);
+	tcp_seg_t * new_seg = (tcp_seg_t *) mmt_arena_alloc((mmt_arena_t *) arena, sizeof(tcp_seg_t));
+	if (new_seg == NULL) return NULL;
+	new_seg->packet_id = packet_id;
+	new_seg->seq = seq;
+	new_seg->next_seq = next_seq;
+	new_seg->ack = ack;
+	new_seg->len = len;
+	new_seg->data = data;
+	new_seg->next = NULL;
+	new_seg->prev = NULL;
+	return new_seg;
 }
 
 /**
