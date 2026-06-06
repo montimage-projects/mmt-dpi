@@ -19,6 +19,7 @@
 #include <inttypes.h>
 #include <ctype.h>
 #include <string.h>
+#include <pthread.h>
 // #include "libntoh.h"
 bool session_timeout_comp_fn_pt(uint32_t l_timeout, uint32_t r_timeout) {
     return (l_timeout < r_timeout);
@@ -92,6 +93,30 @@ static protocol_stack_t dummy_stack = {
     0, "dummy", dummy_stack_classification, NULL, NULL
 };
 
+/*
+ * Issue #22 (thread safety) - global protocol registry.
+ *
+ * `configured_protocols` is the process-wide table of protocol descriptors. It
+ * is populated at init time (init_extraction) and then mutated only at
+ * (un)registration time: register_protocol / unregister_protocol_by_id /
+ * unregister_protocol_by_name flip the per-protocol `is_registered` flag and
+ * (for registration) insert into `configured_protocols_names_map`.
+ *
+ * The per-packet hot path NEVER reads this global table: mmt_init_handler()
+ * snapshots the descriptor pointers into each handler's own
+ * `mmt_handler->configured_protocols[]` array, and packet processing reads only
+ * that per-handler snapshot. Therefore the registration mutex below is taken
+ * only on the (un)registration mutation paths - never on the hot path - so the
+ * lock-free read fast path is preserved.
+ *
+ * Threading contract (see docs/THREADING.md): init_extraction() and all
+ * protocol/plugin (un)registration must complete on a single thread before any
+ * worker thread starts. One mmt_handler_t per worker thread; handlers must not
+ * be shared across threads. The mutex makes the registration mutations safe for
+ * defensive callers that register concurrently, but the documented
+ * init-before-workers ordering is what keeps the read path lock-free.
+ */
+static pthread_mutex_t configured_protocols_mutex = PTHREAD_MUTEX_INITIALIZER;
 static protocol_t *configured_protocols[PROTO_MAX_IDENTIFIER];
 static void * mmt_configured_handlers_map;
 // Issue #19: protocol-name -> protocol_t* index, built at registration. Replaces
@@ -1117,6 +1142,11 @@ void register_protocol_session_attributes(protocol_t *proto) {
 }
 
 int register_protocol(protocol_t *proto, uint32_t proto_id) {
+    // Issue #22: guard the global registry mutation. Held only on this
+    // registration path, never on the per-packet hot path (which reads the
+    // per-handler snapshot, see configured_protocols declaration).
+    int retval = PROTO_NOT_REGISTERED;
+    pthread_mutex_lock(&configured_protocols_mutex);
     if (is_free_protocol_id_for_registractionl(proto_id)) {
         if (proto->proto_id == proto_id && proto == configured_protocols[proto_id]) {
             register_protocol_stats_attributes(proto);
@@ -1131,32 +1161,42 @@ int register_protocol(protocol_t *proto, uint32_t proto_id) {
                     find_key_value(configured_protocols_names_map, (void *) proto->protocol_name) == NULL) {
                 insert_key_value(configured_protocols_names_map, (void *) proto->protocol_name, (void *) proto);
             }
-            return PROTO_REGISTERED;
+            retval = PROTO_REGISTERED;
         }
     }
-    return PROTO_NOT_REGISTERED;
+    pthread_mutex_unlock(&configured_protocols_mutex);
+    return retval;
 }
 
 int unregister_protocol_by_id(uint32_t proto_id) {
+    // Issue #22: guard the global registry mutation (see register_protocol).
+    int retval = 0;
+    pthread_mutex_lock(&configured_protocols_mutex);
     if (!is_free_protocol_id_for_registractionl(proto_id)) {
         configured_protocols[proto_id]->is_registered = PROTO_NOT_REGISTERED;
-        return 1;
+        retval = 1;
     }
-    return 0;
+    pthread_mutex_unlock(&configured_protocols_mutex);
+    return retval;
 }
 
 int unregister_protocol_by_name(char* proto_name) {
+    // Issue #22: guard the global registry mutation (see register_protocol).
     int i=0;
+    int retval = 0;
+    pthread_mutex_lock(&configured_protocols_mutex);
     for (i =0;i<PROTO_MAX_IDENTIFIER;i++){
         if (!is_free_protocol_id_for_registractionl(i)) {
             if(mmt_strcasecmp(configured_protocols[i]->protocol_name,proto_name) == 0){
                 configured_protocols[i]->is_registered = PROTO_NOT_REGISTERED;
-                return 1;
+                retval = 1;
+                break;
             }
         }
 
     }
-    return 0;
+    pthread_mutex_unlock(&configured_protocols_mutex);
+    return retval;
 }
 
 int init_plugins() {

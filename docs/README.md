@@ -20,5 +20,6 @@
 * [Data Types](./Data-Types.md)
 * [Prepare for a new released version.md](./Prepare-for-a-new-released-version.md)
 * [Memory Management](./Memory-Management.md)
+* [Threading Model](./THREADING.md)
 * [Discussion Points](./Discussion-Points.md)
 * [Exported Symbols](./Exported-Symbols.md)

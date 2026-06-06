@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include "plugin_defs.h"
 #include "plugins_engine.h"
 #include "packet_processing.h"
@@ -14,6 +15,21 @@ static int load_filter( const struct dirent *entry )
     return( ext && !strcmp( ext, ".so" ));
 }
 #endif
+
+/*
+ * Issue #22 (thread safety) - global plugin registry.
+ *
+ * `plugin_handlers_list` is a process-wide singly linked list of loaded plugin
+ * handles. It is mutated only at plugin-load time (load_plugin) and at teardown
+ * (close_plugins); the per-packet processing hot path never touches it.
+ *
+ * Threading contract (see docs/THREADING.md): plugin loading and teardown must
+ * complete on a single thread before any worker thread starts processing
+ * packets. The mutex below guards the list mutations so that a defensive caller
+ * that loads plugins concurrently (or races load against teardown) does not
+ * corrupt the list head; it is NOT taken on any read/hot path.
+ */
+static pthread_mutex_t plugin_handlers_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static struct plugin_handler_struct * plugin_handlers_list = NULL;
 
@@ -129,12 +145,20 @@ int load_plugin(char * plugin_path_name) {
     }
 #endif
     retval = init_proto_fct();
+    /* Issue #22: guard the registry mutation only (not init_proto_fct, which
+     * takes the configured_protocols lock separately - keeping the two locks
+     * un-nested avoids any lock-ordering hazard). */
+    pthread_mutex_lock(&plugin_handlers_list_mutex);
     plugin_handler->next = plugin_handlers_list;
     plugin_handlers_list = plugin_handler;
+    pthread_mutex_unlock(&plugin_handlers_list_mutex);
     return retval;
 }
 
 void close_plugins() {
+    /* Issue #22: guard the whole teardown so it cannot race a concurrent
+     * load_plugin appending to the list head. */
+    pthread_mutex_lock(&plugin_handlers_list_mutex);
     struct plugin_handler_struct * temp_plugin = plugin_handlers_list;
     while (temp_plugin != NULL) {
         struct plugin_handler_struct * temp_plugin_to_free = temp_plugin;
@@ -164,4 +188,5 @@ void close_plugins() {
     }
     //Finally set the plugins list pointer to NULL
     plugin_handlers_list = NULL;
+    pthread_mutex_unlock(&plugin_handlers_list_mutex);
 }

@@ -113,7 +113,10 @@ $(SDKLIB)/$(LIBMOBILE).so.$(VERSION): LDLIBS += $(NGHTTP2_LIBS)
 # libmmt_core dlopen()s the protocol plugins; keep -ldl explicit so the link is
 # self-contained under -Wl,-z,defs even on toolchains that split libdl out of
 # libc.
-$(SDKLIB)/$(LIBCORE).so.$(VERSION):   LDLIBS += -ldl
+# Issue #22: the global plugin/protocol registries are now guarded by
+# pthread_mutex for (un)registration, so the core needs -lpthread explicit too
+# (some toolchains still split libpthread out of libc).
+$(SDKLIB)/$(LIBCORE).so.$(VERSION):   LDLIBS += -ldl -lpthread
 
 # -Wl,-z,defs (a.k.a. --no-undefined) makes the linker fail on any unresolved
 # symbol. Only libmmt_core is fully self-contained: the protocol plugins
