@@ -275,6 +275,32 @@ void http_session_data_init(ipacket_t * ipacket, unsigned index) {
 }
 
 /**
+ * Releases the per-session HTTP data on session teardown.
+ *
+ * Frees the requested_uri buffer and every session_field_values[].value buffer
+ * allocated during header parsing, then frees the session data structure
+ * itself. Registered as the session-data cleanup callback so these per-session
+ * allocations do not leak when a session times out.
+ */
+void http_session_data_cleanup(mmt_session_t * session, unsigned index) {
+    struct http_session_data_struct * http =
+        (struct http_session_data_struct *) session->session_data[index];
+    if (http == NULL) return;
+
+    mmt_free(http->requested_uri);
+    http->requested_uri = NULL;
+
+    int i;
+    for (i = 0; i < HTTP_HEADERS_NB; i++) {
+        mmt_free(http->session_field_values[i].value);
+        http->session_field_values[i].value = NULL;
+    }
+
+    mmt_free(http);
+    session->session_data[index] = NULL;
+}
+
+/**
  * this functions checks whether the packet begins with a valid http request
  * @param msg the received message
  * @param msg_len length of the message request line in octets
@@ -371,6 +397,9 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
         if (line_first_element_offset) {
             int uri_len = get_next_white_space_offset_no_limit((const char*)&ipacket->data[offset + line_first_element_offset]);
             http->http_method   = method;
+            // Free any URI captured by a previous request on this (keep-alive)
+            // session before overwriting the pointer to avoid leaking it.
+            mmt_free(http->requested_uri);
             http->requested_uri = (char *) mmt_malloc(uri_len + 1);
             memcpy(http->requested_uri, &ipacket->data[offset + line_first_element_offset], uri_len);
             http->requested_uri[uri_len] = '\0';
@@ -410,6 +439,9 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
                 http->session_field_values[header_index].header_len = hlen;
                 http->session_field_values[header_index].value_len  = value_len;
 
+                // Free any value captured for this header by a previous request
+                // on the same session before overwriting it to avoid a leak.
+                mmt_free(http->session_field_values[header_index].value);
                 http->session_field_values[header_index].value = (char *) mmt_malloc(value_len + 1);
                 memcpy(http->session_field_values[header_index].value,
                         &ipacket->data[offset + value_offset], value_len);
@@ -449,6 +481,7 @@ int init_http_proto_struct() {
     if (protocol_struct != NULL) {
         register_classification_function(protocol_struct, NULL);
         register_session_data_initialization_function(protocol_struct, http_session_data_init);
+        register_session_data_cleanup_function(protocol_struct, http_session_data_cleanup);
         register_session_data_analysis_function(protocol_struct, http_session_data_analysis);
 
         return register_protocol(protocol_struct, PROTO_HTTP);
