@@ -3,8 +3,6 @@
 #include "extraction_lib.h"
 #include "../mmt_common_internal_include.h"
 
-#define RADIUS_SESSION_DATA_PERSISTANCE 0 //0 means global persistance (per thread) non zero means session persistance (allocated into the session context)
-
 #define VENDOR_3GPP_ID 10415
 #define VENDOR_3GPP_MAX_TLV_TYPE 27
 
@@ -45,9 +43,6 @@ typedef struct radius_session_context_struct {
 static MMT_PROTOCOL_BITMASK detection_bitmask;
 static MMT_PROTOCOL_BITMASK excluded_protocol_bitmask;
 static MMT_SELECTION_BITMASK_PROTOCOL_SIZE selection_bitmask;
-
-//Radius session struct per thread!
-static __thread radius_session_context_t r_session_data = {0};
 
 static inline uint32_t
 read_be32( const uint8_t *x )
@@ -1930,20 +1925,20 @@ void mmt_init_classify_me_radius() {
 }
 
 void radius_session_data_init(ipacket_t * ipacket, unsigned index) {
-    if (RADIUS_SESSION_DATA_PERSISTANCE) {
-        radius_session_context_t * radius_session_data = (radius_session_context_t *) mmt_malloc(sizeof (radius_session_context_t));
-        memset(radius_session_data, 0, sizeof (radius_session_context_t));
-        ipacket->session->session_data[index] = radius_session_data;
-    } else {
-        ipacket->session->session_data[index] = &r_session_data; //Global persistance.
-    }
+    /*
+     * Issue #23: RADIUS parser state is stored per-session (allocated into the
+     * session context) rather than in a __thread global. This prevents
+     * concurrent RADIUS flows on the same thread from clobbering each other's
+     * TLV state.
+     */
+    radius_session_context_t * radius_session_data = (radius_session_context_t *) mmt_malloc(sizeof (radius_session_context_t));
+    memset(radius_session_data, 0, sizeof (radius_session_context_t));
+    ipacket->session->session_data[index] = radius_session_data;
 }
 
 void radius_session_data_cleanup(mmt_session_t * session, unsigned index) {
-    if (RADIUS_SESSION_DATA_PERSISTANCE) {
-        if (session->session_data[index] != NULL) {
-            mmt_free(session->session_data[index]);
-        }
+    if (session->session_data[index] != NULL) {
+        mmt_free(session->session_data[index]);
     }
 }
 
