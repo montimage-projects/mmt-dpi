@@ -321,6 +321,26 @@ static int run_replay(const char *pcap_path, int num_threads) {
     printf("[replay] single-thread baseline: %d distinct protocol paths\n",
            baseline->n);
 
+    /* Guard against a degenerate baseline: if the pcap failed to generate, was
+     * empty, or nothing classified beyond "<none>", every worker would trivially
+     * match an empty/garbage baseline and the run would PASS while exercising
+     * none of the #22/#23 code. Require at least one real classified path. */
+    {
+        int real = 0, i;
+        for (i = 0; i < baseline->n; i++) {
+            if (strcmp(baseline->entries[i].path, "<none>") != 0) { real = 1; break; }
+        }
+        if (g_npackets == 0 || baseline->n == 0 || !real) {
+            fprintf(stderr, "[replay] FAIL: degenerate baseline (%zu packets, "
+                    "%d paths, real-classification=%d) — nothing exercised\n",
+                    g_npackets, baseline->n, real);
+            free_pcap();
+            free(baseline); free(workers);
+            close_extraction();
+            return EXIT_FAILURE;
+        }
+    }
+
     /* Init-before-workers: create each worker's OWN handler on the main thread
      * (one handler per worker, per docs/THREADING.md) so that only the lock-free
      * hot path runs concurrently once the workers start. */
