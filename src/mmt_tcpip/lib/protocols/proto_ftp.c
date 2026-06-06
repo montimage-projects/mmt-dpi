@@ -1184,11 +1184,32 @@ uint16_t ftp_get_data_client_port_from_EPRT(char *payload) {
  * Example: 192,168,1,2,7,138 -> addr = inet_addr("192.168.1.2")
  * @return             an address
  */
-inline static uint32_t ftp_get_addr_from_parameter(char * payload, uint32_t payload_len) {
-    // Get all the indexes of "|" in payload
+uint32_t ftp_get_addr_from_parameter(char * payload, uint32_t payload_len) {
+    // Get all the indexes of "," in payload
     int * indexes = str_get_indexes(payload, ",");
     char * str_addr = NULL;
+
+    /* Malformed PORT parameter (fewer than three "," delimiters) must not be
+     * parsed: str_get_indexes returns NULL when no delimiter is present, and a
+     * short delimiter list leaves indexes[2] == -1. Requiring indexes[0..2] to
+     * be real positions guarantees the array holds at least four ints, so the
+     * indexes[3] read below is in-bounds (it is either the fourth delimiter
+     * position or the -1 sentinel). The short-circuit ordering never reads past
+     * the first -1. Mirrors the guard in ftp_get_data_client_port_from_EPRT
+     * (issue #35 / #8 K4). */
+    if(indexes == NULL) return 0;
+    if(indexes[0] == -1 || indexes[1] == -1 || indexes[2] == -1){
+        free(indexes);
+        return 0;
+    }
     int len = indexes[3];
+    /* indexes[3] is the fourth delimiter's byte offset, or the -1 sentinel when
+     * there are exactly three delimiters. A non-positive length is malformed
+     * and would otherwise drive malloc(0)/an OOB str_addr[len] write. */
+    if(len <= 0){
+        free(indexes);
+        return 0;
+    }
     str_addr = (char*)malloc(len + 1);
     if (str_addr == NULL) {
         free(indexes);

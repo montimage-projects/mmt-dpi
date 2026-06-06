@@ -22,7 +22,14 @@
  *   #35 ftp_get_data_client_port_from_EPRT() dereferenced indexes[3] (and
  *       indexes[2]) from str_get_indexes() without checking for NULL or a
  *       sufficient delimiter count — a NULL-deref / out-of-bounds read on a
- *       malformed or truncated EPRT command (follow-up to #8).
+ *       malformed or truncated EPRT command (follow-up to #8). Both the
+ *       indexes[3]!=-1 branch and the strlen()-based else branch (3 delimiters,
+ *       no trailing "|") are exercised, including their len<=0 guards.
+ *
+ *   #35 ftp_get_addr_from_parameter() (the IPv4 PORT-command parser, reachable
+ *       from untrusted control traffic) read indexes[3] from
+ *       str_get_indexes(payload, ",") with the same missing NULL/count guard.
+ *       Hardened to mirror the EPRT port parser.
  *
  * The library is built with BUILD=asan and this file is compiled with
  * -fsanitize=address,undefined -fno-sanitize-recover=all (see the runner
@@ -34,11 +41,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 /* Parsers under test — exported from proto_ftp.c (no public header). */
 extern char *ftp_get_data_client_addr_v6_from_LPRT(char *payload);
 extern char *ftp_get_data_client_addr_v6_from_EPRT(char *payload);
 extern unsigned short ftp_get_data_client_port_from_EPRT(char *payload);
+extern unsigned int ftp_get_addr_from_parameter(char *payload, unsigned int payload_len);
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -208,6 +217,78 @@ static void test_eprt_port(void)
         CHECK(port == 0, "EPRT with no delimiter returns 0 safely");
         free(in);
     }
+
+    /* Else branch: exactly three "|" (no trailing delimiter), port terminated
+     * by CRLF. indexes[3]==-1 so len = strlen - indexes[2] - 2 strips the CRLF.
+     * Must still decode to 6275 — covers the else branch's well-formed path. */
+    {
+        char *in = dup_payload("EPRT |1|132.235.1.2|6275\r\n");
+        unsigned short port = ftp_get_data_client_port_from_EPRT(in);
+        CHECK(port == 6275, "EPRT without trailing '|' (CRLF) extracts port 6275");
+        free(in);
+    }
+
+    /* Else branch, degenerate: the third "|" sits within two bytes of the end,
+     * so len = strlen - indexes[2] - 2 <= 0. Exercises the new else-branch
+     * len<=0 guard — must return 0 with no OOB malloc(0)/memcpy. */
+    {
+        char *in = dup_payload("EPRT |2|a|");
+        unsigned short port = ftp_get_data_client_port_from_EPRT(in);
+        CHECK(port == 0, "EPRT with empty port field returns 0 safely");
+        free(in);
+    }
+}
+
+static void test_port_addr(void)
+{
+    printf("[#35] PORT parameter delimiter validation + well-formed decode\n");
+
+    /* Well-formed PORT parameter (the substring after "PORT "): the IPv4 octets
+     * end at the 4th comma, so indexes[3] is a real offset. Must decode to the
+     * dotted address 192.168.1.2. */
+    {
+        char *in = dup_payload("192,168,1,2,7,138");
+        unsigned int addr = ftp_get_addr_from_parameter(in, (unsigned int)strlen(in));
+        CHECK(addr == inet_addr("192.168.1.2"),
+              "well-formed PORT extracts 192.168.1.2");
+        free(in);
+    }
+
+    /* No delimiter: str_get_indexes returns NULL, so indexes[3] was a NULL-deref
+     * pre-fix. */
+    {
+        char *in = dup_payload("192");
+        unsigned int addr = ftp_get_addr_from_parameter(in, (unsigned int)strlen(in));
+        CHECK(addr == 0, "PORT with no delimiter returns 0 safely");
+        free(in);
+    }
+
+    /* One delimiter: array is two ints, so the pre-fix indexes[3] read was OOB.
+     * The guard short-circuits at indexes[1]==-1. */
+    {
+        char *in = dup_payload("192,168");
+        unsigned int addr = ftp_get_addr_from_parameter(in, (unsigned int)strlen(in));
+        CHECK(addr == 0, "PORT with one delimiter returns 0 safely");
+        free(in);
+    }
+
+    /* Two delimiters: indexes[2]==-1, so indexes[3] was OOB pre-fix. Rejected by
+     * the delimiter-count guard. */
+    {
+        char *in = dup_payload("192,168,1");
+        unsigned int addr = ftp_get_addr_from_parameter(in, (unsigned int)strlen(in));
+        CHECK(addr == 0, "PORT with two delimiters returns 0 safely");
+        free(in);
+    }
+
+    /* Three delimiters, nothing after the last: indexes[3]==-1 (sentinel), so
+     * len = indexes[3] <= 0. Exercises the len<=0 guard. */
+    {
+        char *in = dup_payload("192,168,1,");
+        unsigned int addr = ftp_get_addr_from_parameter(in, (unsigned int)strlen(in));
+        CHECK(addr == 0, "PORT ending at the delimiter returns 0 safely");
+        free(in);
+    }
 }
 
 int main(void)
@@ -217,6 +298,7 @@ int main(void)
     test_lprt_overflow_inputs();
     test_eprt();
     test_eprt_port();
+    test_port_addr();
 
     printf("\n%d/%d checks passed\n", g_checks - g_failures, g_checks);
     if (g_failures) {
