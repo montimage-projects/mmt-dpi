@@ -155,7 +155,7 @@ mmt_connection_tracking(ipacket_t * ipacket, unsigned index) {
 //     const struct mmt_ipv6hdr *iphv6 = packet->iphv6;
 
 // #endif
-    const struct tcphdr *tcph = packet->tcp;
+    const mmt_una_tcphdr_t *tcph = packet->tcp; /* issue #57: alignment-safe view */
     // const struct udphdr *udph = packet->udp;
 
     // uint8_t proxy_enabled = 0;

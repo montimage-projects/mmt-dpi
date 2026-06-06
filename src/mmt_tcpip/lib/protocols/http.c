@@ -2206,7 +2206,7 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
 
     /* set client-server_direction */
     if (flow->l4.tcp.http_setup_dir == 0) {
-        const struct tcphdr *l4ptr = packet->tcp;
+        const mmt_una_tcphdr_t *l4ptr = packet->tcp; /* issue #57: alignment-safe view */
         if (l4ptr->syn) {
             //This is still the TCP handshake, do nothing
             return;

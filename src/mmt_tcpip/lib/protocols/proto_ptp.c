@@ -9,7 +9,7 @@ static int _classify_ptp_from_udp( ipacket_t * ipacket, unsigned index ){
 
 	//check udp ports
 	struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-	const struct udphdr *udp = packet->udp;
+	const mmt_una_udphdr_t *udp = packet->udp; /* issue #57: alignment-safe view */
 	//should not happen since we enter here from UDP, but check anyway
 	if (udp == NULL)
 		return 0;

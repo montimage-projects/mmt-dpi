@@ -569,12 +569,17 @@ struct mmt_tcpip_internal_packet_struct {
     struct mmt_internal_tcpip_id_struct *src;
     struct mmt_internal_tcpip_id_struct *dst;
 
-    const struct iphdr *iph;
+    /* Issue #57: iph/tcp/udp point into the byte-aligned packet buffer; the
+     * _una views drop the alignment requirement to 1 so every
+     * "packet->iph->...", "packet->tcp->..." and "packet->udp->..." field
+     * access is alignment-safe (single load on targets with native unaligned
+     * access — no hot-path cost). */
+    const mmt_una_iphdr_t *iph;
 #ifdef MMT_SUPPORT_IPV6
     const struct mmt_ipv6hdr *iphv6;
 #endif
-    const struct tcphdr *tcp;
-    const struct udphdr *udp;
+    const mmt_una_tcphdr_t *tcp;
+    const mmt_una_udphdr_t *udp;
     //const uint8_t *generic_l4_ptr;	/* is set only for non tcp-udp traffic */
     const uint8_t *payload;
 

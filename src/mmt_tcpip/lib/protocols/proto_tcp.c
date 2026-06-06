@@ -14,7 +14,7 @@ int tcp_data_offset_extraction(const ipacket_t * packet, unsigned proto_index,
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
 
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     *((unsigned char *) extracted_data->data) = tcp_hdr->doff; //Already aligned to the correct bit ordering
     return 1;
 }
@@ -26,7 +26,7 @@ int tcp_fin_flag_extraction(const ipacket_t * packet, unsigned proto_index,
     //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     // if (tcp_hdr->fin) {
         *((unsigned char *) extracted_data->data) = tcp_hdr->fin; //Already aligned to the correct bit ordering
         return 1;
@@ -41,7 +41,7 @@ int tcp_syn_flag_extraction(const ipacket_t * packet, unsigned proto_index,
     //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     // if (tcp_hdr->syn) {
         *((unsigned char *) extracted_data->data) = tcp_hdr->syn; //Already aligned to the correct bit ordering
         return 1;
@@ -56,7 +56,7 @@ int tcp_rst_flag_extraction(const ipacket_t * packet, unsigned proto_index,
     //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     // if (tcp_hdr->rst) {
         *((unsigned char *) extracted_data->data) = tcp_hdr->rst; //Already aligned to the correct bit ordering
         return 1;
@@ -71,7 +71,7 @@ int tcp_psh_flag_extraction(const ipacket_t * packet, unsigned proto_index,
     //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     // if (tcp_hdr->psh) {
         *((unsigned char *) extracted_data->data) = tcp_hdr->psh; //Already aligned to the correct bit ordering
         return 1;
@@ -86,7 +86,7 @@ int tcp_ack_flag_extraction(const ipacket_t * packet, unsigned proto_index,
     //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     // if (tcp_hdr->ack) {
         *((unsigned char *) extracted_data->data) = tcp_hdr->ack; //Already aligned to the correct bit ordering
         return 1;
@@ -101,7 +101,7 @@ int tcp_urg_flag_extraction(const ipacket_t * packet, unsigned proto_index,
     //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     // if (tcp_hdr->urg) {
         *((unsigned char *) extracted_data->data) = tcp_hdr->urg; //Already aligned to the correct bit ordering
         return 1;
@@ -117,7 +117,7 @@ int tcp_ece_flag_extraction(const ipacket_t * packet, unsigned proto_index,
     //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     if (( tcp_hdr->res2 & 0x01 ) != 0 ) {
         *((unsigned char *) extracted_data->data) = 1; //Already aligned to the correct bit ordering
         return 1;
@@ -134,7 +134,7 @@ int tcp_cwr_flag_extraction(const ipacket_t * packet, unsigned proto_index,
     //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
     //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
     //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & packet->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & packet->data[proto_offset];
     if (( tcp_hdr->res2 & 0x02 ) != 0 ) {
         *((unsigned char *) extracted_data->data) = 1; //Already aligned to the correct bit ordering
         return 1;
@@ -296,7 +296,7 @@ int tcp_session_rtt_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int tcp_option_extraction(const ipacket_t *ipacket, unsigned proto_index, attribute_t * extracted_data){
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
-    struct tcphdr * tcp_hdr = (struct tcphdr *) & ipacket->data[proto_offset];
+    mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & ipacket->data[proto_offset];
     int data_offset = tcp_hdr->doff;
     //no optional fields
     if( data_offset <= 5 )
