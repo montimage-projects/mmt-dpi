@@ -119,6 +119,14 @@ static protocol_stack_t dummy_stack = {
 static pthread_mutex_t configured_protocols_mutex = PTHREAD_MUTEX_INITIALIZER;
 static protocol_t *configured_protocols[PROTO_MAX_IDENTIFIER];
 static void * mmt_configured_handlers_map;
+// Issue #67: mmt_configured_handlers_map is handler-lifecycle bookkeeping mutated
+// by mmt_init_handler()/mmt_close_handler(). It is never touched on the per-packet
+// hot path, so guarding it adds no read-path overhead. This dedicated mutex makes
+// concurrent handler create/destroy race-free (mirrors the #22 registry pattern;
+// kept separate from configured_protocols_mutex as it guards a different global and
+// the two are never nested). The single-threaded init/teardown iteration over the
+// map (init_extraction/close_extraction, see docs/THREADING.md) is exempt.
+static pthread_mutex_t configured_handlers_map_mutex = PTHREAD_MUTEX_INITIALIZER;
 // Issue #19: protocol-name -> protocol_t* index, built at registration. Replaces
 // the O(PROTO_MAX_IDENTIFIER) strcasecmp linear scan in get_protocol_id_by_name
 // with an O(log n) lookup. The comparison function is case-insensitive
@@ -1308,9 +1316,11 @@ mmt_handler_t *mmt_init_handler( uint32_t stacktype, uint32_t options, char * er
     //Enable protocol statistics (this is default config)
     enable_protocol_statistics((void *) new_handler);
 
+    pthread_mutex_lock(&configured_handlers_map_mutex);
     if(!insert_key_value(mmt_configured_handlers_map, (void *) new_handler, (void *) new_handler)){
         fprintf(stderr, "[error] mmt_init_handler - Failed to execute insert_key_value()\n");
     };
+    pthread_mutex_unlock(&configured_handlers_map_mutex);
 
     return (void *) new_handler;
 }
@@ -1383,7 +1393,9 @@ void mmt_close_handler(mmt_handler_t *mmt_handler) {
     }
 
     //Remove the handler from the registered handlers in the global context
+    pthread_mutex_lock(&configured_handlers_map_mutex);
     delete_key_value(mmt_configured_handlers_map, mmt_handler);
+    pthread_mutex_unlock(&configured_handlers_map_mutex);
 
     mmt_free(mmt_handler);
 }
