@@ -94,12 +94,25 @@ static protocol_stack_t dummy_stack = {
 
 static protocol_t *configured_protocols[PROTO_MAX_IDENTIFIER];
 static void * mmt_configured_handlers_map;
+// Issue #19: protocol-name -> protocol_t* index, built at registration. Replaces
+// the O(PROTO_MAX_IDENTIFIER) strcasecmp linear scan in get_protocol_id_by_name
+// with an O(log n) lookup. The comparison function is case-insensitive
+// (mmt_strncasecmp), preserving the exact match semantics of the old scan.
+static void * configured_protocols_names_map;
 
 bool attribute_ids_comparison_fct(uint32_t l_id, uint32_t r_id) {
     return (l_id < r_id);
 }
 
 bool attribute_names_comparison_fct(void * l_name, void * r_name) {
+    return (mmt_strncasecmp((char *) l_name, (char *) r_name, Max_Alias_Len) < 0) ? true : false;
+}
+
+// Issue #19: case-insensitive strict-weak ordering for the protocol name -> id
+// map. Map equivalence (!cmp(a,b) && !cmp(b,a)) therefore equals a case-
+// insensitive name match, reproducing exactly what the old mmt_strcasecmp scan
+// in get_protocol_id_by_name() matched.
+bool protocol_names_comparison_fct(void * l_name, void * r_name) {
     return (mmt_strncasecmp((char *) l_name, (char *) r_name, Max_Alias_Len) < 0) ? true : false;
 }
 
@@ -890,6 +903,14 @@ void free_registered_protocols() {
             configured_protocols[i] = NULL;
         }
     }
+    // Issue #19: tear down the protocol name->id index. The keys are the
+    // protocol_name buffers owned by the protocol structs (freed above) and the
+    // values are those structs, so the map owns nothing itself.
+    if (configured_protocols_names_map != NULL) {
+        clear_map_space(configured_protocols_names_map);
+        delete_map_space(configured_protocols_names_map);
+        configured_protocols_names_map = NULL;
+    }
 }
 
 void free_protocols_contexts(mmt_handler_t *mmt_handler) {
@@ -1103,6 +1124,13 @@ int register_protocol(protocol_t *proto, uint32_t proto_id) {
                 register_protocol_session_attributes(proto);
             }
             configured_protocols[proto_id]->is_registered = PROTO_REGISTERED;
+            // Issue #19: index this protocol's name for O(log n) name->id
+            // lookup. Insert only if absent so re-registration is idempotent and
+            // does not emit the duplicate-key diagnostic.
+            if (configured_protocols_names_map != NULL && proto->protocol_name != NULL &&
+                    find_key_value(configured_protocols_names_map, (void *) proto->protocol_name) == NULL) {
+                insert_key_value(configured_protocols_names_map, (void *) proto->protocol_name, (void *) proto);
+            }
             return PROTO_REGISTERED;
         }
     }
@@ -1426,6 +1454,11 @@ int init_extraction()
         configured_protocols[i]->data_analyser.status = 0;
         configured_protocols[i]->classify_next.status = 0;
     }
+
+    // Issue #19: create the protocol name -> id index before any protocol is
+    // registered (init_proto_meta_struct/init_plugins below call
+    // register_protocol, which populates this map).
+    configured_protocols_names_map = init_map_space(protocol_names_comparison_fct);
 
     /////////// INITILIZING PROTO_META & PROTO_UNKNOWN //////////////////
     if (!init_proto_meta_struct() || !init_proto_unknown_struct()) {
@@ -2594,6 +2627,9 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
             //Now update the packet structure to point to the flow and the protocol hierarchy info
             if(likely(!ipacket->mmt_handler->has_reassembly)){
                 ipacket->proto_headers_offset = &session->proto_headers_offset;
+                // Issue #19: offset buffer swapped to the session's stored
+                // offsets — invalidate the memoized cumulative-offset cache.
+                ipacket->internal_cumulative_offset_valid = 0;
 
             }else{
                 // Copy the session offsets into a per-packet heap buffer.
@@ -2610,6 +2646,9 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
                 }
                 ipacket->proto_headers_offset      = (proto_hierarchy_t*)mmt_malloc(sizeof(proto_hierarchy_t));
                 memcpy(ipacket->proto_headers_offset,&session->proto_headers_offset,sizeof(proto_hierarchy_t));
+                // Issue #19: offset buffer replaced by a fresh per-packet copy —
+                // invalidate the memoized cumulative-offset cache.
+                ipacket->internal_cumulative_offset_valid = 0;
             }
 
             ipacket->proto_hierarchy = &session->proto_path;
@@ -2692,6 +2731,10 @@ int set_classified_proto(ipacket_t * ipacket, unsigned index, classified_proto_t
 
         retval = PROTO_RECLASSIFICATION;
     }
+
+    // Issue #19: the per-layer offsets just changed — drop the memoized
+    // cumulative-offset cache so get_packet_offset_at_index() rebuilds it.
+    ipacket->internal_cumulative_offset_valid = 0;
 
     set_ipacket_session_status(ipacket, classified_proto.status);
     return retval;
@@ -3347,6 +3390,7 @@ int process_packet(mmt_handler_t *mmt, struct pkthdr *header, const u_char * pac
     mmt->current_ipacket.proto_hierarchy->len = 0;
     mmt->current_ipacket.proto_headers_offset->len = 0;
     mmt->current_ipacket.proto_classif_status->len = 0;
+    mmt->current_ipacket.internal_cumulative_offset_valid = 0; // Issue #19
     mmt->current_ipacket.session = NULL;
     mmt->current_ipacket.mmt_handler = mmt;
     mmt->current_ipacket.internal_packet = NULL;
@@ -3408,6 +3452,7 @@ int process_packet_with_reassembly(mmt_handler_t *mmt, struct pkthdr *header, co
     ipacket->proto_hierarchy->len = 0;
     ipacket->proto_headers_offset->len = 0;
     ipacket->proto_classif_status->len = 0;
+    ipacket->internal_cumulative_offset_valid = 0; // Issue #19
     ipacket->session = NULL;
     ipacket->mmt_handler = mmt;
     ipacket->internal_packet = NULL;
@@ -3635,13 +3680,19 @@ uint32_t get_protocol_id_by_name(const char * protocolalias) {
 #ifdef DEBUG
     (void)fprintf( stderr, "Entering tips_proto_find_by_name proto %s\n", protocolalias );
 #endif
-    int i = PROTO_MAX_IDENTIFIER - 1;
-    for (; i >=0 ; i--) {
-        if (_is_registered_protocol(i)) {
-            protocol_t * temp = configured_protocols[i];
-            if (mmt_strcasecmp(temp->protocol_name, protocolalias) == 0)
-                return temp->proto_id;
-        }
+    // Issue #19: O(log n) lookup in the name->protocol_t* map built at
+    // registration, replacing the previous O(PROTO_MAX_IDENTIFIER) mmt_strcasecmp
+    // linear scan. The map comparison is case-insensitive, so a hit reproduces
+    // the old strcasecmp match exactly. The _is_registered_protocol() guard
+    // reproduces the old "registered only" semantics, so an unregistered (but
+    // still indexed) protocol never matches — this also lets unregistration stay
+    // a simple flag flip with no map maintenance.
+    if (protocolalias == NULL || configured_protocols_names_map == NULL) {
+        return 0;
+    }
+    protocol_t * temp = (protocol_t *) find_key_value(configured_protocols_names_map, (void *) protocolalias);
+    if (temp != NULL && _is_registered_protocol(temp->proto_id)) {
+        return temp->proto_id;
     }
     return 0;
 }

@@ -158,7 +158,23 @@ struct ipacket_struct {
     pkthdr_t * p_hdr;                         /**< the meta-data of the packet */
     const u_char * data;                      /**< pointer to the packet data */
     const u_char * original_data;             /**< internal: - never modify it. pointer to the original packet data. It will be different than ipacket->data in case of IP assembled data*/
+    int internal_cumulative_offset[PROTO_PATH_SIZE]; /**< internal: - never modify it. Issue #19: memoized prefix-sum of proto_headers_offset->proto_path, so get_packet_offset_at_index() is amortized O(1) instead of re-summing (O(N^2) per packet). */
+    int internal_cumulative_offset_valid;     /**< internal: - never modify it. Issue #19: 0 when the cumulative-offset cache must be rebuilt. */
+    int internal_cumulative_offset_hwm;       /**< internal: - never modify it. Issue #19: highest index whose prefix sum is cached (the cache is extended on demand, never beyond what is queried). */
 };
+
+/**
+ * Issue #19: drop the memoized cumulative-offset cache used by
+ * get_packet_offset_at_index(). Call this after ANY direct write to
+ * ipacket->proto_headers_offset->proto_path[] that bypasses
+ * set_classified_proto() (e.g. protocol plugins that set the next layer's header
+ * length in place), so the next offset query rebuilds the prefix sum.
+ */
+static inline void invalidate_packet_offset_cache(ipacket_t * ipacket) {
+    if (ipacket != NULL) {
+        ipacket->internal_cumulative_offset_valid = 0;
+    }
+}
 
 /**
  * Defines the identification info of a protocol attribute. This identification is defined by the tuple: protocol id and attribute id.

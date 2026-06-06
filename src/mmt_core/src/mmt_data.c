@@ -3,12 +3,36 @@
 #include "packet_processing.h"
 
 int get_packet_offset_at_index(const ipacket_t * ipacket, unsigned index) {
-    int retval = 0;
-    int i = index;
-    for (i = index ; i >=0 ; i--) {
-        retval += ipacket->proto_headers_offset->proto_path[i];
+    // Issue #19: memoized cumulative offsets. The per-layer header offsets in
+    // proto_headers_offset->proto_path[] are summed once into a prefix-sum cache
+    // and reused, so each call is O(1) instead of O(index) — turning the
+    // per-packet cost from O(N^2) (re-summed on every call) into O(N) (built
+    // once, then O(1) lookups). The cache lives in the (otherwise const) ipacket
+    // and is invalidated by set_classified_proto() and every reassignment of
+    // proto_headers_offset, so the value returned is byte-identical to the old
+    // re-summation for the current offset state.
+    ipacket_t * pkt = (ipacket_t *) ipacket; // mutable memoization cache only
+    if (index >= (unsigned) PROTO_PATH_SIZE) {
+        index = PROTO_PATH_SIZE - 1;
     }
-    return retval;
+    if (!pkt->internal_cumulative_offset_valid) {
+        pkt->internal_cumulative_offset_hwm = -1; // nothing summed yet
+        pkt->internal_cumulative_offset_valid = 1;
+    }
+    // Extend the prefix sum only as far as the queried index (high-water mark),
+    // so across a packet the offsets are summed once in total (amortized O(1)
+    // per call) instead of re-summed from 0 on every call.
+    int hwm = pkt->internal_cumulative_offset_hwm;
+    if ((int) index > hwm) {
+        int sum = (hwm >= 0) ? pkt->internal_cumulative_offset[hwm] : 0;
+        int i;
+        for (i = hwm + 1; i <= (int) index; i++) {
+            sum += ipacket->proto_headers_offset->proto_path[i];
+            pkt->internal_cumulative_offset[i] = sum;
+        }
+        pkt->internal_cumulative_offset_hwm = (int) index;
+    }
+    return pkt->internal_cumulative_offset[index];
 }
 
 unsigned get_protocol_index_by_id(const ipacket_t * ipacket, uint32_t proto_id) {
