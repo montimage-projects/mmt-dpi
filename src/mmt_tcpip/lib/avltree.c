@@ -19,7 +19,32 @@ avltree_t * avltree_new() {
     node->left_child = 0x0;
     node->right_child = 0x0;
     node->data = 0x0;
+    node->height = 1; // a fresh, child-less node is a leaf
     return node;
+};
+
+/**
+ * Cached subtree height of a node.
+ * @param  node a node, or NULL for an empty subtree
+ * @return      node->height, or 0 if node is NULL
+ *
+ * This is the O(1) read used to maintain heights incrementally. It must agree
+ * with the legacy recomputation: an empty subtree contributes 0, a leaf 1.
+ */
+static int avltree_node_height(avltree_t * node) {
+    return (node == NULL) ? 0 : node->height;
+};
+
+/**
+ * Recompute a single node's cached height from its children's cached heights.
+ * O(1). Children heights are assumed already up to date.
+ * @param node node whose height field is refreshed (no-op if NULL)
+ */
+static void avltree_update_height(avltree_t * node) {
+    if (node == NULL) return;
+    int left_height = avltree_node_height(node->left_child);
+    int right_height = avltree_node_height(node->right_child);
+    node->height = 1 + (left_height > right_height ? left_height : right_height);
 };
 
 /**
@@ -102,11 +127,13 @@ void * avltree_get_data(avltree_t * node) {
  *                  maximum value between left tree and right tree
  */
 int avltree_get_height(avltree_t * node, int current_level) {
-    if (node == NULL) return current_level - 1;
-    // if (node->parent == NULL) return 1;
-    int left_height = avltree_get_height(node->left_child, current_level + 1);
-    int right_height = avltree_get_height(node->right_child, current_level + 1);
-    return left_height > right_height ? left_height : right_height;
+    // O(1) read of the cached height. This is algebraically identical to the
+    // former O(subtree) recursion: that version returned (current_level - 1)
+    // for a NULL subtree and, for a non-NULL node, (current_level - 1) plus the
+    // node-count distance to its farthest leaf. The cached node->height stores
+    // exactly that distance (0 for empty, 1 for a leaf), so callers — including
+    // avltree_get_balance_factor — observe the same values as before.
+    return current_level - 1 + avltree_node_height(node);
 };
 
 /**
@@ -143,6 +170,10 @@ avltree_t * avltree_rotate_left(avltree_t * node) {
 
     new_root->left_child = node;
     node->parent = new_root;
+    // Subtree composition of node and new_root changed; refresh cached heights
+    // bottom-up (node first, since new_root's height depends on it).
+    avltree_update_height(node);
+    avltree_update_height(new_root);
 #ifdef DEBUG
     avltree_show_tree(new_root);
 #endif
@@ -182,6 +213,10 @@ avltree_t * avltree_rotate_right(avltree_t * node) {
 
     new_root->right_child = node;
     node->parent = new_root;
+    // Subtree composition of node and new_root changed; refresh cached heights
+    // bottom-up (node first, since new_root's height depends on it).
+    avltree_update_height(node);
+    avltree_update_height(new_root);
 #ifdef DEBUG
     avltree_show_tree(new_root);
 #endif
@@ -280,11 +315,18 @@ avltree_t * avltree_insert(avltree_t * root, avltree_t * node) {
         if (root->left_child == NULL) {
             root->left_child = node;
             node->parent = root;
+            // The new node (a leaf, height already 1) was attached under root;
+            // refresh root's cached height before walking up the ancestor chain.
+            avltree_update_height(root);
             avltree_t * parent = root->parent;
             while (parent != NULL) {
+                // Refresh this ancestor's cached height from its (now current)
+                // children before reading its balance factor, so the O(1)
+                // cached lookups match the legacy full recomputation exactly.
+                avltree_update_height(parent);
 #ifdef DEBUG
                 printf("[debug] Checking balance of tree: %u\n",parent->key);
-#endif        
+#endif
                 int balance_factor = avltree_get_balance_factor(parent);
 #ifdef DEBUG
                 printf("[debug] balance_factor of node %u: %d\n", parent->key, balance_factor);
@@ -333,8 +375,15 @@ avltree_t * avltree_insert(avltree_t * root, avltree_t * node) {
         if (root->right_child == NULL) {
             root->right_child = node;
             node->parent = root;
+            // The new node (a leaf, height already 1) was attached under root;
+            // refresh root's cached height before walking up the ancestor chain.
+            avltree_update_height(root);
             avltree_t * parent = root->parent;
             while (parent != NULL) {
+                // Refresh this ancestor's cached height from its (now current)
+                // children before reading its balance factor, so the O(1)
+                // cached lookups match the legacy full recomputation exactly.
+                avltree_update_height(parent);
                 int balance_factor = avltree_get_balance_factor(parent);
 #ifdef DEBUG
                 printf("[debug] balance_factor of node %u: %d\n", parent->key, balance_factor);

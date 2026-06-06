@@ -15,6 +15,7 @@ typedef struct avltree_struct {
 	struct avltree_struct * parent; // Parent of current node
 	struct avltree_struct * left_child; // left child of current node: which contains all the node with the key smaller than the key of current node
 	struct avltree_struct * right_child; // right child of current node: which contains all the node with the key bigger than the key of current node
+	int height; // cached subtree height (node count from this node to its farthest leaf): 0 for an empty subtree, 1 for a leaf. Maintained incrementally on insert/rotate so balance-factor lookups are O(1) instead of O(subtree size).
 } avltree_t;
 
 /**
