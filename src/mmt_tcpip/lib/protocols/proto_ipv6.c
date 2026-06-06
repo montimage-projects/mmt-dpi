@@ -1,3 +1,4 @@
+#include <stddef.h> /* offsetof — issue #59 alignment-safe field reads */
 #include "mmt_core.h"
 #include "plugin_defs.h"
 #include "extraction_lib.h"
@@ -96,7 +97,7 @@ int ip6_version_extraction(const ipacket_t * packet, unsigned proto_index,
         attribute_t * extracted_data) {
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
-    struct ipv6hdr * ip6_hdr = (struct ipv6hdr *) & packet->data[proto_offset];
+    mmt_una_ipv6hdr_t * ip6_hdr = (mmt_una_ipv6hdr_t *) & packet->data[proto_offset];
 
     *((unsigned char *) extracted_data->data) = ip6_hdr->l1_1.version;
     return 1;
@@ -106,7 +107,7 @@ int ip6_traffic_class_extraction(const ipacket_t * packet, unsigned proto_index,
         attribute_t * extracted_data) {
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
-    struct ipv6hdr * ip6_hdr = (struct ipv6hdr *) & packet->data[proto_offset];
+    mmt_una_ipv6hdr_t * ip6_hdr = (mmt_una_ipv6hdr_t *) & packet->data[proto_offset];
     uint8_t tc = (uint8_t) ((ip6_hdr->l1_2.short_word_1 & 0x0FF0) >> 4);
     *((unsigned char *) extracted_data->data) = tc;
     return 1;
@@ -116,7 +117,7 @@ int ip6_flow_label_extraction(const ipacket_t * packet, unsigned proto_index,
         attribute_t * extracted_data) {
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
-    struct ipv6hdr * ip6_hdr = (struct ipv6hdr *) & packet->data[proto_offset];
+    mmt_una_ipv6hdr_t * ip6_hdr = (mmt_una_ipv6hdr_t *) & packet->data[proto_offset];
 
     *((unsigned int *) extracted_data->data) = (ip6_hdr->l1_2.short_word_1 & 0x000FFFFF);
     return 1;
@@ -126,7 +127,7 @@ int ip6_next_proto_extraction(const ipacket_t * packet, unsigned proto_index,
         attribute_t * extracted_data) {
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
-    struct ipv6hdr * ip6_hdr = (struct ipv6hdr *) & packet->data[proto_offset];
+    mmt_una_ipv6hdr_t * ip6_hdr = (mmt_una_ipv6hdr_t *) & packet->data[proto_offset];
 
     uint8_t  next_hdr    = ip6_hdr->nexthdr;
     uint16_t next_offset = sizeof (struct ipv6hdr);
@@ -198,7 +199,7 @@ int ip6_server_addr_extraction(const ipacket_t * packet, unsigned proto_index,
 
 int build_ipv6_session_key(ipacket_t * ipacket, int offset, mmt_session_key_t * ipv6_session) {
     int retval;
-    struct ipv6hdr * ip6h = (struct ipv6hdr *) (struct ipv6hdr *) & ipacket->data[offset];
+    mmt_una_ipv6hdr_t * ip6h = (mmt_una_ipv6hdr_t *) & ipacket->data[offset];
 
     uint8_t next_hdr = ip6h->nexthdr;
     uint16_t next_offset = sizeof (struct ipv6hdr);
@@ -284,15 +285,25 @@ int ip6_session_cleanup_on_timeout(void * protocol_context, mmt_session_t * time
  * `struct in6_addr *`, the `+ 12` scaled by sizeof(struct in6_addr) (16) and
  * read 192 bytes past the address — an out-of-bounds, also-unaligned 64-bit
  * load. All three components are folded into the 64-bit key without discarding
- * any bits (the old double `<<= 32` dropped the first address word). */
+ * any bits (the old double `<<= 32` dropped the first address word).
+ *
+ * Issue #59: ip6h / frag_header may point into the byte-aligned packet buffer,
+ * so the multi-byte fields are read with memcpy rather than dereferenced
+ * directly (a misaligned load is UB and aborts under -fsanitize=alignment).
+ * memcpy of a fixed small size lowers to a single load on targets with native
+ * unaligned access — no hot-path cost. The signature keeps the plain struct
+ * types so the unit test's extern declaration stays stable, mirroring the
+ * ip_fragment_key() treatment in PR #58 (#57). */
 mmt_key_t ip6_fragment_key(const struct ipv6hdr *ip6h,
                            const struct ext_hdr_fragment *frag_header)
 {
-    uint32_t saddr_low, daddr_low;
+    uint32_t saddr_low, daddr_low, ident;
     memcpy(&saddr_low, &ip6h->saddr.s6_addr[12], sizeof(saddr_low));
     memcpy(&daddr_low, &ip6h->daddr.s6_addr[12], sizeof(daddr_low));
+    memcpy(&ident, (const uint8_t *) frag_header
+                   + offsetof(struct ext_hdr_fragment, ident), sizeof(ident));
     mmt_key_t key = ((mmt_key_t) saddr_low << 32) | (mmt_key_t) daddr_low;
-    key ^= (mmt_key_t) frag_header->ident;
+    key ^= (mmt_key_t) ident;
     return key;
 }
 
@@ -303,7 +314,7 @@ static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
     mmt_key_t key;
     ipv6_dgram_t *dg;
     int offset = get_packet_offset_at_index(ipacket, index);
-    struct ipv6hdr *ip6h = (struct ipv6hdr *)(struct ipv6hdr *)&ipacket->data[offset];
+    mmt_una_ipv6hdr_t *ip6h = (mmt_una_ipv6hdr_t *)&ipacket->data[offset];
     uint8_t next_hdr = ip6h->nexthdr;
     uint16_t next_offset = sizeof(struct ipv6hdr);
     // Get offset of Fragment header
@@ -312,11 +323,12 @@ static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
         next_offset += get_next_header_offset(next_hdr, &ipacket->data[offset + next_offset], &next_hdr);
     }
     uint16_t ext_header_len = next_offset + 8 - sizeof(struct ipv6hdr);
-    struct ext_hdr_fragment *frag_header = (struct ext_hdr_fragment *)&ipacket->data[offset + next_offset];
+    mmt_una_ext_hdr_fragment_t *frag_header = (mmt_una_ext_hdr_fragment_t *)&ipacket->data[offset + next_offset];
     uint8_t more_fragment = ntohs(frag_header->flag) & 0x0001;
     uint16_t frag_offset = ntohs(frag_header->flag) >> 3;
 
-    key = ip6_fragment_key(ip6h, frag_header);
+    key = ip6_fragment_key((const struct ipv6hdr *) ip6h,
+                           (const struct ext_hdr_fragment *) frag_header);
     if (!hashmap_get(map, key, (void **)&dg))
     {
         dg = ipv6_dgram_alloc();
@@ -374,7 +386,7 @@ static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
 void ipv6_parse_extension_headers(ipacket_t *ipacket, unsigned index)
 {
     int offset = get_packet_offset_at_index(ipacket, index);
-    struct ipv6hdr *ip6h = (struct ipv6hdr *)(struct ipv6hdr *)&ipacket->data[offset];
+    mmt_una_ipv6hdr_t *ip6h = (mmt_una_ipv6hdr_t *)&ipacket->data[offset];
     uint8_t next_hdr = ip6h->nexthdr;
     uint16_t next_offset = sizeof(struct ipv6hdr);
     while (is_extention_header(next_hdr) && (ipacket->p_hdr->caplen >= (offset + next_offset + 2)))
@@ -392,7 +404,7 @@ void *ip6_sessionizer(void *protocol_context, ipacket_t *ipacket, unsigned index
     mmt_session_key_t ipv6_session_key;
     int packet_direction;
     // LN: Defragmentation
-    struct ipv6hdr *ip6h = (struct ipv6hdr *)(struct ipv6hdr *)&ipacket->data[offset];
+    mmt_una_ipv6hdr_t *ip6h = (mmt_una_ipv6hdr_t *)&ipacket->data[offset];
     uint8_t next_hdr = ip6h->nexthdr;
     uint16_t next_offset = sizeof(struct ipv6hdr);
 
@@ -515,7 +527,7 @@ void *ip6_sessionizer(void *protocol_context, ipacket_t *ipacket, unsigned index
 int ip6_classify_next_proto(ipacket_t * ipacket, unsigned index) {
 
     int offset = get_packet_offset_at_index(ipacket, index);
-    struct ipv6hdr * ip6_hdr = (struct ipv6hdr *) & ipacket->data[offset];
+    mmt_una_ipv6hdr_t * ip6_hdr = (mmt_una_ipv6hdr_t *) & ipacket->data[offset];
 
     uint8_t next_hdr = ip6_hdr->nexthdr;
     uint16_t next_offset = sizeof (struct ipv6hdr);

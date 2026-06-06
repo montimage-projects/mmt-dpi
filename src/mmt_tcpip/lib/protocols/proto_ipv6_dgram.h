@@ -5,6 +5,7 @@
 #include "mmt_core.h"
 #include "mmt_common_internal_include.h"
 #include "proto_ip_frag.h"
+#include "ipv6.h" /* issue #59: mmt_una_ipv6hdr_t alignment-safe view */
 #define MMT_MAX_NUMBER_FRAGMENT 64 // Maximum number of fragments packet in an IP packets
 
 /*
@@ -62,7 +63,7 @@ extern void ipv6_dgram_cleanup(ipv6_dgram_t *);
 extern void ipv6_dgram_dump(ipv6_dgram_t *);
 extern void ipv6_dgram_dump_holes(ipv6_dgram_t *);
 
-extern int ipv6_dgram_update(ipv6_dgram_t *dg, const struct ipv6hdr *ip, unsigned caplen, uint16_t fragment_offset, uint16_t payload_offset, uint8_t more_fragment, uint16_t next_header_length);
+extern int ipv6_dgram_update(ipv6_dgram_t *dg, const mmt_una_ipv6hdr_t *ip, unsigned caplen, uint16_t fragment_offset, uint16_t payload_offset, uint8_t more_fragment, uint16_t next_header_length);
 extern int ipv6_dgram_update_holes(ipv6_dgram_t *, const uint8_t *, unsigned, unsigned, int);
 extern int ipv6_dgram_is_complete(ipv6_dgram_t *);
 

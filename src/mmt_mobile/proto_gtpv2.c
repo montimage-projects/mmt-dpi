@@ -54,7 +54,13 @@ static int _classify_gtpv2( ipacket_t * ipacket, unsigned index ){
 
 	//check udp ports
 	struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-	const struct udphdr *udp = packet->udp;
+	/*
+	 * Issue #59: packet->udp is a 1-byte-aligned view (mmt_una_udphdr_t,
+	 * PR #58/#57); copying it into a strict "struct udphdr *" would reintroduce
+	 * misaligned field reads (udp->source/dest). Keep the una view type so the
+	 * port reads below stay alignment-safe.
+	 */
+	const mmt_una_udphdr_t *udp = packet->udp;
 	//should not happen since we enter here from UDP, but check anyway
 	if (udp == NULL)
 		return 0;

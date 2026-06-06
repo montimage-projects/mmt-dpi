@@ -28,6 +28,15 @@ struct gtp_header_generic {
 	u_int32_t teid;
 };
 
+/*
+ * Issue #59: this header overlays the byte-aligned packet->payload / packet
+ * data buffer; reading message_len/teid through a strict cast is a misaligned
+ * access (UB, aborts under BUILD=asan -fsanitize=alignment). This view lowers
+ * the alignment requirement to 1 for alignment-safe single-load reads. Mirrors
+ * PR #58 (#57).
+ */
+typedef struct gtp_header_generic __attribute__((aligned(1))) mmt_una_gtp_header_generic_t;
+
 struct gtp_header_extension_pdu {
 	//an 8-bit field. This field states the length of this extension header,
 	// including the length, the contents, and the next extension header field,
@@ -63,7 +72,7 @@ int mmt_check_gtp(ipacket_t * ipacket, unsigned index) {
 		        || (packet->udp->source == gtp_c) || (packet->udp->dest == gtp_c)
 		        || (packet->udp->source == gtp_v0) || (packet->udp->dest == gtp_v0)
 		   ) {
-			struct gtp_header_generic *gtp = (struct gtp_header_generic*)packet->payload;
+			mmt_una_gtp_header_generic_t *gtp = (mmt_una_gtp_header_generic_t*)packet->payload;
 			// u_int8_t gtp_version = (gtp->flags & 0xE0) >> 5;
 
 			if ((gtp->version == 0) || (gtp->version == 1) || (gtp->version == 2)) {
@@ -86,7 +95,7 @@ int gtp_classify_next_proto(ipacket_t * ipacket, unsigned index) {
 
 	int offset = get_packet_offset_at_index(ipacket, index);
 	const u_char *gtp_binary = &ipacket->data[offset];
-	struct gtp_header_generic *gtp = (struct gtp_header_generic*)& ipacket->data[offset];
+	mmt_una_gtp_header_generic_t *gtp = (mmt_una_gtp_header_generic_t*)& ipacket->data[offset];
 	int gtp_offset = sizeof (struct gtp_header_generic);
 	int next_ext_header_type = 0, next_ext_header_length = 0;
 	classified_proto_t retval;
@@ -172,7 +181,7 @@ int gtp_version_flag_extraction(const ipacket_t * packet, unsigned proto_index,
                                 attribute_t * extracted_data) {
 
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
-	struct gtp_header_generic * gtp = (struct gtp_header_generic *) & packet->data[proto_offset];
+	mmt_una_gtp_header_generic_t * gtp = (mmt_una_gtp_header_generic_t *) & packet->data[proto_offset];
 	*((unsigned char *) extracted_data->data) = gtp->version;
 	return 1;
 }
@@ -182,7 +191,7 @@ int gtp_protocol_type_flag_extraction(const ipacket_t * packet, unsigned proto_i
                                       attribute_t * extracted_data) {
 
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
-	struct gtp_header_generic * gtp = (struct gtp_header_generic *) & packet->data[proto_offset];
+	mmt_una_gtp_header_generic_t * gtp = (mmt_una_gtp_header_generic_t *) & packet->data[proto_offset];
 	*((unsigned char *) extracted_data->data) = gtp->proto_type;
 	return 1;
 }
@@ -191,7 +200,7 @@ int gtp_reserved_flag_extraction(const ipacket_t * packet, unsigned proto_index,
                                  attribute_t * extracted_data) {
 
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
-	struct gtp_header_generic * gtp = (struct gtp_header_generic *) & packet->data[proto_offset];
+	mmt_una_gtp_header_generic_t * gtp = (mmt_una_gtp_header_generic_t *) & packet->data[proto_offset];
 	*((unsigned char *) extracted_data->data) = gtp->reserved;
 	return 1;
 }
@@ -200,7 +209,7 @@ int gtp_extension_header_flag_extraction(const ipacket_t * packet, unsigned prot
         attribute_t * extracted_data) {
 
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
-	struct gtp_header_generic * gtp = (struct gtp_header_generic *) & packet->data[proto_offset];
+	mmt_una_gtp_header_generic_t * gtp = (mmt_una_gtp_header_generic_t *) & packet->data[proto_offset];
 	*((unsigned char *) extracted_data->data) = gtp->extension_header;
 	return 1;
 }
@@ -209,7 +218,7 @@ int gtp_seq_check_flag_extraction(const ipacket_t * packet, unsigned proto_index
                                         attribute_t * extracted_data) {
 
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
-	struct gtp_header_generic * gtp = (struct gtp_header_generic *) & packet->data[proto_offset];
+	mmt_una_gtp_header_generic_t * gtp = (mmt_una_gtp_header_generic_t *) & packet->data[proto_offset];
 	*((unsigned char *) extracted_data->data) = gtp->sequence_number;
 	return 1;
 }
@@ -254,14 +263,14 @@ int gtp_npdu_number_flag_extraction(const ipacket_t * packet, unsigned proto_ind
                                     attribute_t * extracted_data) {
 
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
-	struct gtp_header_generic * gtp = (struct gtp_header_generic *) & packet->data[proto_offset];
+	mmt_una_gtp_header_generic_t * gtp = (mmt_una_gtp_header_generic_t *) & packet->data[proto_offset];
 	*((unsigned char *) extracted_data->data) = gtp->ndpu_number;
 	return 1;
 }
 
 int _gtp_extract_next_extension_header_type(const ipacket_t * packet, unsigned proto_index, attribute_t * extracted_data) {
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
-	struct gtp_header_generic * gtp = (struct gtp_header_generic *) & packet->data[proto_offset];
+	mmt_una_gtp_header_generic_t * gtp = (mmt_una_gtp_header_generic_t *) & packet->data[proto_offset];
 	if( gtp->extension_header == 0 ) //no extension
 		return 0;
 	*((uint8_t *) extracted_data->data) = *(uint8_t *) &packet->data[ proto_offset + 11 ];
@@ -271,7 +280,7 @@ int _gtp_extract_next_extension_header_type(const ipacket_t * packet, unsigned p
 
 static int _gtp_extract_pdu_extension_header_field(const ipacket_t * packet, unsigned proto_index, attribute_t * extracted_data) {
 	int proto_offset = get_packet_offset_at_index(packet, proto_index);
-	const struct gtp_header_generic * gtp = (struct gtp_header_generic *) & packet->data[proto_offset];
+	const mmt_una_gtp_header_generic_t * gtp = (const mmt_una_gtp_header_generic_t *) & packet->data[proto_offset];
 	if( gtp->message_type != GTP_MESSAGE_TYPE_T_PDU //not T-PDU
 			|| gtp->extension_header == 0 ) //no extension
 		return 0;

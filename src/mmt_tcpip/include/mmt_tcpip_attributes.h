@@ -1334,6 +1334,21 @@ struct s7commphdr {
     uint16_t data_length ;
 };
 
+/*
+ * Issue #59: these headers are read by casting "&ipacket->data[offset]" of the
+ * byte-aligned capture buffer to the struct and dereferencing multi-byte fields
+ * (tpkthdr->length, s7commphdr->reserved/pdur/...). When offset is not naturally
+ * aligned that is a misaligned access — UB that aborts under
+ * -fsanitize=alignment (BUILD=asan). These typedefs alias the structs with the
+ * alignment requirement lowered to 1 so the compiler emits alignment-safe loads
+ * (single-load codegen on x86_64/aarch64, no struct copy, no hot-path cost).
+ * Mirrors the mmt_una_* views added in PR #58 (#57). cotphdr is byte-only but a
+ * view is provided for a uniform, deref-safe cast at every overlay site.
+ */
+typedef struct tpkthdr    __attribute__((aligned(1))) mmt_una_tpkthdr_t;
+typedef struct cotphdr    __attribute__((aligned(1))) mmt_una_cotphdr_t;
+typedef struct s7commphdr __attribute__((aligned(1))) mmt_una_s7commphdr_t;
+
 //////////// END OF S7COMM PROTOCOL ATTRIBUTES ////////////////////
 
 //////////// SMB PROTOCOL ATTRIBUTES ////////////////////

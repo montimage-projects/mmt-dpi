@@ -65,7 +65,17 @@ static uint32_t _classify_by_sctp_ports( ipacket_t *ipacket, unsigned index, uin
 	int sctp_offset = get_packet_offset_at_index(ipacket, sctp_index);
 	const struct sctphdr *sctp_hdr = (struct sctphdr *) &ipacket->data[ sctp_offset ];
 
-	if( ntohs( sctp_hdr->source ) == 3868 && ntohs( sctp_hdr->dest) == 3868 ){
+	/*
+	 * Issue #59: sctp_hdr points into the byte-aligned capture buffer, so read
+	 * the 16-bit ports with memcpy rather than dereferencing the struct directly
+	 * (a misaligned load is UB and aborts under -fsanitize=alignment). memcpy of
+	 * a fixed small size lowers to a single load on targets with native
+	 * unaligned access — no hot-path cost. Mirrors ip_fragment_key() in PR #58.
+	 */
+	uint16_t sctp_src, sctp_dst;
+	memcpy(&sctp_src, &sctp_hdr->source, sizeof(sctp_src));
+	memcpy(&sctp_dst, &sctp_hdr->dest,   sizeof(sctp_dst));
+	if( ntohs( sctp_src ) == 3868 && ntohs( sctp_dst ) == 3868 ){
 		//need to confirm more by other signatures of diameter: version
 		const struct diameter_header *hdr = (struct diameter_header *) &ipacket->data[offset];
 		uint32_t length = copy_4bytes_order( hdr->length, 3 );

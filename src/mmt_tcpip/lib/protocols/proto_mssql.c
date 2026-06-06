@@ -19,6 +19,14 @@ struct tds_packet_header {
   u_int8_t window;
 };
 // end of TDS header
+
+/*
+ * Issue #59: this header overlays the byte-aligned packet->payload; reading
+ * length/channel through a strict cast is a misaligned access (UB, aborts under
+ * BUILD=asan -fsanitize=alignment). This view lowers the alignment requirement
+ * to 1 for alignment-safe single-load reads. Mirrors PR #58 (#57).
+ */
+typedef struct tds_packet_header __attribute__((aligned(1))) mmt_una_tds_packet_header_t;
 static void mmt_int_mssql_add_connection(ipacket_t * ipacket) {
     mmt_internal_add_connection(ipacket, PROTO_MSSQL, MMT_REAL_PROTOCOL);
 }
@@ -58,7 +66,7 @@ int mmt_check_mssql(ipacket_t * ipacket, unsigned index) {
             // LN: Detect PROTO_MSSQL
             if(packet->payload_packet_len > sizeof(struct tds_packet_header)){
             
-                struct tds_packet_header *h = (struct tds_packet_header*) packet->payload;
+                mmt_una_tds_packet_header_t *h = (mmt_una_tds_packet_header_t*) packet->payload;
 
                 if ((h->type >= 1 && h->type <= 8) || (h->type >= 14 && h->type <= 18)) {
                     if (h->status == 0x00 || h->status == 0x01 || h->status == 0x02 || h->status == 0x04 || h->status == 0x08 || h->status == 0x09 || h->status == 0x10) {

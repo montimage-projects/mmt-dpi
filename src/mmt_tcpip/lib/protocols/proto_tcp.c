@@ -307,15 +307,22 @@ int tcp_option_extraction(const ipacket_t *ipacket, unsigned proto_index, attrib
     int end_of_option = proto_offset + data_offset * 4;
 
     //structure of a tcp option field
+    /*
+     * Issue #59: these overlay "&ipacket->data[option_offset]" / opt_field->data
+     * of the byte-aligned capture buffer; reading the 32-bit timestamp fields
+     * (tsval/tserc) through a strict cast is a misaligned access (UB, aborts
+     * under BUILD=asan -fsanitize=alignment). aligned(1) lowers the alignment
+     * requirement to 1 for alignment-safe single-load reads. Mirrors PR #58 (#57).
+     */
     struct tcp_option{
         uint8_t kind;
         uint8_t length; //indicates the total length of the option
         uint8_t data[];
-    } *opt_field;
+    } __attribute__((aligned(1))) *opt_field;
     struct timestamp_option_field{
         uint32_t tsval;
         uint32_t tserc;
-    } *ts_field;
+    } __attribute__((aligned(1))) *ts_field;
 
     while( option_offset < end_of_option ){
         opt_field = (struct tcp_option *) &ipacket->data[ option_offset ];

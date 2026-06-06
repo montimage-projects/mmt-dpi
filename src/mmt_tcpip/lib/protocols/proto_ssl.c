@@ -42,6 +42,14 @@ struct ssl_extension_struct {
 };
 
 /*
+ * Issue #59: this header overlays the byte-aligned packet->payload; reading
+ * type/len through a strict cast is a misaligned access (UB, aborts under
+ * BUILD=asan -fsanitize=alignment). This view lowers the alignment requirement
+ * to 1 for alignment-safe single-load reads. Mirrors PR #58 (#57).
+ */
+typedef struct ssl_extension_struct __attribute__((aligned(1))) mmt_una_ssl_extension_struct_t;
+
+/*
  * Read a big-endian (network-order) 16-bit value at byte offset `off`.
  * Equivalent to ntohs(get_u16(payload, off)) but byte-assembled, so it is
  * safe on payload pointers that are not 2-byte aligned. The get_u16 macro
@@ -414,7 +422,7 @@ int getServerNameFromClientHello(ipacket_t * ipacket, char *buffer, int buffer_l
                         return 0;
                     }
 
-                    struct ssl_extension_struct * ext = (struct ssl_extension_struct *) &packet->payload[offset + extension_offset];
+                    mmt_una_ssl_extension_struct_t * ext = (mmt_una_ssl_extension_struct_t *) &packet->payload[offset + extension_offset];
                     uint16_t extension_id, extension_len;
 
                     extension_id = ntohs(ext->type);

@@ -27,6 +27,14 @@ struct radius_header {
     uint16_t len;
 };
 
+/*
+ * Issue #59: this header overlays the byte-aligned packet->payload; reading
+ * (and writing) len through a strict cast is a misaligned access (UB, aborts
+ * under BUILD=asan -fsanitize=alignment). This view lowers the alignment
+ * requirement to 1 for alignment-safe single-load access. Mirrors PR #58 (#57).
+ */
+typedef struct radius_header __attribute__((aligned(1))) mmt_una_radius_header_t;
+
 typedef struct radius_session_context_struct {
     int tlv_count;
     tlv_t * packet_tlvs[0xFF]; // This will hold the different TLVs found in the last packet.
@@ -1853,7 +1861,7 @@ void mmt_classify_me_radius(ipacket_t * ipacket, unsigned index) {
         uint32_t payload_len = packet->payload_packet_len;
 
         if (packet->udp != NULL) {
-            struct radius_header *h = (struct radius_header*) packet->payload;
+            mmt_una_radius_header_t *h = (mmt_una_radius_header_t*) packet->payload;
 
             uint32_t h_len = ntohs(h->len);
 
@@ -1886,7 +1894,7 @@ int mmt_check_radius(ipacket_t * ipacket, unsigned index) { //BW: TODO: check th
 
         uint32_t payload_len = packet->payload_packet_len;
 
-        struct radius_header *h = (struct radius_header*) packet->payload;
+        mmt_una_radius_header_t *h = (mmt_una_radius_header_t*) packet->payload;
 
         uint32_t h_len = ntohs(h->len);
 

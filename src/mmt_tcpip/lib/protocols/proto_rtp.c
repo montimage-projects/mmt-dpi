@@ -75,7 +75,7 @@ int rtp_version_extraction(const ipacket_t * packet, unsigned proto_index,
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
 
-    *(uint8_t *) extracted_data->data = ((struct rtphdr *) & packet->data[proto_offset])->version;
+    *(uint8_t *) extracted_data->data = ((mmt_una_rtphdr_t *) & packet->data[proto_offset])->version;
     return 1;
 }
 
@@ -84,7 +84,7 @@ int rtp_padding_extraction(const ipacket_t * packet, unsigned proto_index,
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
 
-    *(uint8_t *) extracted_data->data = ((struct rtphdr *) & packet->data[proto_offset])->padding;
+    *(uint8_t *) extracted_data->data = ((mmt_una_rtphdr_t *) & packet->data[proto_offset])->padding;
     return 1;
 }
 
@@ -93,7 +93,7 @@ int rtp_extension_extraction(const ipacket_t * packet, unsigned proto_index,
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
 
-    *(uint8_t *) extracted_data->data = ((struct rtphdr *) & packet->data[proto_offset])->ext;
+    *(uint8_t *) extracted_data->data = ((mmt_una_rtphdr_t *) & packet->data[proto_offset])->ext;
     return 1;
 }
 
@@ -102,7 +102,7 @@ int rtp_cc_extraction(const ipacket_t * packet, unsigned proto_index,
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
 
-    *(uint8_t *) extracted_data->data = ((struct rtphdr *) & packet->data[proto_offset])->cc;
+    *(uint8_t *) extracted_data->data = ((mmt_una_rtphdr_t *) & packet->data[proto_offset])->cc;
     return 1;
 }
 
@@ -111,7 +111,7 @@ int rtp_marker_extraction(const ipacket_t * packet, unsigned proto_index,
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
 
-    *(uint8_t *) extracted_data->data = ((struct rtphdr *) & packet->data[proto_offset])->mark;
+    *(uint8_t *) extracted_data->data = ((mmt_una_rtphdr_t *) & packet->data[proto_offset])->mark;
     return 1;
 }
 
@@ -120,7 +120,7 @@ int rtp_payload_type_extraction(const ipacket_t * packet, unsigned proto_index,
 
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
 
-    *(uint8_t *) extracted_data->data = ((struct rtphdr *) & packet->data[proto_offset])->pt;
+    *(uint8_t *) extracted_data->data = ((mmt_una_rtphdr_t *) & packet->data[proto_offset])->pt;
     return 1;
 }
 
@@ -131,7 +131,7 @@ int rtp_csrc_list_extraction(const ipacket_t * packet, unsigned proto_index,
     int attribute_offset = extracted_data->position_in_packet;
 
     uint8_t i;
-    uint8_t cc = ((struct rtphdr *) & packet->data[proto_offset])->cc * 4; //TODO: shifting is more optimal no?
+    uint8_t cc = ((mmt_una_rtphdr_t *) & packet->data[proto_offset])->cc * 4; //TODO: shifting is more optimal no?
     *((unsigned int *) extracted_data->data) = cc;
     for (i = 0; i < cc; i++) {
         *((unsigned int *) & ((u_char *) extracted_data->data)[sizeof (int) +i * 4]) = ntohl(*((unsigned int *) & packet->data[proto_offset + attribute_offset + i * 4]));
@@ -455,7 +455,7 @@ void process_packet_timediff_jitter(ipacket_t * ipacket, struct rtp_session_data
 int rtp_session_data_processing(ipacket_t * ipacket, unsigned index) {
     struct rtp_session_data_struct * rtp_session_data = ipacket->session->session_data[index];
     int offset = get_packet_offset_at_index(ipacket, index);
-    struct rtphdr * rtp_hdr = (struct rtphdr *) &ipacket->data[offset];
+    mmt_una_rtphdr_t * rtp_hdr = (mmt_una_rtphdr_t *) &ipacket->data[offset];
 
     uint16_t new_seqnb = ntohs(rtp_hdr->seq);
     process_packet_loss_order(rtp_session_data, new_seqnb);
@@ -484,7 +484,7 @@ int rtp_session_data_processing(ipacket_t * ipacket, unsigned index) {
 int rtp_initial_data_processing(ipacket_t * ipacket, unsigned index) {
     struct rtp_session_data_struct * rtp_session_data = ipacket->session->session_data[index];
     int offset = get_packet_offset_at_index(ipacket, index);
-    struct rtphdr * rtp_hdr = (struct rtphdr *) &ipacket->data[offset];
+    mmt_una_rtphdr_t * rtp_hdr = (mmt_una_rtphdr_t *) &ipacket->data[offset];
     int i;
     uint16_t new_seqnb = ntohs(rtp_hdr->seq);
 

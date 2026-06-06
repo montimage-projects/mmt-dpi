@@ -39,7 +39,7 @@ int mmt_check_cotp(ipacket_t * ipacket, unsigned index) {
         return 0;
     }
 
-    struct cotphdr * cotp_header = (struct cotphdr *)&ipacket->data[cotp_offset];
+    mmt_una_cotphdr_t * cotp_header = (mmt_una_cotphdr_t *)&ipacket->data[cotp_offset];
 
     if(cotp_header->length == 2 || cotp_header->length == 17 ){
         
