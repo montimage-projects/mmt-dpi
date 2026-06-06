@@ -3146,32 +3146,38 @@ void process_packet_handler(ipacket_t *ipacket) {
     debug("process_packet_handler of ipacket: %"PRIu64"\n", ipacket->packet_id);
     // debug("Last packet_handler_id: %d", ipacket->last_callback_fct_id);
     packet_handler_t * temp_packet_handler = ipacket->mmt_handler->packet_handlers;
-    while (temp_packet_handler != NULL) {
-        if (ipacket->last_callback_fct_id == 0) {
-            ipacket->last_callback_fct_id = temp_packet_handler->packet_handler_id;
-            int result = (temp_packet_handler->function(ipacket, temp_packet_handler->args));
-            if (result == 1) {
-                debug("process_packet_handler result == 1  status of ipacket: %"PRIu64"\n", ipacket->packet_id);
-                return;
-            }
+    // Resume after the last handler that already ran for this packet, if any.
+    // process_packet_handler() can be re-invoked for the same ipacket after a
+    // handler returns 1; last_callback_fct_id records where to continue so the
+    // earlier handlers are not run twice. We locate the resume point by handler
+    // id (not a cached pointer) exactly once here, rather than re-scanning the
+    // list head on every iteration as the previous implementation did. That
+    // made dispatch O(H^2); a single resume scan plus one linear pass is O(H).
+    //
+    // Resuming by id (instead of a saved next pointer persisted on the ipacket)
+    // keeps the previous mutation semantics: the handler list may be rebuilt
+    // between invocations and a stale pointer would dangle, whereas an id is
+    // re-resolved against the current list. Within the pass below we advance via
+    // ->next read after the callback, identical to the original first branch.
+    if (ipacket->last_callback_fct_id != 0) {
+        while (temp_packet_handler != NULL &&
+               temp_packet_handler->packet_handler_id != ipacket->last_callback_fct_id) {
             temp_packet_handler = temp_packet_handler->next;
-        } else {
-            temp_packet_handler = ipacket->mmt_handler->packet_handlers;
-            while (temp_packet_handler != NULL && temp_packet_handler->packet_handler_id != ipacket->last_callback_fct_id) {
-                temp_packet_handler = temp_packet_handler->next;
-                continue;
-            }
-            temp_packet_handler = temp_packet_handler->next;
-            if (temp_packet_handler != NULL ) {
-                ipacket->last_callback_fct_id = temp_packet_handler->packet_handler_id;
-                int result = (temp_packet_handler->function(ipacket, temp_packet_handler->args));
-                if (result == 1) {
-                    debug("process_packet_handler result == 1  status of ipacket: %"PRIu64"\n", ipacket->packet_id);
-                    return;
-                }
-                temp_packet_handler = temp_packet_handler->next;
-            }
         }
+        // Skip the already-processed handler; if it is no longer present
+        // (temp_packet_handler == NULL) the pass below is a no-op.
+        if (temp_packet_handler != NULL) {
+            temp_packet_handler = temp_packet_handler->next;
+        }
+    }
+    while (temp_packet_handler != NULL) {
+        ipacket->last_callback_fct_id = temp_packet_handler->packet_handler_id;
+        int result = (temp_packet_handler->function(ipacket, temp_packet_handler->args));
+        if (result == 1) {
+            debug("process_packet_handler result == 1  status of ipacket: %"PRIu64"\n", ipacket->packet_id);
+            return;
+        }
+        temp_packet_handler = temp_packet_handler->next;
     }
 
     process_timedout_sessions(ipacket->mmt_handler, ipacket->p_hdr->ts.tv_sec);
