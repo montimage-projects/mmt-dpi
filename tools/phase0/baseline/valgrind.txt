@@ -1,207 +1,30 @@
 # Valgrind leak baseline — captured on this host.
 #   tool        : valgrind-3.22.0
-#   commit      : f9b74e7f (post-Phase-5: PRs #46-#50 merged)
+#   commit      : 79f4166b + fix/53 (FTP protocol-context teardown)
 #   host/cpu    : aarch64 / 20 cores
 #   pcap        : ftp/ftp_multiple_session.pcap
 #   command     : valgrind --leak-check=full --show-leak-kinds=all phase0_classify <pcap>
 #   driver      : calls mmt_close_handler()+close_extraction() at exit
 #
-# SUMMARY: definitely lost 80B/1blk, indirectly lost 933B/34blk,
-#          possibly lost 0, still reachable 0. No invalid read/write.
-# Leaks are PRE-EXISTING (init-time via mmt_init_handler + FTP/session
-# str_copy on the packet path); NO Phase-5 function appears in any trace.
+# SUMMARY: CLEAN — definitely lost 0, indirectly lost 0, possibly lost 0,
+#          still reachable 0. All heap blocks freed; no invalid read/write.
+# The pre-existing init-time + per-packet FTP/session leaks (issue #53) are
+# fixed: proto_ftp now registers cleanup_ftp_context(), which frees the whole
+# ftp_control_session_t list (head sentinel + per-session str_copy/str_combine
+# strings) on handler teardown via mmt_close_handler() -> free_protocols_contexts().
 # ==========================================================================
 
-==1666126== Memcheck, a memory error detector
-==1666126== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
-==1666126== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
-==1666126== Command: /tmp/tmp.P4GV8jZSTO/phase0_classify /home/montimage/workspace/mmt/mmt-test/data-sets/ftp/ftp_multiple_session.pcap
-==1666126== 
-==1666126== 
-==1666126== HEAP SUMMARY:
-==1666126==     in use at exit: 1,013 bytes in 35 blocks
-==1666126==   total heap usage: 45,445 allocs, 45,410 frees, 20,855,494 bytes allocated
-==1666126== 
-==1666126== 8 bytes in 2 blocks are indirectly lost in loss record 1 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EC917: ???
-==1666126==    by 0x58EE12B: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 10 bytes in 2 blocks are indirectly lost in loss record 2 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EB59F: ???
-==1666126==    by 0x58EDC73: ???
-==1666126==    by 0x58EE7F7: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 14 bytes in 2 blocks are indirectly lost in loss record 3 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x48CCB8F: str_copy (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x58EDEEB: ???
-==1666126==    by 0x58EE7F7: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 16 bytes in 2 blocks are indirectly lost in loss record 4 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x48CCB8F: str_copy (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x58EDEBB: ???
-==1666126==    by 0x58EE7F7: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 18 bytes in 2 blocks are indirectly lost in loss record 5 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58ECA53: ???
-==1666126==    by 0x58EE12B: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 28 bytes in 2 blocks are indirectly lost in loss record 6 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x48CCB8F: str_copy (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x58EE61B: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 30 bytes in 2 blocks are indirectly lost in loss record 7 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x48CCB8F: str_copy (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x58EE64B: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 32 bytes in 2 blocks are indirectly lost in loss record 8 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EB07F: ???
-==1666126==    by 0x58EE867: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 48 bytes in 2 blocks are indirectly lost in loss record 9 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EC8AF: ???
-==1666126==    by 0x58EE12B: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 48 bytes in 2 blocks are indirectly lost in loss record 10 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EB45F: ???
-==1666126==    by 0x58EDC73: ???
-==1666126==    by 0x58EE7F7: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 48 bytes in 2 blocks are indirectly lost in loss record 11 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EAF83: ???
-==1666126==    by 0x58EE32F: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 57 bytes in 2 blocks are indirectly lost in loss record 12 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x48CCB8F: str_copy (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x58EE46F: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 96 bytes in 2 blocks are indirectly lost in loss record 13 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x48CC5D7: str_combine (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x58EE357: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 96 bytes in 2 blocks are indirectly lost in loss record 14 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EAF33: ???
-==1666126==    by 0x58EE32F: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 112 bytes in 2 blocks are indirectly lost in loss record 15 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EA7E7: ???
-==1666126==    by 0x58EB06B: ???
-==1666126==    by 0x58EE867: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 112 bytes in 2 blocks are indirectly lost in loss record 16 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EAF43: ???
-==1666126==    by 0x58EE32F: ???
-==1666126==    by 0x58EE81B: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 160 bytes in 2 blocks are indirectly lost in loss record 17 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58EB05B: ???
-==1666126==    by 0x58EE867: ???
-==1666126==    by 0x48D1D8B: proto_packet_analyze (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D5897: proto_packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x48D2633: packet_process (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108D4B: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== 1,013 (80 direct, 933 indirect) bytes in 1 blocks are definitely lost in loss record 18 of 18
-==1666126==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
-==1666126==    by 0x58E82FF: ???
-==1666126==    by 0x48D4CF3: mmt_init_handler (in /tmp/mmt/dpi/lib/libmmt_core.so.1.7.10)
-==1666126==    by 0x108CF3: main (in /tmp/tmp.P4GV8jZSTO/phase0_classify)
-==1666126== 
-==1666126== LEAK SUMMARY:
-==1666126==    definitely lost: 80 bytes in 1 blocks
-==1666126==    indirectly lost: 933 bytes in 34 blocks
-==1666126==      possibly lost: 0 bytes in 0 blocks
-==1666126==    still reachable: 0 bytes in 0 blocks
-==1666126==         suppressed: 0 bytes in 0 blocks
-==1666126== 
-==1666126== For lists of detected and suppressed errors, rerun with: -s
-==1666126== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)
+==1969686== Memcheck, a memory error detector
+==1969686== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1969686== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1969686== Command: /tmp/tmp.Yh6JS9j3E5/phase0_classify /home/montimage/workspace/mmt/mmt-test/data-sets/ftp/ftp_multiple_session.pcap
+==1969686==
+==1969686==
+==1969686== HEAP SUMMARY:
+==1969686==     in use at exit: 0 bytes in 0 blocks
+==1969686==   total heap usage: 45,445 allocs, 45,445 frees, 20,856,502 bytes allocated
+==1969686==
+==1969686== All heap blocks were freed -- no leaks are possible
+==1969686==
+==1969686== For lists of detected and suppressed errors, rerun with: -s
+==1969686== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
