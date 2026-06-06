@@ -273,7 +273,7 @@ mmt_session_t * get_session(void * protocol_context, mmt_session_key_t * session
                 //free this session and return NULL
                 // mmt_free(session_key->lower_ip);
                 // mmt_free(session_key->higher_ip);
-                mmt_free(retval);
+                free(retval);
                 return NULL;
             }
             ((mmt_session_key_t *) retval->session_key)->higher_ip = _get_ip4_id(tcpip_context, (uint32_t *) session_key->higher_ip, &ish_new);
@@ -285,7 +285,7 @@ mmt_session_t * get_session(void * protocol_context, mmt_session_key_t * session
                 }
                 // mmt_free(session_key->lower_ip);
                 // mmt_free(session_key->higher_ip);
-                mmt_free(retval);
+                free(retval);
                 return NULL;
             }
             ((mmt_ip4_id_t *) ((mmt_session_key_t *) retval->session_key)->lower_ip)->count++;
@@ -297,7 +297,7 @@ mmt_session_t * get_session(void * protocol_context, mmt_session_key_t * session
                 //free this session and return NULL
                 // mmt_free(session_key->lower_ip);
                 // mmt_free(session_key->higher_ip);
-                mmt_free(retval);
+                free(retval);
                 return NULL;
             }
             ((mmt_session_key_t *) retval->session_key)->higher_ip = get_ip6_id(tcpip_context, (struct in6_addr *) session_key->higher_ip, &ish_new);
@@ -309,7 +309,7 @@ mmt_session_t * get_session(void * protocol_context, mmt_session_key_t * session
                 }
                 // mmt_free(session_key->lower_ip);
                 // mmt_free(session_key->higher_ip);
-                mmt_free(retval);
+                free(retval);
                 return NULL;
             }
             ((mmt_ip6_id_t *) ((mmt_session_key_t *) retval->session_key)->lower_ip)->count++;
@@ -334,7 +334,7 @@ mmt_session_t * get_session(void * protocol_context, mmt_session_key_t * session
             }
             // mmt_free(session_key->lower_ip);
             // mmt_free(session_key->higher_ip);
-            mmt_free(retval);
+            free(retval);
             return NULL;
         }
         tcpip_context->sessions_count += 1;

@@ -49,6 +49,7 @@ void hashmap_free( mmt_hashmap_t *map )
 {
    hashmap_cleanup( map );
    mmt_free( map->slots );
+   mmt_free( map );
 }
 
 /**
