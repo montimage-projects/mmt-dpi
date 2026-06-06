@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# run_ip_session_frag_key_test.sh — build the IPv4/IPv6 session-key and
+# fragment-key hardening test against an ASan/UBSan-instrumented build of the
+# SDK and run it (issue #9, H6/H7/H8).
+#
+# Steps:
+#   1. Build + install the SDK with BUILD=asan into an isolated prefix.
+#   2. Compile tools/phase0/tests/ip_session_frag_key_test.c against that
+#      library, itself instrumented with -fsanitize=address,undefined.
+#   3. Run it. With -fno-sanitize-recover=all, any out-of-bounds read aborts
+#      with non-zero status; all assertions must also pass. Exit 0 == clean.
+#
+# Usage: tools/phase0/tests/run_ip_session_frag_key_test.sh
+set -euo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${TEST_DIR}/../../.." && pwd)"
+PREFIX="${MMT_ASAN_PREFIX:-/tmp/mmt-asan-ip-session-frag-key}"
+BIN="$(mktemp -d)/ip_session_frag_key_test"
+trap 'rm -rf "$(dirname "${BIN}")"' EXIT
+
+echo "[1/3] building + installing SDK with BUILD=asan -> ${PREFIX}"
+make -C "${REPO_ROOT}/sdk" BUILD=asan MMT_BASE="${PREFIX}" -j"$(nproc)" >/dev/null
+make -C "${REPO_ROOT}/sdk" BUILD=asan MMT_BASE="${PREFIX}" install >/dev/null
+
+echo "[2/3] compiling ip_session_frag_key_test (ASan/UBSan)"
+# The IPv6 header struct (struct ipv6hdr / ext_hdr_fragment) and the session-key
+# struct (mmt_session_key_t) live in the in-tree plugin headers, not in the
+# installed public headers, so add the in-tree include paths. The layout matches
+# the compiled library byte-for-byte (same headers).
+gcc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=all \
+    -o "${BIN}" "${TEST_DIR}/ip_session_frag_key_test.c" \
+    -I"${PREFIX}/dpi/include" \
+    -I"${REPO_ROOT}/src/mmt_tcpip/lib" \
+    -I"${REPO_ROOT}/src/mmt_tcpip/lib/protocols" \
+    -I"${REPO_ROOT}/src/mmt_core/public_include" \
+    -I"${REPO_ROOT}/src/mmt_core/private_include" \
+    -L"${PREFIX}/dpi/lib" -lmmt_tcpip -lmmt_core -ldl -lpthread -lm
+
+echo "[3/3] running ip_session_frag_key_test under ASan/UBSan"
+ASAN_OPTIONS="detect_leaks=0" \
+LD_LIBRARY_PATH="${PREFIX}/dpi/lib:${LD_LIBRARY_PATH:-}" \
+    "${BIN}"
+rc=$?
+
+if [ "${rc}" -eq 0 ]; then
+    echo "✓ IPv4/IPv6 session & fragment key hardening test: PASS"
+else
+    echo "✗ IPv4/IPv6 session & fragment key hardening test: FAIL (rc=${rc})"
+fi
+exit "${rc}"
