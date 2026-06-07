@@ -1,0 +1,19 @@
+# MMT-DPI — externally-updatable IP-range attribution (M9, issue #26)
+#
+# Point the MMT_DPI_IP_RANGES_FILE environment variable at a copy of this file
+# to attribute additional CIDR ranges to a protocol WITHOUT recompiling. Rules
+# here are loaded ON TOP of the bundled, compiled-in table (which remains the
+# default/fallback): when the variable is unset, classification is unchanged.
+#
+# Format (one rule per line):
+#     <A.B.C.D>/<prefixlen>   <PROTOCOL>
+#   - text after '#' is a comment; blank lines are ignored
+#   - prefixlen must be in [1, 30] (matches the AVL-tree layout)
+#   - <PROTOCOL> is a registered protocol name (e.g. GOOGLE, HTTP, SSL) or, as a
+#     rename-proof fallback, a bare numeric protocol id
+#
+# The addresses below are RFC 5737 documentation ranges — replace them with
+# real, verifiable CDN/cloud ranges from an authoritative, refreshable source.
+
+# 198.51.100.0/24   GOOGLE
+# 203.0.113.0/24    AMAZON

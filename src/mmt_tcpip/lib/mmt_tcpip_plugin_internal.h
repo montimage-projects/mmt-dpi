@@ -49,6 +49,43 @@ void mmt_change_internal_flow_protocol(ipacket_t * ipacket, uint16_t detected_pr
  */
 void mmt_change_internal_packet_protocol(ipacket_t * ipacket, uint16_t detected_protocol, mmt_protocol_type_t protocol_type);
 
+/* ------------------------------------------------------------------------
+ * M9 (issue #26): externally-updatable IP-range / port attribution.
+ *
+ * The hardcoded proto_ip_address[] table (mmt_tcpip_classif_utils.c) and the
+ * built-in port switch (mmt_tcpip_plugin_internal.c) remain the bundled
+ * default/fallback. In addition, operators can supply plain-text data files,
+ * pointed to by environment variables, whose entries are loaded ON TOP of the
+ * built-in tables at init time. When the variables are unset (the default, and
+ * what CI uses) nothing extra is loaded and classification is byte-identical to
+ * the compiled-in baseline.
+ *
+ *   MMT_DPI_IP_RANGES_FILE : CIDR -> protocol attribution (extends the AVL trees)
+ *   MMT_DPI_PORT_MAP_FILE  : L4 port -> protocol *hint* (extends the port switch)
+ *
+ * All loaders run single-threaded during init_extraction()/init_tcpip_plugin(),
+ * before any worker thread exists, so they respect the threading contract
+ * documented in docs/THREADING.md (init-time writers, hot-path readers).
+ * ------------------------------------------------------------------------ */
+
+/* Load extra CIDR->protocol rules from `path` into the IP-range AVL trees.
+ * Returns the number of rules loaded, or -1 if the file could not be opened. */
+int mmt_tcpip_load_ip_ranges_file(const char *path);
+
+/* Read MMT_DPI_IP_RANGES_FILE and, if set & non-empty, load it. No-op otherwise. */
+void mmt_tcpip_load_external_ip_ranges(void);
+
+/* Load extra "<tcp|udp> <port> <proto>" rules from `path` into the port map.
+ * Returns the number of rules loaded, or -1 if the file could not be opened. */
+int mmt_tcpip_load_port_map_file(const char *path);
+
+/* Read MMT_DPI_PORT_MAP_FILE and, if set & non-empty, load it. No-op otherwise. */
+void mmt_tcpip_load_external_port_map(void);
+
+/* Release any heap memory held by the externally-loaded port map (init-time
+ * counterpart of _free_proto_avltrees(), invoked from cleanup_tcpip_plugin()). */
+void mmt_tcpip_free_external_port_map(void);
+
 static inline uint32_t
 check_local_proto_by_port_nb(uint16_t portnb, mmt_server_local_proto_t * local_protos) {
     index_t i = local_protos->index;

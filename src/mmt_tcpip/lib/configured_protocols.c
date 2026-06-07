@@ -16,6 +16,10 @@ int cleanup_tcpip_plugin(){
     // if(!cleanup_proto_tcp_struct()){
     //     fprintf(stderr, "No cleanup function for protocol proto_tcp\n");
     // }
+    // M9 (issue #26): release the externally-loaded port-hint table. The IP-range
+    // AVL trees (built-in + external) are freed by the library destructor via
+    // _free_proto_avltrees().
+    mmt_tcpip_free_external_port_map();
     return 1;
 }
 
@@ -4123,6 +4127,13 @@ int init_tcpip_plugin() {
     ///////////////////////////////////////////////////////////////////////////////////////
     /////////////////////END OF INTER-PROTOCOL CLASSIFICATIONS ////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////
+
+    // M9 (issue #26): now that every tcpip protocol is registered (so protocol
+    // names resolve), pull in any externally-supplied IP-range / port-hint data.
+    // Both are no-ops unless MMT_DPI_IP_RANGES_FILE / MMT_DPI_PORT_MAP_FILE are
+    // set, keeping the default classification byte-identical to the baseline.
+    mmt_tcpip_load_external_ip_ranges();
+    mmt_tcpip_load_external_port_map();
 
     return retval;
 }

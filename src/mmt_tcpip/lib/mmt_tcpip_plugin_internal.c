@@ -1,5 +1,50 @@
 #include "mmt_common_internal_include.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+/* ------------------------------------------------------------------------
+ * M9 (issue #26): externally-updatable, port -> protocol *hint* table.
+ *
+ * The built-in switches in _get_proto_by_{tcp,udp}_port_number() below remain
+ * the bundled default. Operators may additionally provide a data file (path in
+ * MMT_DPI_PORT_MAP_FILE) with extra "<tcp|udp> <port> <protocol>" rules. These
+ * are consulted ONLY AFTER the built-in switch returns PROTO_UNKNOWN, so they
+ * never override a compiled-in mapping and add nothing when the variable is
+ * unset (the default / CI path) -> classification stays byte-identical.
+ *
+ * Port-based attribution is, by design, the weakest signal in the pipeline: it
+ * is a *hint* of last resort (callers only consult it after payload-signature
+ * and IP-range classification have already failed, and only when the handler
+ * opts in via enable_port_classify(), which is OFF by default). Sourcing the
+ * extra ports from an updatable file keeps that weak signal out of the
+ * compiled-in tables and lets it be refreshed without a rebuild.
+ *
+ * The arrays are populated once at init time (init_tcpip_plugin(), single
+ * threaded) and only read afterwards on the hot path -> threading-contract safe.
+ * ------------------------------------------------------------------------ */
+typedef struct {
+    uint16_t port;
+    uint32_t proto_id;
+} ext_port_entry_t;
+
+static ext_port_entry_t *ext_tcp_ports = NULL;
+static size_t            ext_tcp_ports_n = 0;
+static ext_port_entry_t *ext_udp_ports = NULL;
+static size_t            ext_udp_ports_n = 0;
+
+static inline uint64_t _ext_port_lookup(const ext_port_entry_t *table, size_t n,
+                                        uint16_t port_number) {
+    for (size_t i = 0; i < n; i++) {
+        if (table[i].port == port_number) {
+            return table[i].proto_id;
+        }
+    }
+    return PROTO_UNKNOWN;
+}
+
 void mmt_add_content_type(ipacket_t * ipacket, uint16_t content_class, uint16_t content_type) {
     if (ipacket->session) {
         ipacket->session->content_info.content_class = content_class;
@@ -331,7 +376,8 @@ inline static uint64_t _get_proto_by_tcp_port_number(uint16_t port_number,const 
         return PROTO_CITRIX;/* http://support.citrix.com/article/CTX104147 */
 
     }
-    return PROTO_UNKNOWN;
+    // M9 (issue #26): fall back to externally-loaded port hints (extend-only).
+    return _ext_port_lookup(ext_tcp_ports, ext_tcp_ports_n, port_number);
 }
 
 inline static uint64_t _get_proto_by_udp_port_number(uint16_t port_number,const u_char * payload, int payload_packet_len){
@@ -367,7 +413,8 @@ inline static uint64_t _get_proto_by_udp_port_number(uint16_t port_number,const 
         case 8883:
         return PROTO_MQTT;
     }
-    return PROTO_UNKNOWN;
+    // M9 (issue #26): fall back to externally-loaded port hints (extend-only).
+    return _ext_port_lookup(ext_udp_ports, ext_udp_ports_n, port_number);
 }
 // unsigned int mmt_get_protocol_by_port_number(uint8_t proto, uint16_t sport, uint16_t dport) {
 //     uint64_t proto_id = PROTO_UNKNOWN;
@@ -406,5 +453,103 @@ unsigned int mmt_guess_protocol_by_port_number(ipacket_t * ipacket) {
         }
     }
     return (proto_id);
+}
+
+/* Grow `*table` by one and append a {port, proto_id} hint. Returns 1/0. */
+static int _ext_port_append(ext_port_entry_t **table, size_t *count,
+                            uint16_t port, uint32_t proto_id) {
+    ext_port_entry_t *grown =
+        (ext_port_entry_t *) mmt_realloc(*table, (*count + 1) * sizeof(**table));
+    if (grown == NULL) {
+        return 0;
+    }
+    grown[*count].port     = port;
+    grown[*count].proto_id = proto_id;
+    *table = grown;
+    (*count)++;
+    return 1;
+}
+
+int mmt_tcpip_load_port_map_file(const char *path) {
+    if (path == NULL || path[0] == '\0') {
+        return 0;
+    }
+    FILE *fp = fopen(path, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "[mmt-dpi][M9] could not open port-map file '%s': %s\n",
+                path, strerror(errno));
+        return -1;
+    }
+
+    char line[512];
+    int loaded = 0, lineno = 0;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        lineno++;
+        char *hash = strchr(line, '#');
+        if (hash != NULL) {
+            *hash = '\0';
+        }
+        char l4[16], proto_tok[128];
+        int port = 0;
+        if (sscanf(line, "%15s %d %127s", l4, &port, proto_tok) != 3) {
+            continue; // blank / malformed line -> skip silently
+        }
+        if (port <= 0 || port > 65535) {
+            fprintf(stderr, "[mmt-dpi][M9] %s:%d port %d out of range - skipped\n",
+                    path, lineno, port);
+            continue;
+        }
+        uint32_t proto_id = get_protocol_id_by_name(proto_tok);
+        if (proto_id == PROTO_UNKNOWN) {
+            char *end = NULL;
+            long val = strtol(proto_tok, &end, 10);
+            if (end != proto_tok && *end == '\0' && val > 0 && val < PROTO_MAX_IDENTIFIER) {
+                proto_id = (uint32_t) val;
+            }
+        }
+        if (proto_id == PROTO_UNKNOWN) {
+            fprintf(stderr, "[mmt-dpi][M9] %s:%d unknown protocol '%s' - skipped\n",
+                    path, lineno, proto_tok);
+            continue;
+        }
+        int ok = 0;
+        if (strcasecmp(l4, "tcp") == 0) {
+            ok = _ext_port_append(&ext_tcp_ports, &ext_tcp_ports_n,
+                                  (uint16_t) port, proto_id);
+        } else if (strcasecmp(l4, "udp") == 0) {
+            ok = _ext_port_append(&ext_udp_ports, &ext_udp_ports_n,
+                                  (uint16_t) port, proto_id);
+        } else {
+            fprintf(stderr, "[mmt-dpi][M9] %s:%d expected 'tcp'/'udp', got '%s' - skipped\n",
+                    path, lineno, l4);
+            continue;
+        }
+        if (ok) {
+            loaded++;
+        }
+    }
+    fclose(fp);
+    return loaded;
+}
+
+void mmt_tcpip_load_external_port_map(void) {
+    const char *path = getenv("MMT_DPI_PORT_MAP_FILE");
+    if (path == NULL || path[0] == '\0') {
+        return; // default: byte-identical to the compiled-in baseline
+    }
+    int n = mmt_tcpip_load_port_map_file(path);
+    if (n > 0) {
+        fprintf(stderr, "[mmt-dpi][M9] loaded %d external port hint(s) from %s\n",
+                n, path);
+    }
+}
+
+void mmt_tcpip_free_external_port_map(void) {
+    mmt_free(ext_tcp_ports);
+    ext_tcp_ports = NULL;
+    ext_tcp_ports_n = 0;
+    mmt_free(ext_udp_ports);
+    ext_udp_ports = NULL;
+    ext_udp_ports_n = 0;
 }
 

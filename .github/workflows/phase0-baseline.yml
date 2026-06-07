@@ -44,6 +44,16 @@ jobs:
       - name: Run the multi-threaded harness under ThreadSanitizer
         run: bash tools/phase0/tests/run_mt_tsan_test.sh
 
+  ext-attribution:
+    name: External IP-range / port attribution loaders (M9, issue #26)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
+      - name: Run the external attribution loader unit test under ASan/UBSan
+        run: bash tools/phase0/tests/run_ext_attribution_test.sh
+
   classification-gate:
     name: Golden classification fingerprint unchanged
     runs-on: ubuntu-latest
