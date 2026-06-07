@@ -1254,6 +1254,7 @@ mmt_handler_t *mmt_init_handler( uint32_t stacktype, uint32_t options, char * er
 
     new_handler->has_reassembly = 0; // Disable TCP-reassembly by default
     new_handler->port_classify = 0; // Disable classification by port number by default
+    new_handler->port_classify_payload_confirm = 0; // M9 (issue #75): accept any port-based guess by default (no payload confirmation required)
     new_handler->hostname_classify = 1; // Enable classification by Hostname by default
     new_handler->ip_address_classify = 1; // Enable classification by IP address by default
     new_handler->clean_packet = clean_packet;
@@ -3604,6 +3605,22 @@ int enable_port_classify(mmt_handler_t *mmt) {
 int disable_port_classify(mmt_handler_t *mmt) {
     if (likely(mmt != NULL)) {
         mmt->port_classify = 0;
+        return 1;
+    }
+    return 0;
+}
+
+int enable_port_classify_payload_confirm(mmt_handler_t *mmt) {
+    if (likely(mmt != NULL)) {
+        mmt->port_classify_payload_confirm = 1;
+        return 1;
+    }
+    return 0;
+}
+
+int disable_port_classify_payload_confirm(mmt_handler_t *mmt) {
+    if (likely(mmt != NULL)) {
+        mmt->port_classify_payload_confirm = 0;
         return 1;
     }
     return 0;

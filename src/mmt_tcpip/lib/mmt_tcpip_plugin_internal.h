@@ -68,6 +68,20 @@ void mmt_change_internal_packet_protocol(ipacket_t * ipacket, uint16_t detected_
  * documented in docs/THREADING.md (init-time writers, hot-path readers).
  * ------------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------------
+ * M9 (issue #75): payload-confirmed port-only demotion.
+ *
+ * Lightweight, side-effect-free check answering "does this payload look like
+ * protocol `proto_id`?" using a minimal leading-bytes signature. Used to gate
+ * port-only protocol guesses when handler->port_classify_payload_confirm is
+ * set. Returns 1 if the payload confirms the protocol, 0 if it does not (or if
+ * no confirmation signature is known for that protocol, which conservatively
+ * demotes the guess). Exported (non-static) so the unit test can exercise it.
+ * ------------------------------------------------------------------------ */
+int mmt_payload_confirms_proto(uint32_t proto_id,
+                               const unsigned char *payload,
+                               int payload_packet_len);
+
 /* Load extra CIDR->protocol rules from `path` into the IP-range AVL trees.
  * Returns the number of rules loaded, or -1 if the file could not be opened. */
 int mmt_tcpip_load_ip_ranges_file(const char *path);

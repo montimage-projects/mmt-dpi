@@ -402,6 +402,7 @@ struct mmt_handler_struct {
     uint8_t hostname_classify; // 0 - disable, 1 - enable
     uint8_t ip_address_classify; // 0 - disable, 1 - enable
     uint8_t port_classify; // 0 - no classification based on port number, 1 - classification based on port number
+    uint8_t port_classify_payload_confirm; // M9 (issue #75): 0 - accept any port-based guess (default), 1 - only accept a port-based guess when a payload signature confirms it
 
     uint32_t last_expiry_timeout;
     uint32_t attr_extraction_strategy;

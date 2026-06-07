@@ -664,6 +664,33 @@ MMTAPI int MMTCALL disable_port_classify(
 );
 
 /**
+ * Enable payload-confirmed port-only demotion (M9, issue #75).
+ *
+ * When port classification is enabled (see enable_port_classify), a port-based
+ * protocol guess is normally accepted unconditionally as a last resort. With
+ * this flag enabled, such a guess is only accepted when the packet payload
+ * carries a signature consistent with the guessed protocol; otherwise the
+ * port-only guess is demoted and the protocol stays unknown. Disabled by
+ * default, so the bundled classification behaviour is unchanged.
+ * @param  mmt_handler mmt handler
+ * @return             0 - unsuccessful
+ *                       1 - sucessful
+ */
+MMTAPI int MMTCALL enable_port_classify_payload_confirm(
+    mmt_handler_t *mmt_handler
+);
+
+/**
+ * Disable payload-confirmed port-only demotion (the default, M9 issue #75).
+ * @param  mmt_handler mmt handler
+ * @return             0 - unsuccessful
+ *                       1 - sucessful
+ */
+MMTAPI int MMTCALL disable_port_classify_payload_confirm(
+    mmt_handler_t *mmt_handler
+);
+
+/**
  * Enable classification by hostname
  * @param  mmt_handler mmt handler
  * @return             0 - unsuccessful

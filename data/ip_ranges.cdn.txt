@@ -1,0 +1,55 @@
+# MMT-DPI — refreshable CDN/cloud IP-range attribution (M9, issue #75)
+#
+# A *bundled data file* (NOT compiled-in C edits) that attributes high-impact
+# CDN/cloud CIDR ranges to their protocol. Load it the same way as any operator
+# range file:
+#
+#     export MMT_DPI_IP_RANGES_FILE=/path/to/ip_ranges.cdn.txt
+#
+# When the variable is unset (the default, and what CI uses) this file is NOT
+# loaded and classification stays byte-identical to the compiled-in baseline —
+# so shipping it is fingerprint-neutral. Format and semantics are documented in
+# docs/External-Attribution.md and data/ip_ranges.example.txt.
+#
+# PROVENANCE / REFRESH
+#   This committed seed is curated and ships Fastly only (it needs no network to
+#   review). To regenerate a fuller, current file covering Fastly *plus* AWS
+#   CloudFront and Google's own service ranges from each provider's live,
+#   authoritative endpoint, run:
+#
+#       tools/refresh_cdn_ranges.sh > data/ip_ranges.cdn.txt
+#
+#   then review the diff and each provider's licensing/terms before
+#   redistributing. CDN/cloud allocations go stale, so refresh periodically.
+#
+# LICENSING
+#   IP allocation lists are factual data published by the providers for exactly
+#   this purpose; they are not covered by MMT-DPI's licence. Confirm each
+#   provider's terms of use before bundling in a downstream product.
+#
+# ---------------------------------------------------------------------------
+# Fastly  —  PROTO_FASTLY
+# Source: https://api.fastly.com/public-ip-list  (fields "addresses" / "ipv6_addresses")
+# Terms:  https://www.fastly.com/documentation/reference/api/utils/public-ip-list/
+# ---------------------------------------------------------------------------
+23.235.32.0/20      FASTLY
+43.249.72.0/22      FASTLY
+103.244.50.0/24     FASTLY
+103.245.222.0/23    FASTLY
+103.245.224.0/24    FASTLY
+104.156.80.0/20     FASTLY
+140.248.64.0/18     FASTLY
+140.248.128.0/17    FASTLY
+146.75.0.0/17       FASTLY
+151.101.0.0/16      FASTLY
+157.52.64.0/18      FASTLY
+167.82.0.0/17       FASTLY
+167.82.128.0/20     FASTLY
+167.82.160.0/20     FASTLY
+167.82.224.0/20     FASTLY
+172.111.64.0/18     FASTLY
+185.31.16.0/22      FASTLY
+199.27.72.0/21      FASTLY
+199.232.0.0/16      FASTLY
+2a04:4e40::/32      FASTLY
+2a04:4e42::/32      FASTLY

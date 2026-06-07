@@ -63,6 +63,42 @@ separate set that is consulted *before* the built-in/extend tables. Use this to
 
 See [`data/ip_ranges.example.txt`](../data/ip_ranges.example.txt).
 
+### Refreshing high-impact CDN/cloud ranges (issue #75)
+
+CDN/cloud allocations change often, so they are shipped as a **refreshable data
+file** rather than baked into the compiled-in `proto_ip_address[]` table. A
+ready-to-use bundle lives at
+[`data/ip_ranges.cdn.txt`](../data/ip_ranges.cdn.txt); load it the same way:
+
+```
+export MMT_DPI_IP_RANGES_FILE=/path/to/ip_ranges.cdn.txt
+```
+
+Regenerate it from each provider's own authoritative, machine-readable endpoint
+with [`tools/refresh_cdn_ranges.sh`](../tools/refresh_cdn_ranges.sh):
+
+```
+tools/refresh_cdn_ranges.sh > data/ip_ranges.cdn.txt
+git diff data/ip_ranges.cdn.txt        # review before committing
+```
+
+| Provider        | Protocol     | Authoritative source                          |
+| --------------- | ------------ | --------------------------------------------- |
+| Fastly          | `FASTLY`     | `https://api.fastly.com/public-ip-list`       |
+| AWS CloudFront  | `CLOUDFRONT` | `https://ip-ranges.amazonaws.com/ip-ranges.json` |
+| Google          | `GOOGLE`     | `https://www.gstatic.com/ipranges/goog.json`  |
+
+The bundled [`data/ip_ranges.cdn.txt`](../data/ip_ranges.cdn.txt) is a curated
+**Fastly-only seed** (reviewable without network access); running the script
+regenerates the fuller multi-provider file. `goog.json` is Google's *own*
+service ranges — narrower and more accurate for `GOOGLE` than the broad GCP
+customer list (`cloud.json`). Only providers with a registered MMT protocol are
+emitted. IP allocation lists
+are factual data the providers publish for this purpose, but **confirm each
+provider's terms of use before redistributing** the generated ranges. Like
+every range file this is inert until `MMT_DPI_IP_RANGES_FILE` points at it, so
+bundling it is fingerprint-neutral.
+
 ## Port hints — `MMT_DPI_PORT_MAP_FILE`
 
 ```
@@ -95,9 +131,30 @@ demoted to a *hint of last resort*:
   (`mmt_init_handler` sets `port_classify = 0`).
 
 Sourcing extra ports from an updatable file keeps that weak signal out of the
-compiled-in tables and lets operators refresh it without a rebuild. Fully
-gating *every* port guess behind an explicit payload-signature confirmation
-step is tracked as follow-up work (see the issue #26 PR).
+compiled-in tables and lets operators refresh it without a rebuild.
+
+### Payload-confirmed port-only demotion (issue #75)
+
+Even with `enable_port_classify()` on, a port number alone is a weak signal: a
+service can run on a non-standard port and an unrelated service can squat on a
+well-known one. `enable_port_classify_payload_confirm()` tightens this — when
+set, a port-based guess is accepted **only if the packet payload carries a
+signature consistent with the guessed protocol** (leading-byte checks for HTTP,
+TLS/SSL, SSH, SMTP, POP, IMAP, FTP via `mmt_payload_confirms_proto`). An
+unconfirmed guess is *demoted*: the protocol stays unknown rather than being
+attributed on the port alone.
+
+```c
+enable_port_classify(mmt);                  // turn on port-based guessing
+enable_port_classify_payload_confirm(mmt);  // require payload confirmation (issue #75)
+```
+
+> **OFF by default.** `mmt_init_handler` sets
+> `port_classify_payload_confirm = 0`, so the bundled behaviour is unchanged
+> and the golden classification fingerprint holds. The confirmation set is
+> intentionally conservative (a protocol with no signature is treated as
+> unconfirmed); measure precision/recall on labelled port-only captures (see
+> below) before enabling it in production.
 
 ## Threading / lifecycle
 
