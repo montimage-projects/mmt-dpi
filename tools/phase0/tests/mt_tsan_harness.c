@@ -44,19 +44,17 @@
  *       still bracket the run on the main thread (the map alloc/free stays
  *       single-threaded per the contract).
  *
- *       Per the docs/THREADING.md init-before-workers contract, global protocol
- *       *configuration* must be finalised on a single thread before concurrent
- *       work. mmt_init_handler() enables analysis/classification on the SHARED
- *       global protocol descriptors (enable_protocol_analysis /
+ *       This mode also exercises the COLD concurrent-create path (#69):
+ *       mmt_init_handler() enables analysis/classification on the SHARED global
+ *       protocol descriptors (enable_protocol_analysis /
  *       enable_protocol_classification write protocol->data_analyser.status /
  *       protocol->classify_next.status — fields read lock-free on the per-packet
  *       hot path, so they cannot be mutex-guarded without defeating the lock-free
- *       read design). Those writes are idempotent (always set 1) and never reset
- *       by mmt_close_handler(), so a single main-thread warmup handler finalises
- *       them; the concurrent phase then only reads the now-stable flags and
- *       exercises the #67 handler-map path specifically. This descriptor-status
- *       behaviour is a separate, pre-existing global-registry concern (#22
- *       family), out of #67's scope.
+ *       read design). The workers are the FIRST callers after init_extraction()
+ *       (no main-thread warmup), so they run those writes concurrently from cold.
+ *       PR #68 dodged this with a warmup handler that finalised the flags single-
+ *       threaded; #69 makes the flag accesses atomic (relaxed) instead, so the
+ *       warmup is removed and this mode proves the cold path is race-free.
  *
  *   registry-stress [num_threads] [iterations]
  *       Spawns N threads that concurrently HAMMER the global-registry mutation
@@ -541,27 +539,21 @@ static int run_handler_churn(int num_threads, int iterations) {
 
     init_extraction();
     printf("[handler-churn] %d threads x %d iterations concurrently "
-           "create/destroy handlers, hammering configured_handlers_map_mutex (#67)\n",
+           "create/destroy handlers from COLD, hammering configured_handlers_map_mutex (#67) "
+           "and the shared protocol-descriptor status flags (#69)\n",
            num_threads, iterations);
 
-    /* Init-before-workers warmup: create+destroy one handler on the main thread
-     * so the SHARED global protocol descriptors have their analysis/classification
-     * status finalised (set to 1) before the concurrent phase. Those flags are
-     * read lock-free on the per-packet hot path and so are configured once on a
-     * single thread per docs/THREADING.md — not part of the #67 handler-map fix.
-     * After this, concurrent mmt_init_handler() only reads the stable flags, so
-     * the churn isolates the handler-map insert/delete race that #67 guards. */
-    {
-        char           errbuf[1024];
-        mmt_handler_t *warmup = mmt_init_handler(1, 0, errbuf);
-        if (warmup == NULL) {
-            fprintf(stderr, "[handler-churn] warmup mmt_init_handler failed: %s\n",
-                    errbuf);
-            close_extraction();
-            return EXIT_FAILURE;
-        }
-        mmt_close_handler(warmup);
-    }
+    /* Issue #69: NO main-thread warmup handler. The workers below are the very
+     * first callers of mmt_init_handler() after init_extraction(), so they run
+     * enable_protocol_analysis()/enable_protocol_classification() concurrently
+     * from cold — the first writes to the SHARED global protocol-descriptor
+     * status flags (protocol->data_analyser.status / classify_next.status),
+     * which are read lock-free on the per-packet hot path. PR #68 papered over
+     * this with a warmup handler that finalised those flags single-threaded
+     * before the concurrent phase; that workaround is intentionally removed here
+     * so this mode actually exercises the cold concurrent-create path. With the
+     * #69 fix (atomic accesses to those flags) TSan is clean; without it TSan
+     * flags the read/write race in enable_protocol_analysis. */
 
     for (t = 0; t < num_threads; t++) {
         workers[t].tid = t;
