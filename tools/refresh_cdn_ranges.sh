@@ -49,7 +49,12 @@ filter_valid() {
 
 emit() { # <proto> ; reads CIDRs on stdin
     local proto="$1"
-    filter_valid | awk -v p="$proto" 'NF { printf "%-20s%s\n", $0, p }'
+    # NB: the "%-20s " column is cosmetic; the trailing space is mandatory.
+    # CIDRs longer than the 20-char field (notably many IPv6 prefixes) get no
+    # padding, so without an explicit separator the protocol token would abut
+    # the CIDR ("2600:9000::/53GOOGLE") and the loader's "%127s %127s" sscanf
+    # would read one field and silently drop the rule. Keep the space.
+    filter_valid | awk -v p="$proto" 'NF { printf "%-20s %s\n", $0, p }'
 }
 
 printf '# MMT-DPI — refreshable CDN/cloud IP-range attribution (M9, issue #75)\n'
