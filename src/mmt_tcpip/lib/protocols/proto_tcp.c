@@ -444,6 +444,15 @@ int tcp_pre_classification_function(ipacket_t * ipacket, unsigned index) {
     }
 
     // This is a TCP flow, get the offset
+    // Issue #25 (M6): the TCP data offset (doff) is a 4-bit field that, per
+    // RFC 793, must be at least 5 (a 20-byte header with no options). A
+    // malformed value below 5 yields a header length that is too small (and
+    // would slip past the "l4_packet_len < tcphdr_len" check below for doff 0),
+    // so reject the packet before deriving any offsets from it.
+    if (packet->tcp->doff < 5) {
+        MMT_LOG( PROTO_TCP, MMT_LOG_DEBUG, "*** Warning: malformed packet (tcp data offset < 5)\n" );
+        return 0;
+    }
     uint16_t tcphdr_len = packet->tcp->doff * 4; //TCP header length
 
     packet->l4_protocol = 6; /* TCP for sure ;) */
@@ -526,6 +535,15 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
     }
 
     // This is a TCP flow, get the offset
+    // Issue #25 (M6): the TCP data offset (doff) is a 4-bit field that, per
+    // RFC 793, must be at least 5 (a 20-byte header with no options). A
+    // malformed value below 5 yields a header length that is too small (and
+    // would slip past the "l4_packet_len < tcphdr_len" check below for doff 0),
+    // so reject the packet before deriving any offsets from it.
+    if (packet->tcp->doff < 5) {
+        MMT_LOG( PROTO_TCP, MMT_LOG_DEBUG, "*** Warning: malformed packet (tcp data offset < 5)\n" );
+        return 0;
+    }
     uint16_t tcphdr_len = packet->tcp->doff * 4; //TCP header length
 
     packet->l4_protocol = 6; /* TCP for sure ;) */
