@@ -1,4 +1,4 @@
-# MMT-DPI — externally-updatable IP-range attribution (M9, issue #26)
+# MMT-DPI — externally-updatable IP-range attribution (M9, issues #26 & #74)
 #
 # Point the MMT_DPI_IP_RANGES_FILE environment variable at a copy of this file
 # to attribute additional CIDR ranges to a protocol WITHOUT recompiling. Rules
@@ -6,14 +6,21 @@
 # default/fallback): when the variable is unset, classification is unchanged.
 #
 # Format (one rule per line):
-#     <A.B.C.D>/<prefixlen>   <PROTOCOL>
+#     <addr>/<prefixlen>   <PROTOCOL>   [override]
 #   - text after '#' is a comment; blank lines are ignored
-#   - prefixlen must be in [1, 30] (matches the AVL-tree layout)
+#   - <addr> is IPv4 (A.B.C.D) or IPv6 (x:x:...:x, detected by a ':')
+#   - prefixlen is in [1, 30] for IPv4 (matches the AVL-tree layout) or
+#     [1, 128] for IPv6
 #   - <PROTOCOL> is a registered protocol name (e.g. GOOGLE, HTTP, SSL) or, as a
 #     rename-proof fallback, a bare numeric protocol id
+#   - the optional trailing 'override' keyword (issue #74) makes the rule WIN
+#     over a compiled-in mapping; without it the rule only EXTENDS the table
 #
-# The addresses below are RFC 5737 documentation ranges — replace them with
-# real, verifiable CDN/cloud ranges from an authoritative, refreshable source.
+# The addresses below are RFC 5737 (IPv4) and RFC 3849 (IPv6) documentation
+# ranges — replace them with real, verifiable CDN/cloud ranges from an
+# authoritative, refreshable source.
 
-# 198.51.100.0/24   GOOGLE
+# 198.51.100.0/24   GOOGLE                 # IPv4 extend rule
 # 203.0.113.0/24    AMAZON
+# 2001:db8::/32     CLOUDFLARE             # IPv6 extend rule (issue #74)
+# 198.51.100.0/24   SSL          override  # override the built-in attribution

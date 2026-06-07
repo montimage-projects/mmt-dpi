@@ -1,0 +1,19 @@
+# Phase 7 (M9, issue #74) labelled-pcap ground truth for the precision/recall
+# harness (tools/phase0/phase0_precision.c, driven by check_precision.sh).
+#
+# Each line labels one capture from the CI golden subset (tools/phase0/ci/pcaps/)
+# with the single application protocol it is known to carry. Only single-
+# application captures are listed — mixed or app-less captures (arp, pure-tcp,
+# icmp/ssdp/dns mixes) are intentionally omitted because a single label cannot
+# describe them.
+#
+# Format:  <pcap_relpath>   <expected_application_protocol>
+#   - paths are relative to tools/phase0/ci/pcaps/
+#   - protocol names are lowercase, matching get_protocol_name_by_id()
+#   - text after '#' is a comment; blank lines are ignored
+
+ftp_txt.pcap                ftp
+ftp_login_fail.pcap         ftp
+ftp_multiple_session.pcap   ftp
+tcp_bbc-out-of-order.pcap   http
+tcp_ecn_sample.pcap         http
