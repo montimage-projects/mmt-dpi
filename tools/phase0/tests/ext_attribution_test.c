@@ -164,6 +164,33 @@ static void test_ipv4_override(void)
     CHECK((uint32_t) _find_proto_id_by_address(TESTNET3_HOST2, 0) == ssl_id,
           "duplicate same-CIDR rule resolves to the last rule (no corruption)");
     if (f2) { unlink(f2); free(f2); }
+
+    /* Contract (docs/External-Attribution.md): an *extend* rule must NOT displace
+     * a compiled-in entry at the same prefix+network — only `override` may. This
+     * needs a real built-in /24; 1.201.0.0/24 is a bundled entry. The check is
+     * self-validating: if the table changes so this is no longer a built-in
+     * (or already maps to HTTP), the precondition CHECK below fails loudly. */
+    const uint32_t BUILTIN_24_HOST = 0x01C90001u; /* 1.201.0.1 host order */
+    int builtin_id = _find_proto_id_by_address(BUILTIN_24_HOST, 0);
+    CHECK(builtin_id != -1 && (uint32_t) builtin_id != http_id,
+          "precondition: 1.201.0.0/24 is a built-in entry distinct from HTTP");
+
+    char *f3 = write_tmp(
+        "1.201.0.0/24 HTTP   # extend rule colliding with a built-in /24\n");
+    int n3 = mmt_tcpip_load_ip_ranges_file(f3);
+    CHECK(n3 == 1, "same-CIDR-as-built-in extend rule accepted (as a no-op)");
+    CHECK(_find_proto_id_by_address(BUILTIN_24_HOST, 0) == builtin_id,
+          "extend rule does NOT displace the built-in attribution");
+    if (f3) { unlink(f3); free(f3); }
+
+    /* The same CIDR tagged `override` DOES replace the built-in mapping. */
+    char *f4 = write_tmp(
+        "1.201.0.0/24 HTTP   override   # override replaces the built-in\n");
+    int n4 = mmt_tcpip_load_ip_ranges_file(f4);
+    CHECK(n4 == 1, "same-CIDR-as-built-in override rule loaded");
+    CHECK((uint32_t) _find_proto_id_by_address(BUILTIN_24_HOST, 0) == http_id,
+          "override rule replaces the built-in attribution (HTTP wins)");
+    if (f4) { unlink(f4); free(f4); }
 }
 
 /* M9 (issue #74): externally-loaded IPv6 ranges (there is no compiled-in IPv6

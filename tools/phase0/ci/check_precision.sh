@@ -21,6 +21,13 @@
 #
 set -euo pipefail
 
+# Pin the locale so awk's sprintf("%.4f", ...) always emits a '.' decimal
+# separator. awk's %f honors LC_NUMERIC, so on a comma-decimal locale the
+# metrics would render as "0,9717" and the diff against the committed baseline
+# (which uses '.') would fail spuriously — the metric must be reproducible
+# regardless of host locale.
+export LC_ALL=C
+
 CI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PHASE0_DIR="$(cd "${CI_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${PHASE0_DIR}/../.." && pwd)"

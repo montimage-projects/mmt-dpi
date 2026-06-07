@@ -21823,6 +21823,27 @@ static int _insert_dynamic_ip_range(int netmask_nb, uint32_t netmask_address,
     // the cleanup list. avltree_find() is NULL-safe for an empty tree.
     avltree_t * existing = avltree_find(trees[netmask_nb], dyn->entry.ip_address);
     if (existing != NULL) {
+        // Per the extend/override contract (docs/External-Attribution.md): an
+        // *extend* rule must never displace a compiled-in entry at the same
+        // prefix+network — only an `override` rule may. The extend tree set
+        // (proto_avltrees) is seeded with the static proto_ip_address[] nodes,
+        // so a same-CIDR extend collision can land on a built-in node. Detect
+        // that (data pointer inside the static built-in table) and drop the
+        // extend rule rather than overwriting the built-in attribution. The
+        // override tree set holds no built-ins, so override collisions never
+        // match here and fall through to the last-rule-wins update below.
+        uintptr_t hit = (uintptr_t) existing->data;
+        uintptr_t lo  = (uintptr_t) proto_ip_address;
+        uintptr_t hi  = (uintptr_t) (proto_ip_address +
+                            sizeof(proto_ip_address) / sizeof(proto_ip_address[0]));
+        if (hit >= lo && hit < hi) {
+            // Built-in stays authoritative; the extend rule is a no-op. Treated
+            // as an accepted (valid) line so the loader's rule count is unchanged.
+            mmt_free(dyn);
+            return 1;
+        }
+        // Collision with an earlier dynamic rule of the same class: last rule
+        // wins. The superseded entry stays tracked in the cleanup list.
         existing->data = (void *) &dyn->entry;
         dyn->next = _dyn_ip_ranges;
         _dyn_ip_ranges = dyn;
