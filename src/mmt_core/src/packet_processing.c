@@ -1422,6 +1422,36 @@ void disable_protocol_statistics(mmt_handler_t *mmt_handler) {
     }
 }
 
+/*
+ * Issue #69: the analysis/classification "status" flags live on the SHARED
+ * global protocol descriptors (each handler's configured_protocols[i].protocol
+ * aliases the same global protocol_t). The enable/disable helpers below write
+ * them from mmt_init_handler(), while proto_packet_analyze() and
+ * proto_packet_classify_next() read them LOCK-FREE on the per-packet hot path.
+ * Creating the very first
+ * handlers concurrently from cold therefore races on these flags.
+ *
+ * We make every access to these flags an atomic operation (relaxed ordering)
+ * using the compiler __atomic_* builtins. This keeps the hot-path read
+ * lock-free -- a relaxed atomic load of an int is a plain load on common
+ * targets (no fence, no lock) -- while making the concurrent idempotent writes
+ * plus reads race-free under the C memory model, which is exactly what TSan
+ * checks. Relaxed ordering is sufficient because the flag only gates whether
+ * analysis/classification runs for a protocol: the function pointers and
+ * analyse/classify lists it guards are populated during single-threaded
+ * init_extraction()/registration and are stable before any worker thread can
+ * observe the flag, so no other data is published through it.
+ *
+ * The flag remains a plain int in the struct (no ABI/layout change); only the
+ * accesses are made atomic.
+ */
+static inline int proto_status_load(const int *status) {
+    return __atomic_load_n(status, __ATOMIC_RELAXED);
+}
+static inline void proto_status_store(int *status, int value) {
+    __atomic_store_n(status, value, __ATOMIC_RELAXED);
+}
+
 /**
  * Enables the analysis sub-process for the protocol with the given id
  * @param mmt_handler mmt handler
@@ -1430,8 +1460,9 @@ void disable_protocol_statistics(mmt_handler_t *mmt_handler) {
 void enable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler && _is_valid_protocol_id(proto_id) > 0) {
         // Add this condition checking to reduce conflict in multi-thread
-        if (mmt_handler->configured_protocols[proto_id].protocol->data_analyser.status == 0) {
-            mmt_handler->configured_protocols[proto_id].protocol->data_analyser.status = 1;
+        int *status = &mmt_handler->configured_protocols[proto_id].protocol->data_analyser.status;
+        if (proto_status_load(status) == 0) {
+            proto_status_store(status, 1);
         }
     }
 }
@@ -1444,8 +1475,9 @@ void enable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id) {
 void disable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler && _is_valid_protocol_id(proto_id) > 0) {
         // Add this condition checking to reduce conflict in multi-thread
-        if (mmt_handler->configured_protocols[proto_id].protocol->data_analyser.status == 1) {
-            mmt_handler->configured_protocols[proto_id].protocol->data_analyser.status = 0;
+        int *status = &mmt_handler->configured_protocols[proto_id].protocol->data_analyser.status;
+        if (proto_status_load(status) == 1) {
+            proto_status_store(status, 0);
         }
     }
 }
@@ -1458,8 +1490,9 @@ void disable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id) {
 void enable_protocol_classification(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler && _is_valid_protocol_id(proto_id) > 0) {
         // Add this condition checking to reduce conflict in multi-thread
-        if (mmt_handler->configured_protocols[proto_id].protocol->classify_next.status == 0) {
-            mmt_handler->configured_protocols[proto_id].protocol->classify_next.status = 1;
+        int *status = &mmt_handler->configured_protocols[proto_id].protocol->classify_next.status;
+        if (proto_status_load(status) == 0) {
+            proto_status_store(status, 1);
         }
     }
 }
@@ -1472,8 +1505,9 @@ void enable_protocol_classification(mmt_handler_t *mmt_handler, uint32_t proto_i
 void disable_protocol_classification(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler && _is_valid_protocol_id(proto_id) > 0) {
         // Add this condition checking to reduce conflict in multi-thread
-        if (mmt_handler->configured_protocols[proto_id].protocol->classify_next.status == 1) {
-            mmt_handler->configured_protocols[proto_id].protocol->classify_next.status = 0;
+        int *status = &mmt_handler->configured_protocols[proto_id].protocol->classify_next.status;
+        if (proto_status_load(status) == 1) {
+            proto_status_store(status, 0);
         }
     }
 }
@@ -1503,8 +1537,12 @@ int init_extraction()
         }
         memset(configured_protocols[i], '\0', sizeof (protocol_t));
         configured_protocols[i]->is_registered = PROTO_NOT_REGISTERED;
-        configured_protocols[i]->data_analyser.status = 0;
-        configured_protocols[i]->classify_next.status = 0;
+        // Issue #69: keep all accesses to these flags atomic (relaxed) so the
+        // hot-path reader and the enable_*/disable_* writers never mix atomic
+        // and non-atomic accesses to the same location. This runs single-
+        // threaded before any worker, but consistency keeps it well-defined.
+        proto_status_store(&configured_protocols[i]->data_analyser.status, 0);
+        proto_status_store(&configured_protocols[i]->classify_next.status, 0);
     }
 
     // Issue #19: create the protocol name -> id index before any protocol is
@@ -3075,7 +3113,8 @@ int proto_packet_classify_next(ipacket_t * ipacket, protocol_instance_t * config
     //TODO: review the exit codes; this depends on the return values of the sub-classification routines
     //TODO: why don't to enforce here a threshold on the classification?
     //Verify that classification is not disabled for this protocol
-    if (configured_protocol->protocol->classify_next.status) {
+    // Issue #69: lock-free atomic read (relaxed); compiles to a plain load.
+    if (proto_status_load(&configured_protocol->protocol->classify_next.status)) {
         int classif_status = 1; //TODO: replace with a definition: CONTINUE, SKIP
         //Pre-classification
         if (configured_protocol->protocol->classify_next.pre_classify) {
@@ -3184,7 +3223,8 @@ int proto_packet_analyze(ipacket_t * ipacket, protocol_instance_t * configured_p
     //TODO: review the exit codes; this depends on the return values of the sub-analysis routines
     int retval = MMT_CONTINUE;
     //Verify that analysis is not disabled for this protocol
-    if (!configured_protocol->protocol->data_analyser.status) {
+    // Issue #69: lock-free atomic read (relaxed); compiles to a plain load.
+    if (!proto_status_load(&configured_protocol->protocol->data_analyser.status)) {
         return retval;
     }
     //Pre-analysis
