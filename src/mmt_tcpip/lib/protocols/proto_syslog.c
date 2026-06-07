@@ -2,7 +2,7 @@
 #include "plugin_defs.h"
 #include "extraction_lib.h"
 #include "../mmt_common_internal_include.h"
-
+#include <ctype.h>
 
 /////////////// PROTOCOL INTERNAL CODE GOES HERE ///////////////////
 static MMT_PROTOCOL_BITMASK detection_bitmask;
@@ -13,174 +13,266 @@ static void mmt_int_syslog_add_connection(ipacket_t * ipacket) {
     mmt_internal_add_connection(ipacket, PROTO_SYSLOG, MMT_REAL_PROTOCOL);
 }
 
-void mmt_classify_me_syslog(ipacket_t * ipacket, unsigned index) {
-    
+/*
+ * Syslog detection — unified helper for RFC 3164 (BSD) and RFC 5424 (structured) formats.
+ *
+ * Detection strategy (after PRI parsing):
+ *   1. Check for "last message" or "snort: " prefix (legacy/compatibility).
+ *   2. Check for RFC 5424 format: version digit '1', space, then ISO-8601 year (4 digits).
+ *   3. Check for RFC 3164 format: 3-letter month abbreviation (Jan–Dec).
+ *   4. Check for hostname/tag pattern: alphanumeric hostname ending with delimiter.
+ *      If stopped on ':', the next char must be a space.
+ *
+ * When on UDP port 514, detection is lenient — a valid PRI header is sufficient.
+ * Off port 514, at least one of the above patterns must match.
+ */
+static int mmt_int_is_syslog_packet(struct mmt_tcpip_internal_packet_struct *packet,
+                                     uint8_t i, int on_port_514) {
 
-    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    struct mmt_internal_tcpip_session_struct *flow = packet->flow;
+    /* --- "last message repeated" --- */
+    if (i + sizeof("last message") - 1 <= packet->payload_packet_len &&
+            mmt_memcmp(packet->payload + i, "last message", sizeof("last message") - 1) == 0) {
+        MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by 'last message' string.\n");
+        return 1;
+    }
 
+    /* --- "snort: " prefix --- */
+    if (i + sizeof("snort: ") - 1 <= packet->payload_packet_len &&
+            mmt_memcmp(packet->payload + i, "snort: ", sizeof("snort: ") - 1) == 0) {
+        MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by 'snort: ' string.\n");
+        return 1;
+    }
+
+    /* --- RFC 5424: version '1' followed by space then ISO timestamp --- */
+    /* After the optional space following '>', we look for:
+       - version digit '1'
+       - space
+       - ISO-8601 timestamp starting with a 4-digit year (first char is '2' or '1') */
+    if (!on_port_514 || i < packet->payload_packet_len) {
+        if (packet->payload[i] == '1') {
+            i++;
+            if (i < packet->payload_packet_len && packet->payload[i] == ' ') {
+                i++;
+                /* Check for 4-digit year start: '2' or '1' followed by digit */
+                if (i + 3 < packet->payload_packet_len &&
+                        ((packet->payload[i] == '2' || packet->payload[i] == '1') &&
+                         isdigit(packet->payload[i + 1]) &&
+                         isdigit(packet->payload[i + 2]) &&
+                         isdigit(packet->payload[i + 3]))) {
+                    MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
+                            "found syslog by RFC 5424 version+year pattern.\n");
+                    return 1;
+                }
+            }
+        }
+    }
+
+    /* --- RFC 3164: 3-letter month abbreviation --- */
+    if (i + 2 < packet->payload_packet_len &&
+            (mmt_mem_cmp(&packet->payload[i], "Jan", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Feb", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Mar", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Apr", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "May", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Jun", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Jul", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Aug", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Sep", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Oct", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Nov", 3) == 0 ||
+             mmt_mem_cmp(&packet->payload[i], "Dec", 3) == 0)) {
+            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "a month-shortname following: syslog detected.\n");
+            return 1;
+        }
+
+    /* --- Hostname/tag pattern matching (nDPI-inspired) --- */
+    /* Walk alphanumeric chars; stop on recognized delimiters:
+       ' ', ':', '=', '[', '-' */
+    if (i < packet->payload_packet_len) {
+        if (packet->payload[i] == ' ') {
+            /* Space after PRI: walk the next token as hostname/tag */
+            i++;
+            if (i < packet->payload_packet_len && isalnum(packet->payload[i])) {
+                while (i < packet->payload_packet_len - 1) {
+                    if (isalnum(packet->payload[i])) {
+                        i++;
+                        continue;
+                    }
+                    if (packet->payload[i] == ' ' || packet->payload[i] == ':' ||
+                        packet->payload[i] == '=' || packet->payload[i] == '[' ||
+                        packet->payload[i] == '-')
+                        break;
+                    /* Unrecognized character — not syslog (off port 514) */
+                    if (!on_port_514)
+                        return 0;
+                    /* On port 514, be lenient: just accept PRI header */
+                    MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
+                            "found syslog by lenient PRI header on port 514.\n");
+                    return 1;
+                }
+
+                /* If we stopped on ':', the next character must be a space */
+                if (i < packet->payload_packet_len && packet->payload[i] == ':') {
+                    i++;
+                    if (i >= packet->payload_packet_len || packet->payload[i] != ' ') {
+                        /* If not on port 514, strict: not syslog */
+                        if (!on_port_514)
+                            return 0;
+                    }
+                }
+
+                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by hostname/tag pattern.\n");
+                return 1;
+            }
+        } else if (isalnum(packet->payload[i])) {
+            /* No space after PRI — hostname starts immediately (non-standard but common) */
+            while (i < packet->payload_packet_len - 1) {
+                if (isalnum(packet->payload[i])) {
+                    i++;
+                    continue;
+                }
+                if (packet->payload[i] == ' ' || packet->payload[i] == ':' ||
+                    packet->payload[i] == '=' || packet->payload[i] == '[' ||
+                    packet->payload[i] == '-')
+                    break;
+                if (!on_port_514)
+                    return 0;
+                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
+                        "found syslog by lenient PRI header on port 514.\n");
+                return 1;
+            }
+
+            if (i < packet->payload_packet_len && packet->payload[i] == ':') {
+                i++;
+                if (i >= packet->payload_packet_len || packet->payload[i] != ' ') {
+                    if (!on_port_514)
+                        return 0;
+                }
+            }
+
+            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by hostname/tag pattern.\n");
+            return 1;
+        }
+    }
+
+    /* --- Port 514 lenient fallback: valid PRI header is enough --- */
+    if (on_port_514) {
+        MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by lenient PRI header on port 514.\n");
+        return 1;
+    }
+
+    return 0;
+}
+
+/*
+ * Parse the PRI header: <PRI> where PRI is 1-3 digits.
+ * Returns the index after the '>', or 0 if parsing fails.
+ */
+static uint8_t mmt_int_parse_syslog_pri(struct mmt_tcpip_internal_packet_struct *packet) {
+    uint8_t i = 1;
+
+    /* Read 1-3 digit PRI value */
+    for (; i <= 3; i++) {
+        if (i >= packet->payload_packet_len)
+            break;
+        if (packet->payload[i] < '0' || packet->payload[i] > '9')
+            break;
+    }
+
+    /* Must be followed by '>' */
+    if (i >= packet->payload_packet_len || packet->payload[i] != '>')
+        return 0;
+
+    i++; /* skip '>' */
+
+    /* Optional space after '>' */
+    if (i < packet->payload_packet_len && packet->payload[i] == 0x20)
+        i++;
+
+    return i;
+}
+
+/*
+ * Internal classification function used by both mmt_classify_me_syslog and mmt_check_syslog.
+ *
+ * For UDP: checks port 514 for lenient detection.
+ * For TCP: uses strict detection.
+ */
+static void mmt_int_classify_syslog(ipacket_t * ipacket,
+                                     struct mmt_tcpip_internal_packet_struct *packet,
+                                     struct mmt_internal_tcpip_session_struct *flow) {
     uint8_t i;
 
     MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "search syslog\n");
 
-    if (packet->payload_packet_len > 20 && packet->payload_packet_len <= 1024 && packet->payload[0] == '<') {
-        MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "checked len>20 and <1024 and first symbol=<.\n");
-        i = 1;
+    /* Basic sanity: payload length and must start with '<' */
+    if (packet->payload_packet_len <= 20 || packet->payload_packet_len > 1024 ||
+            packet->payload[0] != '<') {
+        MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "no syslog detected.\n");
+        MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SYSLOG);
+        return;
+    }
 
-        for (;;) {
-            if (packet->payload[i] < '0' || packet->payload[i] > '9' || i++ > 3) {
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
-                        "read symbols while the symbol is a number.\n");
-                break;
-            }
-        }
+    MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "checked len>20 and <1024 and first symbol=<.\n");
 
-        if (packet->payload[i++] != '>') {
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "there is no > following the number.\n");
-            MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SYSLOG);
-            return;
-        } else {
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "a > following the number.\n");
-        }
+    /* Parse PRI header: <PRI> */
+    i = mmt_int_parse_syslog_pri(packet);
+    if (i == 0) {
+        MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "there is no > following the number.\n");
+        MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SYSLOG);
+        return;
+    }
 
-        if (packet->payload[i] == 0x20) {
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "a blank following the >: increment i.\n");
-            i++;
-        } else {
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "no blank following the >: do nothing.\n");
-        }
+    MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "a > following the number.\n");
 
-        /* check for "last message repeated" */
-        if (i + sizeof ("last message") - 1 <= packet->payload_packet_len &&
-                mmt_memcmp(packet->payload + i, "last message", sizeof ("last message") - 1) == 0) {
-
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by 'last message' string.\n");
-
-            mmt_int_syslog_add_connection(ipacket);
-
-            return;
-        } else if (i + sizeof ("snort: ") - 1 <= packet->payload_packet_len &&
-                mmt_memcmp(packet->payload + i, "snort: ", sizeof ("snort: ") - 1) == 0) {
-
-            /* snort events */
-
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by 'snort: ' string.\n");
-
-            mmt_int_syslog_add_connection(ipacket);
-
-            return;
-        }
-
-        if (mmt_mem_cmp(&packet->payload[i], "Jan", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Feb", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Mar", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Apr", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "May", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Jun", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Jul", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Aug", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Sep", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Oct", 3) != 0
-                && mmt_mem_cmp(&packet->payload[i], "Nov", 3) != 0 && mmt_mem_cmp(&packet->payload[i], "Dec", 3) != 0) {
-
-
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
-                    "no month-shortname following: syslog excluded.\n");
-
-            MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SYSLOG);
-
-            return;
-
-        } else {
-
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
-                    "a month-shortname following: syslog detected.\n");
-
-            mmt_int_syslog_add_connection(ipacket);
-
-            return;
+    /* Determine if we're on UDP port 514 for lenient detection */
+    int on_port_514 = 0;
+    if (packet->udp != NULL) {
+        if (packet->udp->dest == htons(514) || packet->udp->source == htons(514)) {
+            on_port_514 = 1;
+            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "detected UDP port 514 — lenient detection.\n");
         }
     }
-    MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "no syslog detected.\n");
 
+    if (mmt_int_is_syslog_packet(packet, i, on_port_514)) {
+        mmt_int_syslog_add_connection(ipacket);
+        return;
+    }
+
+    MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "no syslog detected.\n");
     MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SYSLOG);
 }
 
+/*
+ * Entry point called from the classify_me registration.
+ * No bitmask checks — handles all packets directly.
+ */
+void mmt_classify_me_syslog(ipacket_t * ipacket, unsigned index) {
+    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
+    struct mmt_internal_tcpip_session_struct *flow = packet->flow;
+
+    mmt_int_classify_syslog(ipacket, packet, flow);
+}
+
+/*
+ * Entry point called from mmt_check_syslog registration.
+ * Performs bitmask selection checks before classification.
+ */
 int mmt_check_syslog(ipacket_t * ipacket, unsigned index) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
+
     if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
             && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
             && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
 
-        
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 
-        uint8_t i;
-        MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "search syslog\n");
+        mmt_int_classify_syslog(ipacket, packet, flow);
 
-        if (packet->payload_packet_len > 20 && packet->payload_packet_len <= 1024 && packet->payload[0] == '<') {
-            MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "checked len>20 and <1024 and first symbol=<.\n");
-            i = 1;
-            for (;;) {
-                if (packet->payload[i] < '0' || packet->payload[i] > '9' || i++ > 3) {
-                    MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
-                            "read symbols while the symbol is a number.\n");
-                    break;
-                }
-            }
+        if (MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) != 0)
+            return 0;
 
-            if (packet->payload[i++] != '>') {
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "there is no > following the number.\n");
-                MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SYSLOG);
-                return 4;
-            } else {
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "a > following the number.\n");
-            }
-
-            if (packet->payload[i] == 0x20) {
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "a blank following the >: increment i.\n");
-                i++;
-            } else {
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "no blank following the >: do nothing.\n");
-            }
-
-            /* check for "last message repeated" */
-            if (i + sizeof ("last message") - 1 <= packet->payload_packet_len &&
-                    mmt_memcmp(packet->payload + i, "last message", sizeof ("last message") - 1) == 0) {
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by 'last message' string.\n");
-                mmt_int_syslog_add_connection(ipacket);
-                return 1;
-            } else if (i + sizeof ("snort: ") - 1 <= packet->payload_packet_len &&
-                    mmt_memcmp(packet->payload + i, "snort: ", sizeof ("snort: ") - 1) == 0) {
-                /* snort events */
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "found syslog by 'snort: ' string.\n");
-                mmt_int_syslog_add_connection(ipacket);
-                return 1;
-            }
-            if (mmt_mem_cmp(&packet->payload[i], "Jan", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Feb", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Mar", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Apr", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "May", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Jun", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Jul", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Aug", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Sep", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Oct", 3) != 0
-                    && mmt_mem_cmp(&packet->payload[i], "Nov", 3) != 0 && mmt_mem_cmp(&packet->payload[i], "Dec", 3) != 0) {
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
-                        "no month-shortname following: syslog excluded.\n");
-                MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SYSLOG);
-                return 0;
-            } else {
-                MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG,
-                        "a month-shortname following: syslog detected.\n");
-                mmt_int_syslog_add_connection(ipacket);
-                return 1;
-            }
-        }
-        MMT_LOG(PROTO_SYSLOG, MMT_LOG_DEBUG, "no syslog detected.\n");
-        MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SYSLOG);
+        return 1;
     }
     return 0;
 }
@@ -204,5 +296,3 @@ int init_proto_syslog_struct() {
         return 0;
     }
 }
-
-
