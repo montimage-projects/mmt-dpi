@@ -1,6 +1,12 @@
 #include "mmt_common_internal_include.h"
 #include "avltree.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <errno.h>
+
 /*
  */
 static inline int _mmt_case_sensitive_reverse_hostname_matching(const char *hostname, const char *url, size_t hostname_len, size_t url_len) {
@@ -21751,6 +21757,57 @@ static const proto_based_ip_t proto_ip_address[] = {
 // ~10.000 IP ranges
 static avltree_t * proto_avltrees[NETMASK_MAX_NB];
 
+/* ------------------------------------------------------------------------
+ * M9 (issue #26): externally-updatable IP-range attribution.
+ *
+ * Extra CIDR->protocol rules loaded from MMT_DPI_IP_RANGES_FILE are appended to
+ * the AVL trees ON TOP of the compiled-in proto_ip_address[] table. Their entry
+ * structs are heap-allocated (the built-in ones point into the static const
+ * table) so we track them in this single-linked list and release them in
+ * _free_proto_avltrees(). The list is only mutated at init time, single
+ * threaded, before any worker thread runs.
+ * ------------------------------------------------------------------------ */
+typedef struct _dyn_ip_range_node {
+    proto_based_ip_t            entry;
+    struct _dyn_ip_range_node * next;
+} _dyn_ip_range_node_t;
+
+static _dyn_ip_range_node_t * _dyn_ip_ranges = NULL;
+
+/* Insert one CIDR->protocol rule (host-byte-order network + mask) into the AVL
+ * trees. Returns 1 on success, 0 if the prefix length is out of the supported
+ * range or the allocation/insert failed. Used only for externally-loaded rules;
+ * the built-in table keeps its zero-allocation fast path below. */
+static int _insert_dynamic_ip_range(int netmask_nb, uint32_t netmask_address,
+                                    uint32_t ip_address, int proto_id) {
+    // The AVL trees are indexed by prefix length; the array has NETMASK_MAX_NB
+    // slots (0 .. NETMASK_MAX_NB-1). Reject anything that would index OOB or a
+    // /0 catch-all (which the built-in table never uses either).
+    if (netmask_nb <= 0 || netmask_nb >= NETMASK_MAX_NB) {
+        return 0;
+    }
+    _dyn_ip_range_node_t * dyn = (_dyn_ip_range_node_t *) mmt_malloc(sizeof(*dyn));
+    if (dyn == NULL) {
+        return 0;
+    }
+    dyn->entry.netmask_nb      = netmask_nb;
+    dyn->entry.netmask_address = netmask_address;
+    dyn->entry.ip_address      = ip_address & netmask_address;
+    dyn->entry.proto_id        = proto_id;
+
+    avltree_t * node = avltree_create(dyn->entry.ip_address, (void*)&dyn->entry);
+    if (node == NULL) {
+        mmt_free(dyn);
+        return 0;
+    }
+    proto_avltrees[netmask_nb] = avltree_insert(proto_avltrees[netmask_nb], node);
+
+    // Keep the heap entry alive and tracked for cleanup.
+    dyn->next = _dyn_ip_ranges;
+    _dyn_ip_ranges = dyn;
+    return 1;
+}
+
 /**
  * Initialize protocol AVL Trees
  */
@@ -21817,6 +21874,103 @@ void _free_proto_avltrees(){
     for (i = NETMASK_MAX_NB - 1 ; i >= 0; i--) {
         avltree_free_tree(proto_avltrees[i]);
         proto_avltrees[i] = NULL;
+    }
+    // Release the heap-allocated externally-loaded IP-range entries (issue #26).
+    _dyn_ip_range_node_t * dyn = _dyn_ip_ranges;
+    while (dyn != NULL) {
+        _dyn_ip_range_node_t * next = dyn->next;
+        mmt_free(dyn);
+        dyn = next;
+    }
+    _dyn_ip_ranges = NULL;
+}
+
+/* Resolve a protocol token to an id: first by registered name, then (to keep
+ * the data files robust against future protocol renames) as a raw numeric id. */
+static int _resolve_proto_token(const char *token) {
+    uint32_t proto_id = get_protocol_id_by_name(token);
+    if (proto_id != PROTO_UNKNOWN) {
+        return (int) proto_id;
+    }
+    // Accept a bare positive integer id as a fallback.
+    char *end = NULL;
+    long val = strtol(token, &end, 10);
+    if (end != token && *end == '\0' && val > 0 && val < PROTO_MAX_IDENTIFIER) {
+        return (int) val;
+    }
+    return PROTO_UNKNOWN;
+}
+
+int mmt_tcpip_load_ip_ranges_file(const char *path) {
+    if (path == NULL || path[0] == '\0') {
+        return 0;
+    }
+    FILE *fp = fopen(path, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "[mmt-dpi][M9] could not open IP-range file '%s': %s\n",
+                path, strerror(errno));
+        return -1;
+    }
+
+    char line[512];
+    int loaded = 0, lineno = 0;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        lineno++;
+        // Strip comments (everything after '#') and surrounding whitespace.
+        char *hash = strchr(line, '#');
+        if (hash != NULL) {
+            *hash = '\0';
+        }
+        char cidr[128], proto_tok[128];
+        if (sscanf(line, "%127s %127s", cidr, proto_tok) != 2) {
+            continue; // blank / malformed line -> skip silently
+        }
+        // Split "<addr>/<prefixlen>".
+        char *slash = strchr(cidr, '/');
+        if (slash == NULL) {
+            fprintf(stderr, "[mmt-dpi][M9] %s:%d missing '/prefix' in '%s' - skipped\n",
+                    path, lineno, cidr);
+            continue;
+        }
+        *slash = '\0';
+        int prefix = atoi(slash + 1);
+        struct in_addr addr;
+        if (inet_pton(AF_INET, cidr, &addr) != 1) {
+            fprintf(stderr, "[mmt-dpi][M9] %s:%d invalid IPv4 address '%s' - skipped\n",
+                    path, lineno, cidr);
+            continue;
+        }
+        if (prefix <= 0 || prefix >= NETMASK_MAX_NB) {
+            fprintf(stderr, "[mmt-dpi][M9] %s:%d prefix /%d out of range [1,%d] - skipped\n",
+                    path, lineno, prefix, NETMASK_MAX_NB - 1);
+            continue;
+        }
+        int proto_id = _resolve_proto_token(proto_tok);
+        if (proto_id == PROTO_UNKNOWN) {
+            fprintf(stderr, "[mmt-dpi][M9] %s:%d unknown protocol '%s' - skipped\n",
+                    path, lineno, proto_tok);
+            continue;
+        }
+        // Work in host byte order to match _find_proto_id_by_address().
+        uint32_t mask = (prefix == 0) ? 0u : (0xFFFFFFFFu << (32 - prefix));
+        uint32_t ip   = ntohl(addr.s_addr);
+        if (_insert_dynamic_ip_range(prefix, mask, ip, proto_id)) {
+            loaded++;
+        }
+    }
+    fclose(fp);
+    return loaded;
+}
+
+void mmt_tcpip_load_external_ip_ranges(void) {
+    const char *path = getenv("MMT_DPI_IP_RANGES_FILE");
+    if (path == NULL || path[0] == '\0') {
+        return; // default: byte-identical to the compiled-in baseline
+    }
+    int n = mmt_tcpip_load_ip_ranges_file(path);
+    if (n > 0) {
+        fprintf(stderr, "[mmt-dpi][M9] loaded %d external IP-range rule(s) from %s\n",
+                n, path);
     }
 }
 

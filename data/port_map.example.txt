@@ -1,0 +1,22 @@
+# MMT-DPI — externally-updatable port-hint attribution (M9, issue #26)
+#
+# Point the MMT_DPI_PORT_MAP_FILE environment variable at a copy of this file to
+# add L4-port -> protocol HINTS without recompiling. Rules here are consulted
+# ONLY AFTER the bundled, compiled-in port switch returns no match, so they
+# never override a built-in mapping; when the variable is unset, nothing extra
+# is loaded.
+#
+# Port-based attribution is the WEAKEST signal in the pipeline: it is a hint of
+# last resort, used only after payload-signature and IP-range classification
+# have already failed, and only when the handler opts in via
+# enable_port_classify() (which is OFF by default). Treat these as guesses to be
+# confirmed by a payload signature, not as authoritative classifications.
+#
+# Format (one rule per line):
+#     <tcp|udp>  <port>  <PROTOCOL>
+#   - text after '#' is a comment; blank lines are ignored
+#   - <port> is in [1, 65535]
+#   - <PROTOCOL> is a registered protocol name or a bare numeric protocol id
+
+# tcp 8443 SSL
+# udp 5353 DNS
