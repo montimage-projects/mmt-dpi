@@ -1,0 +1,16 @@
+# Phase 7 (M9, issue #74) precision/recall baseline — labelled CI golden subset.
+# Deterministic: derived from the classifier's decisions (see phase0_precision.c).
+# Refresh with: tools/phase0/ci/check_precision.sh (then commit precision.txt).
+#
+ftp_txt.pcap                 ftp      total=75     tp=69     fp=0      unknown=6      recall=0.9200 precision=1.0000
+ftp_login_fail.pcap          ftp      total=77     tp=64     fp=0      unknown=13     recall=0.8312 precision=1.0000
+ftp_multiple_session.pcap    ftp      total=482    tp=472    fp=0      unknown=10     recall=0.9793 precision=1.0000
+tcp_bbc-out-of-order.pcap    http     total=125    tp=122    fp=0      unknown=3      recall=0.9760 precision=1.0000
+tcp_ecn_sample.pcap          http     total=479    tp=476    fp=0      unknown=3      recall=0.9937 precision=1.0000
+
+# --- per-protocol (micro-averaged) ---
+proto   ftp      total=634    tp=605    fp=0      unknown=29     recall=0.9543 precision=1.0000
+proto   http     total=604    tp=598    fp=0      unknown=6      recall=0.9901 precision=1.0000
+
+# --- overall (micro-averaged) ---
+overall          total=1238   tp=1203   fp=0      unknown=35     recall=0.9717 precision=1.0000

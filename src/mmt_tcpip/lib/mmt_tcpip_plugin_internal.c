@@ -35,6 +35,16 @@ static size_t            ext_tcp_ports_n = 0;
 static ext_port_entry_t *ext_udp_ports = NULL;
 static size_t            ext_udp_ports_n = 0;
 
+/* M9 (issue #74): override port hints. A rule tagged "override" in the data
+ * file lands here and is consulted *before* the compiled-in switch, so it can
+ * replace a built-in port->protocol mapping (extend rules above can only fill
+ * gaps). Empty unless an external file supplies override rules -> default path
+ * byte-identical. */
+static ext_port_entry_t *ext_tcp_ports_override = NULL;
+static size_t            ext_tcp_ports_override_n = 0;
+static ext_port_entry_t *ext_udp_ports_override = NULL;
+static size_t            ext_udp_ports_override_n = 0;
+
 static inline uint64_t _ext_port_lookup(const ext_port_entry_t *table, size_t n,
                                         uint16_t port_number) {
     for (size_t i = 0; i < n; i++) {
@@ -307,6 +317,12 @@ void mmt_change_internal_packet_protocol(ipacket_t * ipacket, uint16_t detected_
 }
 
 inline static uint64_t _get_proto_by_tcp_port_number(uint16_t port_number,const u_char * payload, int payload_packet_len){
+    // M9 (issue #74): override hints win over the compiled-in switch.
+    uint64_t override_id = _ext_port_lookup(ext_tcp_ports_override,
+                                            ext_tcp_ports_override_n, port_number);
+    if (override_id != PROTO_UNKNOWN) {
+        return override_id;
+    }
     switch(port_number){
         case 443:
         return PROTO_SSL;
@@ -381,6 +397,12 @@ inline static uint64_t _get_proto_by_tcp_port_number(uint16_t port_number,const 
 }
 
 inline static uint64_t _get_proto_by_udp_port_number(uint16_t port_number,const u_char * payload, int payload_packet_len){
+    // M9 (issue #74): override hints win over the compiled-in switch.
+    uint64_t override_id = _ext_port_lookup(ext_udp_ports_override,
+                                            ext_udp_ports_override_n, port_number);
+    if (override_id != PROTO_UNKNOWN) {
+        return override_id;
+    }
     switch(port_number){
         case 67:
         case 68:
@@ -489,10 +511,25 @@ int mmt_tcpip_load_port_map_file(const char *path) {
         if (hash != NULL) {
             *hash = '\0';
         }
-        char l4[16], proto_tok[128];
+        // Format: "<tcp|udp> <port> <PROTO> [override]". The optional fourth
+        // token (issue #74) routes the hint to the override table (consulted
+        // before the built-in switch); anything else is flagged but the rule
+        // still loads as an extend hint.
+        char l4[16], proto_tok[128], flag_tok[32];
         int port = 0;
-        if (sscanf(line, "%15s %d %127s", l4, &port, proto_tok) != 3) {
+        int nf = sscanf(line, "%15s %d %127s %31s", l4, &port, proto_tok, flag_tok);
+        if (nf < 3) {
             continue; // blank / malformed line -> skip silently
+        }
+        int is_override = 0;
+        if (nf >= 4) {
+            if (strcasecmp(flag_tok, "override") == 0) {
+                is_override = 1;
+            } else {
+                fprintf(stderr, "[mmt-dpi][M9] %s:%d unknown flag '%s' (expected "
+                        "'override') - treating hint as extend\n",
+                        path, lineno, flag_tok);
+            }
         }
         if (port <= 0 || port > 65535) {
             fprintf(stderr, "[mmt-dpi][M9] %s:%d port %d out of range - skipped\n",
@@ -514,11 +551,17 @@ int mmt_tcpip_load_port_map_file(const char *path) {
         }
         int ok = 0;
         if (strcasecmp(l4, "tcp") == 0) {
-            ok = _ext_port_append(&ext_tcp_ports, &ext_tcp_ports_n,
-                                  (uint16_t) port, proto_id);
+            ok = is_override
+                ? _ext_port_append(&ext_tcp_ports_override, &ext_tcp_ports_override_n,
+                                   (uint16_t) port, proto_id)
+                : _ext_port_append(&ext_tcp_ports, &ext_tcp_ports_n,
+                                   (uint16_t) port, proto_id);
         } else if (strcasecmp(l4, "udp") == 0) {
-            ok = _ext_port_append(&ext_udp_ports, &ext_udp_ports_n,
-                                  (uint16_t) port, proto_id);
+            ok = is_override
+                ? _ext_port_append(&ext_udp_ports_override, &ext_udp_ports_override_n,
+                                   (uint16_t) port, proto_id)
+                : _ext_port_append(&ext_udp_ports, &ext_udp_ports_n,
+                                   (uint16_t) port, proto_id);
         } else {
             fprintf(stderr, "[mmt-dpi][M9] %s:%d expected 'tcp'/'udp', got '%s' - skipped\n",
                     path, lineno, l4);
@@ -551,5 +594,12 @@ void mmt_tcpip_free_external_port_map(void) {
     mmt_free(ext_udp_ports);
     ext_udp_ports = NULL;
     ext_udp_ports_n = 0;
+    // M9 (#74): override tables.
+    mmt_free(ext_tcp_ports_override);
+    ext_tcp_ports_override = NULL;
+    ext_tcp_ports_override_n = 0;
+    mmt_free(ext_udp_ports_override);
+    ext_udp_ports_override = NULL;
+    ext_udp_ports_override_n = 0;
 }
 

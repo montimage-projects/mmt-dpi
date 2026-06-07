@@ -13,6 +13,7 @@ Phase 0 changes **no production code** — it adds tooling and captured baseline
 |---|---|
 | `phase0_classify.c` | Deterministic protocol-classification fingerprint tool. Prints, per pcap, sorted `count<TAB>protocol.path` lines — free of timestamps/addresses/ordering, so it diffs cleanly. |
 | `phase0_throughput.c` | Throughput baseline tool (packets/second), in-memory replay with a fresh handler per iteration. |
+| `phase0_precision.c` | Labelled-pcap precision/recall harness (Phase 7, M9, issue #74). Given a pcap and the application protocol it is known to carry, prints `label<TAB>total<TAB>tp<TAB>fp<TAB>app_unknown` from the classifier's deterministic decisions. The unlabelled fingerprint proves decisions don't *change*; this measures whether they are *correct*. |
 | `golden_pcaps.txt` | The fixed golden pcap set (paths relative to the mmt-test `data-sets/` root). |
 | `capture_baseline.sh` | Orchestrator: build+install at `-O3`, compile the drivers, capture all baselines into `baseline/`. |
 | `baseline/classification.txt` | **The golden classification baseline.** The asserted regression oracle. |
@@ -83,7 +84,7 @@ git diff tools/phase0/baseline/classification.txt   # must be empty for phases 1
 
 ## CI gate
 
-`.github/workflows/phase0-baseline.yml` enforces two Phase 0 gates on every push
+`.github/workflows/phase0-baseline.yml` enforces these gates on every push
 and PR to `main`:
 
 1. **`asan-build`** — `make BUILD=asan` must compile and the resulting library
@@ -94,6 +95,13 @@ and PR to `main`:
    subset (vendored under `ci/pcaps/`, ~0.6 MB, no dependency on the mmt-test
    repo) and diffs the fingerprint against the committed
    `ci/baseline/classification.txt`. Any diff fails the job.
+3. **`precision-gate`** — runs `tools/phase0/ci/check_precision.sh`, which runs
+   the labelled-pcap precision/recall harness (`phase0_precision`) over the
+   labelled subset (`ci/labels.txt`) and diffs the micro-averaged metrics
+   against the committed `ci/baseline/precision.txt`. Enforces the Phase 7 (M9,
+   issue #74) acceptance criterion that precision/recall **holds or improves**.
+   Refresh `ci/baseline/precision.txt` (artifact: `phase0-precision-actual`) in
+   the same PR when an improvement is intentional.
 
 When a phase **intentionally** changes classification, refresh the CI baseline in
 the same PR. The failing job uploads the freshly-captured fingerprint as the

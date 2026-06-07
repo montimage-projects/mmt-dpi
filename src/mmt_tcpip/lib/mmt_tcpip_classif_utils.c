@@ -21758,15 +21758,30 @@ static const proto_based_ip_t proto_ip_address[] = {
 static avltree_t * proto_avltrees[NETMASK_MAX_NB];
 
 /* ------------------------------------------------------------------------
- * M9 (issue #26): externally-updatable IP-range attribution.
+ * M9 (issue #26 / #74): externally-updatable IP-range attribution.
  *
- * Extra CIDR->protocol rules loaded from MMT_DPI_IP_RANGES_FILE are appended to
- * the AVL trees ON TOP of the compiled-in proto_ip_address[] table. Their entry
- * structs are heap-allocated (the built-in ones point into the static const
- * table) so we track them in this single-linked list and release them in
- * _free_proto_avltrees(). The list is only mutated at init time, single
- * threaded, before any worker thread runs.
+ * Extra CIDR->protocol rules loaded from MMT_DPI_IP_RANGES_FILE are merged ON
+ * TOP of the compiled-in proto_ip_address[] table. Two precedence classes are
+ * supported (issue #74):
+ *
+ *   - "extend" rules (the default, and the only mode in #26) are appended to the
+ *     same per-prefix AVL trees as the built-in table. Longest-prefix-first
+ *     lookup means a more-specific external rule already wins over a broader
+ *     built-in one, but an extend rule can never displace a built-in entry at
+ *     the *same* prefix+network.
+ *   - "override" rules (issue #74) are kept in a SEPARATE per-prefix tree set
+ *     that is consulted *before* the built-in/extend trees, so they take
+ *     precedence over a compiled-in mapping (replace, not just extend).
+ *
+ * Externally-loaded entry structs are heap-allocated (the built-in ones point
+ * into the static const table) so we track them in a single-linked list and
+ * release them in _free_proto_avltrees(). The lists/trees are only mutated at
+ * init time, single threaded, before any worker thread runs. When the env var
+ * is unset (the default / CI path) nothing extra is loaded and classification
+ * stays byte-identical to the compiled-in baseline.
  * ------------------------------------------------------------------------ */
+static avltree_t * proto_avltrees_override[NETMASK_MAX_NB];
+
 typedef struct _dyn_ip_range_node {
     proto_based_ip_t            entry;
     struct _dyn_ip_range_node * next;
@@ -21774,12 +21789,15 @@ typedef struct _dyn_ip_range_node {
 
 static _dyn_ip_range_node_t * _dyn_ip_ranges = NULL;
 
-/* Insert one CIDR->protocol rule (host-byte-order network + mask) into the AVL
- * trees. Returns 1 on success, 0 if the prefix length is out of the supported
- * range or the allocation/insert failed. Used only for externally-loaded rules;
- * the built-in table keeps its zero-allocation fast path below. */
+/* Insert one IPv4 CIDR->protocol rule (host-byte-order network + mask) into the
+ * AVL trees. `is_override` routes it to the override tree set (consulted first)
+ * instead of the extend trees. Returns 1 on success, 0 if the prefix length is
+ * out of the supported range or the allocation/insert failed. Used only for
+ * externally-loaded rules; the built-in table keeps its zero-allocation fast
+ * path below. */
 static int _insert_dynamic_ip_range(int netmask_nb, uint32_t netmask_address,
-                                    uint32_t ip_address, int proto_id) {
+                                    uint32_t ip_address, int proto_id,
+                                    int is_override) {
     // The AVL trees are indexed by prefix length; the array has NETMASK_MAX_NB
     // slots (0 .. NETMASK_MAX_NB-1). Reject anything that would index OOB or a
     // /0 catch-all (which the built-in table never uses either).
@@ -21795,17 +21813,151 @@ static int _insert_dynamic_ip_range(int netmask_nb, uint32_t netmask_address,
     dyn->entry.ip_address      = ip_address & netmask_address;
     dyn->entry.proto_id        = proto_id;
 
+    avltree_t ** trees = is_override ? proto_avltrees_override : proto_avltrees;
+
+    // A second rule for the same prefix+network in the same class would hit
+    // avltree_insert()'s duplicate-key branch, which returns the freshly-created
+    // (still-unlinked) node and would make the caller orphan the entire existing
+    // subtree for that prefix. Detect the duplicate and update the existing node
+    // in place instead (last rule wins); the superseded entry stays tracked in
+    // the cleanup list. avltree_find() is NULL-safe for an empty tree.
+    avltree_t * existing = avltree_find(trees[netmask_nb], dyn->entry.ip_address);
+    if (existing != NULL) {
+        // Per the extend/override contract (docs/External-Attribution.md): an
+        // *extend* rule must never displace a compiled-in entry at the same
+        // prefix+network — only an `override` rule may. The extend tree set
+        // (proto_avltrees) is seeded with the static proto_ip_address[] nodes,
+        // so a same-CIDR extend collision can land on a built-in node. Detect
+        // that (data pointer inside the static built-in table) and drop the
+        // extend rule rather than overwriting the built-in attribution. The
+        // override tree set holds no built-ins, so override collisions never
+        // match here and fall through to the last-rule-wins update below.
+        uintptr_t hit = (uintptr_t) existing->data;
+        uintptr_t lo  = (uintptr_t) proto_ip_address;
+        uintptr_t hi  = (uintptr_t) (proto_ip_address +
+                            sizeof(proto_ip_address) / sizeof(proto_ip_address[0]));
+        if (hit >= lo && hit < hi) {
+            // Built-in stays authoritative; the extend rule is a no-op. Treated
+            // as an accepted (valid) line so the loader's rule count is unchanged.
+            mmt_free(dyn);
+            return 1;
+        }
+        // Collision with an earlier dynamic rule of the same class: last rule
+        // wins. The superseded entry stays tracked in the cleanup list.
+        existing->data = (void *) &dyn->entry;
+        dyn->next = _dyn_ip_ranges;
+        _dyn_ip_ranges = dyn;
+        return 1;
+    }
+
     avltree_t * node = avltree_create(dyn->entry.ip_address, (void*)&dyn->entry);
     if (node == NULL) {
         mmt_free(dyn);
         return 0;
     }
-    proto_avltrees[netmask_nb] = avltree_insert(proto_avltrees[netmask_nb], node);
+    trees[netmask_nb] = avltree_insert(trees[netmask_nb], node);
 
     // Keep the heap entry alive and tracked for cleanup.
     dyn->next = _dyn_ip_ranges;
     _dyn_ip_ranges = dyn;
     return 1;
+}
+
+/* ------------------------------------------------------------------------
+ * M9 (issue #74): externally-loaded IPv6 CIDR->protocol attribution.
+ *
+ * The compiled-in table and the AVL trees above are IPv4-only (a uint32_t key).
+ * IPv6 ranges have no compiled-in baseline, so they live entirely in this
+ * heap-allocated, init-time-only linked list and are matched by a 128-bit
+ * longest-prefix scan. The list is empty unless an external file supplies IPv6
+ * rules, so the default IPv6 classification path is unchanged.
+ * ------------------------------------------------------------------------ */
+typedef struct _ipv6_range_node {
+    uint8_t                   addr[16];   // network address, already masked
+    int                       prefix;     // 1 .. 128
+    int                       proto_id;
+    int                       is_override; // override rules win over extend rules
+    struct _ipv6_range_node * next;
+} _ipv6_range_node_t;
+
+static _ipv6_range_node_t * _ipv6_ranges = NULL;
+
+/* Mask `src` in place to keep only the leading `prefix` bits (rest zeroed). */
+static void _ipv6_apply_mask(uint8_t addr[16], int prefix) {
+    int full = prefix / 8;
+    int rem  = prefix % 8;
+    int i;
+    if (rem) {
+        addr[full] = (uint8_t) (addr[full] & (uint8_t) (0xFFu << (8 - rem)));
+        full++;
+    }
+    for (i = full; i < 16; i++) {
+        addr[i] = 0;
+    }
+}
+
+/* Return 1 if `addr` falls inside the `net`/`prefix` IPv6 network. `net` must
+ * already be masked to `prefix` bits. */
+static int _ipv6_match(const uint8_t addr[16], const uint8_t net[16], int prefix) {
+    int full = prefix / 8;
+    int rem  = prefix % 8;
+    if (full && memcmp(addr, net, full) != 0) {
+        return 0;
+    }
+    if (rem) {
+        uint8_t mask = (uint8_t) (0xFFu << (8 - rem));
+        if ((uint8_t) (addr[full] & mask) != (uint8_t) (net[full] & mask)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Insert one IPv6 CIDR->protocol rule. The address is masked to `prefix` bits
+ * on the way in. Returns 1 on success, 0 on bad prefix / allocation failure. */
+static int _insert_ipv6_range(const uint8_t addr[16], int prefix, int proto_id,
+                              int is_override) {
+    if (prefix <= 0 || prefix > 128) {
+        return 0;
+    }
+    _ipv6_range_node_t * node = (_ipv6_range_node_t *) mmt_malloc(sizeof(*node));
+    if (node == NULL) {
+        return 0;
+    }
+    memcpy(node->addr, addr, 16);
+    _ipv6_apply_mask(node->addr, prefix);
+    node->prefix      = prefix;
+    node->proto_id    = proto_id;
+    node->is_override  = is_override;
+    node->next        = _ipv6_ranges;
+    _ipv6_ranges      = node;
+    return 1;
+}
+
+/* Longest-prefix-match lookup over the externally-loaded IPv6 ranges, applied to
+ * the source then the destination address. Override rules win over extend rules
+ * regardless of prefix length; within a class the longest prefix wins. Returns
+ * the matched protocol id, or -1 when nothing matches. */
+int _find_proto_id_by_address6(const uint8_t ip_src[16], const uint8_t ip_dest[16]) {
+    int best_override = -1, best_override_prefix = -1;
+    int best_extend   = -1, best_extend_prefix   = -1;
+    _ipv6_range_node_t * n = _ipv6_ranges;
+    while (n != NULL) {
+        if (_ipv6_match(ip_src, n->addr, n->prefix) ||
+            _ipv6_match(ip_dest, n->addr, n->prefix)) {
+            if (n->is_override) {
+                if (n->prefix > best_override_prefix) {
+                    best_override_prefix = n->prefix;
+                    best_override        = n->proto_id;
+                }
+            } else if (n->prefix > best_extend_prefix) {
+                best_extend_prefix = n->prefix;
+                best_extend        = n->proto_id;
+            }
+        }
+        n = n->next;
+    }
+    return (best_override != -1) ? best_override : best_extend;
 }
 
 /**
@@ -21816,6 +21968,7 @@ void _init_proto_avltrees() {
     int i = 0 , nb_nodes = 0;
     for (i = NETMASK_MAX_NB - 1 ; i >= 0; i--) {
         proto_avltrees[i] = 0x0;
+        proto_avltrees_override[i] = 0x0; // M9 (#74): external override tree set
     }
 
     i = 0;
@@ -21844,21 +21997,25 @@ void _init_proto_avltrees() {
 #endif    
 }
 
-int _find_proto_id_by_address(uint32_t ip_src,uint32_t ip_dest){
+/* Longest-prefix-first lookup over one IPv4 per-prefix AVL tree set, applied to
+ * the source then the destination address. Returns the matched protocol id or
+ * -1 when nothing matches. */
+static int _find_proto_id_in_trees(avltree_t * const trees[], uint32_t ip_src,
+                                   uint32_t ip_dest) {
     int i;
     for (i = NETMASK_MAX_NB - 1 ; i >= 0; i--) {
-        if (proto_avltrees[i] != NULL) {
-            proto_based_ip_t * proto = (proto_based_ip_t * ) avltree_get_data(proto_avltrees[i]);
+        if (trees[i] != NULL) {
+            proto_based_ip_t * proto = (proto_based_ip_t * ) avltree_get_data(trees[i]);
             // Check the source address
-            uint32_t key_src = ip_src & proto->netmask_address;            
-            avltree_t * node_src = avltree_find(proto_avltrees[i],key_src);
+            uint32_t key_src = ip_src & proto->netmask_address;
+            avltree_t * node_src = avltree_find(trees[i],key_src);
             if(node_src != NULL){
                 proto_based_ip_t * found_proto = (proto_based_ip_t * ) avltree_get_data(node_src);
                 return found_proto->proto_id;
             }
             // Check the destination address
             uint32_t key_dest = ip_dest & proto->netmask_address;
-            avltree_t * node_dest = avltree_find(proto_avltrees[i],key_dest);
+            avltree_t * node_dest = avltree_find(trees[i],key_dest);
             if(node_dest != NULL){
                 proto_based_ip_t * found_proto = (proto_based_ip_t * ) avltree_get_data(node_dest);
                 return found_proto->proto_id;
@@ -21868,14 +22025,26 @@ int _find_proto_id_by_address(uint32_t ip_src,uint32_t ip_dest){
     return -1;
 }
 
+int _find_proto_id_by_address(uint32_t ip_src,uint32_t ip_dest){
+    // M9 (#74): operator-supplied override rules win over the compiled-in table.
+    int proto_id = _find_proto_id_in_trees(proto_avltrees_override, ip_src, ip_dest);
+    if (proto_id != -1) {
+        return proto_id;
+    }
+    return _find_proto_id_in_trees(proto_avltrees, ip_src, ip_dest);
+}
+
 void _free_proto_avltrees(){
     // printf("[debug] _free_proto_avltrees ... \n");
     int i = 0;
     for (i = NETMASK_MAX_NB - 1 ; i >= 0; i--) {
         avltree_free_tree(proto_avltrees[i]);
         proto_avltrees[i] = NULL;
+        avltree_free_tree(proto_avltrees_override[i]); // M9 (#74) override set
+        proto_avltrees_override[i] = NULL;
     }
-    // Release the heap-allocated externally-loaded IP-range entries (issue #26).
+    // Release the heap-allocated externally-loaded IPv4 IP-range entries
+    // (issue #26 extend rules + issue #74 override rules — both tracked here).
     _dyn_ip_range_node_t * dyn = _dyn_ip_ranges;
     while (dyn != NULL) {
         _dyn_ip_range_node_t * next = dyn->next;
@@ -21883,6 +22052,14 @@ void _free_proto_avltrees(){
         dyn = next;
     }
     _dyn_ip_ranges = NULL;
+    // Release the externally-loaded IPv6 ranges (issue #74).
+    _ipv6_range_node_t * v6 = _ipv6_ranges;
+    while (v6 != NULL) {
+        _ipv6_range_node_t * next = v6->next;
+        mmt_free(v6);
+        v6 = next;
+    }
+    _ipv6_ranges = NULL;
 }
 
 /* Resolve a protocol token to an id: first by registered name, then (to keep
@@ -21921,9 +22098,23 @@ int mmt_tcpip_load_ip_ranges_file(const char *path) {
         if (hash != NULL) {
             *hash = '\0';
         }
-        char cidr[128], proto_tok[128];
-        if (sscanf(line, "%127s %127s", cidr, proto_tok) != 2) {
+        // Format: "<addr>/<prefixlen> <PROTO> [override]". The optional third
+        // token (issue #74) routes the rule to the override set; anything else
+        // there is flagged but the rule still loads as an extend rule.
+        char cidr[128], proto_tok[128], flag_tok[32];
+        int nf = sscanf(line, "%127s %127s %31s", cidr, proto_tok, flag_tok);
+        if (nf < 2) {
             continue; // blank / malformed line -> skip silently
+        }
+        int is_override = 0;
+        if (nf >= 3) {
+            if (strcasecmp(flag_tok, "override") == 0) {
+                is_override = 1;
+            } else {
+                fprintf(stderr, "[mmt-dpi][M9] %s:%d unknown flag '%s' (expected "
+                        "'override') - treating rule as extend\n",
+                        path, lineno, flag_tok);
+            }
         }
         // Split "<addr>/<prefixlen>".
         char *slash = strchr(cidr, '/');
@@ -21934,6 +22125,36 @@ int mmt_tcpip_load_ip_ranges_file(const char *path) {
         }
         *slash = '\0';
         int prefix = atoi(slash + 1);
+
+        // An ':' in the address selects the IPv6 path (issue #74); otherwise the
+        // address is parsed as IPv4 (issue #26), keeping byte-identical
+        // behaviour for existing IPv4-only data files.
+        int is_ipv6 = (strchr(cidr, ':') != NULL);
+        int proto_id;
+        if (is_ipv6) {
+            struct in6_addr addr6;
+            if (inet_pton(AF_INET6, cidr, &addr6) != 1) {
+                fprintf(stderr, "[mmt-dpi][M9] %s:%d invalid IPv6 address '%s' - skipped\n",
+                        path, lineno, cidr);
+                continue;
+            }
+            if (prefix <= 0 || prefix > 128) {
+                fprintf(stderr, "[mmt-dpi][M9] %s:%d IPv6 prefix /%d out of range [1,128] - skipped\n",
+                        path, lineno, prefix);
+                continue;
+            }
+            proto_id = _resolve_proto_token(proto_tok);
+            if (proto_id == PROTO_UNKNOWN) {
+                fprintf(stderr, "[mmt-dpi][M9] %s:%d unknown protocol '%s' - skipped\n",
+                        path, lineno, proto_tok);
+                continue;
+            }
+            if (_insert_ipv6_range(addr6.s6_addr, prefix, proto_id, is_override)) {
+                loaded++;
+            }
+            continue;
+        }
+
         struct in_addr addr;
         if (inet_pton(AF_INET, cidr, &addr) != 1) {
             fprintf(stderr, "[mmt-dpi][M9] %s:%d invalid IPv4 address '%s' - skipped\n",
@@ -21945,7 +22166,7 @@ int mmt_tcpip_load_ip_ranges_file(const char *path) {
                     path, lineno, prefix, NETMASK_MAX_NB - 1);
             continue;
         }
-        int proto_id = _resolve_proto_token(proto_tok);
+        proto_id = _resolve_proto_token(proto_tok);
         if (proto_id == PROTO_UNKNOWN) {
             fprintf(stderr, "[mmt-dpi][M9] %s:%d unknown protocol '%s' - skipped\n",
                     path, lineno, proto_tok);
@@ -21954,7 +22175,7 @@ int mmt_tcpip_load_ip_ranges_file(const char *path) {
         // Work in host byte order to match _find_proto_id_by_address().
         uint32_t mask = (prefix == 0) ? 0u : (0xFFFFFFFFu << (32 - prefix));
         uint32_t ip   = ntohl(addr.s_addr);
-        if (_insert_dynamic_ip_range(prefix, mask, ip, proto_id)) {
+        if (_insert_dynamic_ip_range(prefix, mask, ip, proto_id, is_override)) {
             loaded++;
         }
     }
@@ -21977,13 +22198,25 @@ void mmt_tcpip_load_external_ip_ranges(void) {
 uint32_t get_proto_id_from_address(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
 
-    if (packet->iph /* IPv4 only */) {
+    if (packet->iph /* IPv4 */) {
         int proto_id = _find_proto_id_by_address(ntohl(packet->iph->saddr),ntohl(packet->iph->daddr));
 
         if( likely(proto_id != -1)){
             return proto_id;
         }
     }
+#ifdef MMT_SUPPORT_IPV6
+    // M9 (#74): IPv6 attribution comes entirely from externally-loaded ranges
+    // (there is no compiled-in IPv6 table). The list is empty by default, so the
+    // default IPv6 classification path is unchanged.
+    else if (packet->iphv6 != NULL) {
+        int proto_id = _find_proto_id_by_address6(packet->iphv6->saddr.mmt_v6_addr,
+                                                  packet->iphv6->daddr.mmt_v6_addr);
+        if( likely(proto_id != -1)){
+            return proto_id;
+        }
+    }
+#endif
     return PROTO_UNKNOWN;
 }
 
