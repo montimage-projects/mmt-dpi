@@ -21,6 +21,8 @@
 #   Fastly     -> FASTLY      https://api.fastly.com/public-ip-list
 #   AWS (CDN)  -> CLOUDFRONT  https://ip-ranges.amazonaws.com/ip-ranges.json
 #   Google     -> GOOGLE      https://www.gstatic.com/ipranges/goog.json
+#   Cloudflare -> CLOUDFLARE  https://api.cloudflare.com/client/v4/ips
+#   Azure      -> AZURE       https://download.microsoft.com/download/.../ServiceTags_Public.json
 #
 # Note: goog.json is Google's *own* service ranges (narrower and more accurate
 # for PROTO_GOOGLE than cloud.json, which is the broad GCP customer range list).
@@ -36,6 +38,8 @@ done
 FASTLY_URL="https://api.fastly.com/public-ip-list"
 AWS_URL="https://ip-ranges.amazonaws.com/ip-ranges.json"
 GCP_URL="https://www.gstatic.com/ipranges/goog.json"
+CLOUDFLARE_URL="https://api.cloudflare.com/client/v4/ips"
+AZURE_URL="https://download.microsoft.com/download/7/1/d/71d86715-5596-4529-9b13-da13a5de5b63/ServiceTags_Public_20260601.json"
 
 # Keep only CIDRs the loader accepts: IPv4 prefixlen in [1,30], IPv6 in [1,128].
 # (mmt_tcpip_load_ip_ranges_file silently skips anything outside that range.)
@@ -69,11 +73,24 @@ curl -fsSL "$FASTLY_URL" \
 
 printf '\n# AWS CloudFront -> CLOUDFRONT (%s)\n' "$AWS_URL"
 curl -fsSL "$AWS_URL" \
-    | jq -r '.prefixes[]      | select(.service=="CLOUDFRONT") | .ip_prefix,
-             .ipv6_prefixes[] | select(.service=="CLOUDFRONT") | .ipv6_prefix' \
+    | jq -r '(.prefixes[] | select(.service=="CLOUDFRONT") | .ip_prefix), ((.ipv6_prefixes // [])[] | select(.service=="CLOUDFRONT") | .ipv6_prefix)' \
     | emit CLOUDFRONT
 
 printf '\n# Google (own services) -> GOOGLE (%s)\n' "$GCP_URL"
 curl -fsSL "$GCP_URL" \
     | jq -r '.prefixes[] | (.ipv4Prefix // .ipv6Prefix) // empty' \
     | emit GOOGLE
+
+# Cloudflare (issue #83)
+printf '\n# Cloudflare -> CLOUDFLARE (%s)\n' "$CLOUDFLARE_URL"
+curl -fsSL "$CLOUDFLARE_URL" \
+    | jq -r '.result.ipv4_cidrs[], .result.ipv6_cidrs[]' \
+    | emit CLOUDFLARE
+
+# Azure (issue #83)
+# ServiceTags_Public.json is updated weekly; the date in the URL must be refreshed.
+printf '\n# Azure -> AZURE (weekly ServiceTags JSON)\n' \
+    'Source: https://www.microsoft.com/en-us/download/details.aspx?id=56519'
+curl -fsSL "$AZURE_URL" \
+    | jq -r '.values[].properties.addressPrefixes[]' \
+    | emit AZURE

@@ -2279,6 +2279,10 @@ extern "C" {
     int init_proto_int_struct();
     int init_proto_dtls_struct();
     int init_proto_quic_ietf_struct();
+    /////////// PLUGIN INIT FOR PROTO_CLOUDFLARE //////////////////
+    int init_proto_cloudflare_struct();
+    /////////// PLUGIN INIT FOR PROTO_AZURE //////////////////
+    int init_proto_azure_struct();
     
     
     int init_http2_proto_struct() ;
