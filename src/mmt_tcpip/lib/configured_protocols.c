@@ -3922,6 +3922,18 @@ int init_tcpip_plugin() {
 		fprintf(stderr, "Error initializing protocol PROTO_QUIC_IETF\n Exiting\n");
 		return 0;
 	}
+    /////////////////////////////////////////////
+    /////////// INITILIZING PROTO_CLOUDFLARE //////////////////
+    if (!init_proto_cloudflare_struct()) {
+        fprintf(stderr, "Error initializing protocol PROTO_CLOUDFLARE\n Exiting\n");
+        return 0;
+    }
+    /////////////////////////////////////////////
+    /////////// INITILIZING PROTO_AZURE //////////////////
+    if (!init_proto_azure_struct()) {
+        fprintf(stderr, "Error initializing protocol PROTO_AZURE\n Exiting\n");
+        return 0;
+    }
 	    if (!init_http2_proto_struct()) {
         fprintf(stderr, "Error initializing protocol PROTO_HTTP2\n Exiting\n");
         return 0;
