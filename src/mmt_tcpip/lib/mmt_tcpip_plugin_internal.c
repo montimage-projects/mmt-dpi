@@ -455,6 +455,66 @@ inline static uint64_t _get_proto_by_udp_port_number(uint16_t port_number,const 
 //     return (proto_id);
 // }
 
+/*
+ * M9 (issue #75): payload-confirmed port-only demotion.
+ *
+ * Minimal, allocation-free leading-byte signatures for the protocols the port
+ * switches above can attribute. Deliberately conservative: a protocol with no
+ * signature below returns 0, so when payload confirmation is required an
+ * unconfirmed port-only guess is demoted rather than trusted. Kept independent
+ * of the full per-protocol classifiers (which carry side effects) so it is safe
+ * to call cheaply on the classification path.
+ */
+int mmt_payload_confirms_proto(uint32_t proto_id,
+                               const unsigned char *payload,
+                               int payload_packet_len) {
+    if (payload == NULL || payload_packet_len <= 0) {
+        return 0;
+    }
+    switch (proto_id) {
+        case PROTO_HTTP: {
+            /* request methods or a response status line */
+            static const struct { const char *s; int n; } sigs[] = {
+                {"GET ", 4}, {"POST ", 5}, {"HEAD ", 5}, {"PUT ", 4},
+                {"DELETE ", 7}, {"OPTIONS ", 8}, {"PATCH ", 6}, {"TRACE ", 6},
+                {"CONNECT ", 8}, {"HTTP/", 5}
+            };
+            int i;
+            for (i = 0; i < (int)(sizeof(sigs) / sizeof(sigs[0])); i++) {
+                if (payload_packet_len >= sigs[i].n &&
+                    memcmp(payload, sigs[i].s, sigs[i].n) == 0) {
+                    return 1;
+                }
+            }
+            return 0;
+        }
+        case PROTO_SSL:
+            /* TLS/SSLv3 record: content type 0x14-0x17, version major 0x03 */
+            return (payload_packet_len >= 3 &&
+                    payload[0] >= 0x14 && payload[0] <= 0x17 &&
+                    payload[1] == 0x03 && payload[2] <= 0x04);
+        case PROTO_SSH:
+            return (payload_packet_len >= 4 && memcmp(payload, "SSH-", 4) == 0);
+        case PROTO_SMTP:
+            /* server greeting "220" or client EHLO/HELO */
+            return (payload_packet_len >= 4 &&
+                    ((payload[0] == '2' && payload[1] == '2' && payload[2] == '0') ||
+                     memcmp(payload, "EHLO", 4) == 0 ||
+                     memcmp(payload, "HELO", 4) == 0));
+        case PROTO_POP:
+            return (payload_packet_len >= 3 && memcmp(payload, "+OK", 3) == 0);
+        case PROTO_IMAP:
+            return (payload_packet_len >= 4 && memcmp(payload, "* OK", 4) == 0);
+        case PROTO_FTP:
+            /* control-channel greeting "220 " or multiline "220-" */
+            return (payload_packet_len >= 4 &&
+                    payload[0] == '2' && payload[1] == '2' && payload[2] == '0' &&
+                    (payload[3] == ' ' || payload[3] == '-'));
+        default:
+            return 0;
+    }
+}
+
 unsigned int mmt_guess_protocol_by_port_number(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     uint64_t proto_id = PROTO_UNKNOWN;
@@ -473,6 +533,15 @@ unsigned int mmt_guess_protocol_by_port_number(ipacket_t * ipacket) {
         if(proto_id == PROTO_UNKNOWN){
              proto_id = _get_proto_by_udp_port_number(dport,packet->payload,packet->payload_packet_len);
         }
+    }
+    /* M9 (issue #75): demote a port-only guess unless the payload confirms it.
+     * Default-off (port_classify_payload_confirm == 0) keeps the bundled
+     * behaviour byte-identical to the baseline. */
+    if (proto_id != PROTO_UNKNOWN &&
+        ipacket->mmt_handler->port_classify_payload_confirm != 0 &&
+        !mmt_payload_confirms_proto((uint32_t) proto_id,
+                                    packet->payload, packet->payload_packet_len)) {
+        return PROTO_UNKNOWN;
     }
     return (proto_id);
 }
