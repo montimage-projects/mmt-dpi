@@ -21802,17 +21802,17 @@ static const proto_based_ip_t proto_ip_address[] = {
  {20,0xfffff000,0xc5eaf000,PROTO_CLOUDFLARE},
  {20,0xfffff000,0xc6298000,PROTO_CLOUDFLARE},
 // AWS IP ranges (issue #82)
+ // Note: 54.230.0.0/16 already exists as PROTO_AMAZON; 72.21.198.0/23 overlaps 72.21.198.0/23 PROTO_AMAZON
  {16,0xffff0000,0x0df80000,PROTO_AWS},
- {16,0xffff0000,0x36e60000,PROTO_AWS},
  {23,0xfffffe00,0x4815c600,PROTO_AWS},
  {20,0xfffff000,0x607fa000,PROTO_AWS},
  {18,0xffffc000,0xcdcb0000,PROTO_AWS},
 // Azure IP ranges (issue #82)
+ // Note: 52.32.0.0/14 already exists as PROTO_AMAZON; skip overlapping /19
  {20,0xfffff000,0x0d400000,PROTO_AZURE},
  {21,0xfffff800,0x0d440000,PROTO_AZURE},
  {8,0xff000000,0x14000000,PROTO_AZURE},
  {18,0xffffc000,0x28400000,PROTO_AZURE},
- {19,0xffffe000,0x34200000,PROTO_AZURE},
  {22,0xfffffc00,0x682c0000,PROTO_AZURE},
  {24,0xffffff00,0xa83d0000,PROTO_AZURE},
  {23,0xfffffe00,0xa83e0000,PROTO_AZURE},
