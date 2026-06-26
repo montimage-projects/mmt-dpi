@@ -116,7 +116,7 @@ deb: sdk $(SDKLIB) $(SDKINC) $(SDKXAM) --private-prepare-build-dir
         \nVersion: $(VERSION)-$(GIT_VERSION)\
         \nSection: base \
         \nPriority: standard \
-        \nArchitecture: $(DEB_ARCH)\
+        \nArchitecture: $(DEB_ARCH) \
         \nMaintainer: Montimage <contact@montimage.eu> \
         \nDepends: libc6 (>= 2.17), libpcap0.8 | libpcap0.8t64, libnghttp2-14 \
         \nDescription: MMT-DPI:  \
