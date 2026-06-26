@@ -1,0 +1,15 @@
+title: MMT-DPI
+description: >-
+  High-performance C library for deep packet inspection — 200+ protocol
+  classification, named attribute extraction, session tracking, and an
+  extensible plugin architecture.
+theme: jekyll-theme-cayman
+show_downloads: false
+
+# Build only the landing page and curated guides; exclude heavy/binary assets
+# and design-note pages from the published site.
+exclude:
+  - docs/            # nested binary assets (mmt-flow.ep, *.png, *.csv)
+  - "*.deb"
+  - Discussion-Points.md
+  - Phase2-Heuristics.md
