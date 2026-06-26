@@ -129,6 +129,18 @@
     .hero-sub { font-size: clamp(1.05rem, 2.2vw, 1.28rem); color: var(--text-dim); max-width: 56ch; margin: 0 0 34px; }
     .hero-sub strong { color: var(--text); font-weight: 600; }
 
+    /* hero: text left, code right */
+    .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+    .hero-grid .hero-code { min-width: 0; }                 /* let the code-card shrink instead of overflowing */
+    .hero-grid .hero-code .code-card { margin: 0; }
+    .hero-grid .hero-code pre.code { font-size: .78rem; padding: 16px; }  /* fit longer lines in the narrower column */
+    .hero-grid h1.hero-title { max-width: 14ch; }
+    .hero-grid .hero-sub { max-width: 52ch; }
+    @media (max-width: 920px){
+      .hero-grid { grid-template-columns: 1fr; gap: 36px; }
+      .hero-grid .hero-code { margin-top: 4px; }
+    }
+
     .cta-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
     .btn {
       display: inline-flex; align-items: center; gap: 9px;
@@ -243,6 +255,30 @@
     .t-num { color: var(--amber); }
     .t-ty  { color: #2ee6d6; } /* type tokens — kept cyan so syntax categories stay distinct (not a brand accent) */
 
+    /* ---------- API tabs ---------- */
+    .api-grid { display: grid; grid-template-columns: 320px 1fr; gap: 30px; margin-top: 44px; align-items: start; }
+    @media (max-width: 920px){ .api-grid { grid-template-columns: 1fr; } }
+    .api-tabs { display: flex; flex-direction: column; gap: 10px; }
+    @media (max-width: 920px){ .api-tabs { flex-direction: row; flex-wrap: wrap; } }
+    .api-tab {
+      text-align: left; cursor: pointer; font-family: var(--sans);
+      border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      border-radius: var(--radius); padding: 16px 18px; transition: .16s ease;
+    }
+    .api-tab:hover { border-color: var(--border-2); }
+    .api-tab .t-step { font-family: var(--mono); font-size: .72rem; color: var(--text-mute); letter-spacing: .06em; }
+    .api-tab .t-name { font-weight: 700; font-size: 1.02rem; margin: 4px 0 5px; }
+    .api-tab .t-desc { font-size: .86rem; color: var(--text-dim); }
+    .api-tab[aria-selected="true"] {
+      border-color: var(--mi-amber); background: linear-gradient(180deg, rgba(233,171,52,.08), var(--panel));
+      box-shadow: inset 3px 0 0 var(--mi-amber);
+    }
+    .api-tab[aria-selected="true"] .t-step { color: var(--mi-amber); }
+    .api-panel { display: none; }
+    .api-panel.active { display: block; }
+    .api-note { margin-top: 14px; font-size: .88rem; color: var(--text-dim); }
+    .api-note code { color: var(--amber); font-size: .9em; }
+
     /* ---------- protocols ---------- */
     .proto-cloud { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 34px; }
     .chip {
@@ -311,7 +347,7 @@
         <a class="brand" href="#top"><img src="assets/montimage-logo.svg" alt="Montimage" width="26" height="26">MMT&#8209;DPI</a>
         <div class="nav-links">
           <a href="#features">Features</a>
-          <a href="#how">How it works</a>
+          <a href="#api">API</a>
           <a href="#protocols">Protocols</a>
           <a href="#use-cases">Use cases</a>
           <a href="USER_GUIDE.md">Docs</a>
@@ -322,30 +358,47 @@
 
     <!-- HERO -->
     <section class="hero wrap" id="top">
-      <span class="eyebrow"><span class="pulse"></span>v1.7.0.0 · Apache&#8209;2.0 · Production-ready</span>
-      <h1 class="hero-title">Deep packet inspection, <span class="accent">in C — at line rate.</span></h1>
-      <p class="hero-sub">
-        MMT&#8209;DPI classifies live traffic and extracts <strong>typed, named attributes</strong> —
-        IPs, ports, headers, payload fields — from <strong>643 protocols</strong>. Query packets by name,
-        track sessions, and add your own protocols as plugins. No byte-offset math.
-      </p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="#quick-start">▸ Install in one line</a>
-        <a class="btn btn-ghost" href="https://github.com/montimage-projects/mmt-dpi" target="_blank" rel="noopener">View source on GitHub</a>
-      </div>
+      <div class="hero-grid">
+       <div class="hero-text">
+        <span class="eyebrow"><span class="pulse"></span>v1.7.0.0 · Apache&#8209;2.0 · Linux · C/C++</span>
+        <h1 class="hero-title">A deep packet inspection <span class="accent">engine for C.</span></h1>
+        <p class="hero-sub">
+          Link <code>libmmt_core</code>, register the protocol fields you need, and process packets from a
+          pcap or a live interface. MMT&#8209;DPI classifies <strong>643 protocols</strong>, extracts
+          <strong>6,334 typed attributes</strong>, and tracks per-flow sessions — all behind one callback API.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#api">▸ See the API</a>
+          <a class="btn btn-ghost" href="https://github.com/montimage-projects/mmt-dpi/tree/main/src/examples" target="_blank" rel="noopener">Browse examples</a>
+        </div>
+       </div>
 
-      <div class="term">
-        <div class="term-bar">
+       <div class="hero-code">
+        <div class="code-card">
+        <div class="code-head">
           <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
-          <span class="term-title">bash — install</span>
-          <button class="copy-btn" onclick="copyInstall(this)">copy</button>
+          <span class="fn">hello_packet.c — your first program</span>
         </div>
-        <div class="term-body">
-          <div><span class="pr">$ </span><span class="cmd" id="install-cmd">curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | bash</span></div>
-          <div><span class="out">→ detecting distro… Ubuntu 24.04 (apt)</span></div>
-          <div><span class="out">→ installing deps · building sdk · make install</span></div>
-          <div><span class="ok">✓ MMT-DPI installed → /opt/mmt/dpi</span></div>
+<pre class="code"><span class="t-com">#include "mmt_core.h"</span>
+
+<span class="t-com">// Called after MMT classifies and extracts each packet.</span>
+<span class="t-key">int</span> <span class="t-fn">on_packet</span>(<span class="t-key">const</span> <span class="t-ty">ipacket_t</span> *ipacket, <span class="t-key">void</span> *args) {
+    <span class="t-ty">uint32_t</span> *len = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"META"</span>, <span class="t-str">"PACKET_LEN"</span>);
+    <span class="t-key">if</span> (len) <span class="t-fn">printf</span>(<span class="t-str">"packet size: %u\n"</span>, *len);
+    <span class="t-key">return</span> <span class="t-num">0</span>;
+}
+
+<span class="t-key">int</span> <span class="t-fn">main</span>(<span class="t-key">void</span>) {
+    <span class="t-fn">init_extraction</span>();
+    <span class="t-key">char</span> errbuf[<span class="t-num">1024</span>];
+    <span class="t-ty">mmt_handler_t</span> *h = <span class="t-fn">mmt_init_handler</span>(<span class="t-ty">DLT_EN10MB</span>, <span class="t-num">0</span>, errbuf);
+
+    <span class="t-fn">register_extraction_attribute_by_name</span>(h, <span class="t-str">"META"</span>, <span class="t-str">"PACKET_LEN"</span>);
+    <span class="t-fn">register_packet_handler</span>(h, <span class="t-num">1</span>, on_packet, <span class="t-ty">NULL</span>);
+    <span class="t-com">// ... feed packets (pcap or live) — see the API section ...</span>
+}</pre>
         </div>
+       </div>
       </div>
     </section>
 
@@ -418,7 +471,7 @@
         <div class="feat">
           <span class="badge">plugins</span>
           <h3>Extensible by design</h3>
-          <p>Add a new protocol as a modular plugin — declare its fields and classification logic, drop it in. The core stays untouched.</p>
+          <p>Cover a protocol MMT doesn't ship yet by adding a module: declare its fields and classification logic and register it with the core at build time.</p>
         </div>
         <div class="feat">
           <span class="badge">5G / LTE</span>
@@ -435,58 +488,168 @@
 
     <hr class="divider">
 
-    <!-- HOW IT WORKS -->
-    <section class="sec wrap" id="how">
-      <div class="sec-tag">// how it works</div>
-      <h2 class="sec-title">Register attributes. Attach a handler. Feed packets.</h2>
+    <!-- API PROGRESSION -->
+    <section class="sec wrap" id="api">
+      <div class="sec-tag">// the api</div>
+      <h2 class="sec-title">From one attribute to live session analysis — in real code.</h2>
+      <p class="sec-lead">
+        The same four calls scale from a five-line program to a live probe. Pick a tier — every
+        snippet compiles against <code>libmmt_core</code> (link with
+        <code>-lmmt_core -ldl -lpcap</code>).
+      </p>
 
-      <div class="flow">
-        <ol class="steps">
-          <li>
-            <h4>Initialize the engine</h4>
-            <p>Call <code>init_extraction()</code> and create a handler with <code>mmt_init_handler()</code>.</p>
-          </li>
-          <li>
-            <h4>Register what you want</h4>
-            <p>Ask for fields by name with <code>register_extraction_attribute_by_name()</code> — e.g. <code>("IP","SRC")</code>, <code>("HTTP","HOST")</code>.</p>
-          </li>
-          <li>
-            <h4>Attach your callback</h4>
-            <p><code>register_packet_handler()</code> fires after each packet is classified and your fields are extracted.</p>
-          </li>
-          <li>
-            <h4>Feed packets in</h4>
-            <p>From a pcap file or a live interface. Read your typed values; let session stats accumulate.</p>
-          </li>
-        </ol>
+      <div class="api-grid">
+        <div class="api-tabs" role="tablist" aria-label="API tiers">
+          <button class="api-tab" role="tab" aria-selected="true" aria-controls="tier-1" id="tab-1" onclick="showTier(1)">
+            <div class="t-step">TIER 01 · BASIC</div>
+            <div class="t-name">Your first program</div>
+            <div class="t-desc">Read one attribute from a pcap file.</div>
+          </button>
+          <button class="api-tab" role="tab" aria-selected="false" aria-controls="tier-2" id="tab-2" onclick="showTier(2)">
+            <div class="t-step">TIER 02 · ATTRIBUTES</div>
+            <div class="t-name">Extract protocol fields</div>
+            <div class="t-desc">Register many fields by name and read them per packet.</div>
+          </button>
+          <button class="api-tab" role="tab" aria-selected="false" aria-controls="tier-3" id="tab-3" onclick="showTier(3)">
+            <div class="t-step">TIER 03 · SESSIONS &amp; LIVE</div>
+            <div class="t-name">Flow stats, live capture</div>
+            <div class="t-desc">Per-session counters on a live interface.</div>
+          </button>
+        </div>
 
-        <div class="code-card">
-          <div class="code-head">
-            <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
-            <span class="fn">extract.c</span>
-          </div>
-<pre class="code"><span class="t-com">#include "mmt_core.h"</span>
+        <div class="api-panels">
+          <!-- TIER 1 -->
+          <div class="api-panel active" id="tier-1" role="tabpanel" aria-labelledby="tab-1">
+            <div class="code-card">
+              <div class="code-head">
+                <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
+                <span class="fn">hello_packet.c</span>
+              </div>
+<pre class="code"><span class="t-com">#include &lt;pcap.h&gt;</span>
+<span class="t-com">#include "mmt_core.h"</span>
 
-<span class="t-key">void</span> <span class="t-fn">on_packet</span>(<span class="t-key">const</span> <span class="t-ty">ipacket_t</span> *ipacket, <span class="t-key">void</span> *args) {
-    <span class="t-ty">uint32_t</span> *len = <span class="t-fn">get_attribute_extracted_data_by_name</span>(
-        ipacket, <span class="t-str">"META"</span>, <span class="t-str">"PACKET_LEN"</span>);
+<span class="t-com">// Fires after MMT classifies &amp; extracts each packet.</span>
+<span class="t-key">int</span> <span class="t-fn">on_packet</span>(<span class="t-key">const</span> <span class="t-ty">ipacket_t</span> *ipacket, <span class="t-key">void</span> *args) {
+    <span class="t-ty">uint32_t</span> *len = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"META"</span>, <span class="t-str">"PACKET_LEN"</span>);
     <span class="t-key">if</span> (len) <span class="t-fn">printf</span>(<span class="t-str">"packet size: %u\n"</span>, *len);
+    <span class="t-key">return</span> <span class="t-num">0</span>;
 }
 
-<span class="t-key">int</span> <span class="t-fn">main</span>(<span class="t-key">void</span>) {
+<span class="t-key">int</span> <span class="t-fn">main</span>(<span class="t-key">int</span> argc, <span class="t-key">char</span> **argv) {
     <span class="t-fn">init_extraction</span>();
-    <span class="t-ty">mmt_handler_t</span> *h = <span class="t-fn">mmt_init_handler</span>(<span class="t-ty">DLT_EN10MB</span>, <span class="t-num">0</span>, <span class="t-ty">NULL</span>);
+    <span class="t-key">char</span> errbuf[<span class="t-num">1024</span>];
+    <span class="t-ty">mmt_handler_t</span> *h = <span class="t-fn">mmt_init_handler</span>(<span class="t-ty">DLT_EN10MB</span>, <span class="t-num">0</span>, errbuf);
 
     <span class="t-fn">register_extraction_attribute_by_name</span>(h, <span class="t-str">"META"</span>, <span class="t-str">"PACKET_LEN"</span>);
     <span class="t-fn">register_packet_handler</span>(h, <span class="t-num">1</span>, on_packet, <span class="t-ty">NULL</span>);
 
-    <span class="t-com">// ... feed packets from pcap or live capture ...</span>
+    <span class="t-com">// Feed packets from a .pcap file.</span>
+    <span class="t-ty">pcap_t</span> *pcap = <span class="t-fn">pcap_open_offline</span>(argv[<span class="t-num">1</span>], errbuf);
+    <span class="t-key">struct</span> <span class="t-ty">pcap_pkthdr</span> ph; <span class="t-key">struct</span> <span class="t-ty">pkthdr</span> hdr;
+    <span class="t-key">const</span> <span class="t-ty">u_char</span> *data;
+    <span class="t-key">while</span> ((data = <span class="t-fn">pcap_next</span>(pcap, &amp;ph))) {
+        hdr.ts = ph.ts; hdr.caplen = ph.caplen; hdr.len = ph.len;
+        <span class="t-fn">packet_process</span>(h, &amp;hdr, data);
+    }
 
     <span class="t-fn">mmt_close_handler</span>(h);
     <span class="t-fn">close_extraction</span>();
 }</pre>
+            </div>
+            <p class="api-note">Adapted from the bundled <code>src/examples/packet_handler.c</code>. The handler returns <code>int</code> (the callback contract); <code>"META"/"PACKET_LEN"</code> is a built-in meta attribute available on every packet.</p>
+          </div>
+
+          <!-- TIER 2 -->
+          <div class="api-panel" id="tier-2" role="tabpanel" aria-labelledby="tab-2">
+            <div class="code-card">
+              <div class="code-head">
+                <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
+                <span class="fn">extract_fields.c</span>
+              </div>
+<pre class="code"><span class="t-com">#include "mmt_core.h"</span>
+
+<span class="t-key">int</span> <span class="t-fn">on_packet</span>(<span class="t-key">const</span> <span class="t-ty">ipacket_t</span> *ipacket, <span class="t-key">void</span> *args) {
+    <span class="t-ty">uint32_t</span> *src  = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"ip"</span>,   <span class="t-str">"src"</span>);
+    <span class="t-ty">uint32_t</span> *dst  = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"ip"</span>,   <span class="t-str">"dst"</span>);
+    <span class="t-ty">uint16_t</span> *port = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"tcp"</span>,  <span class="t-str">"dest_port"</span>);
+    <span class="t-key">char</span>     *host = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"http"</span>, <span class="t-str">"host"</span>);
+
+    <span class="t-key">if</span> (src &amp;&amp; dst &amp;&amp; port) {
+        <span class="t-ty">uint8_t</span> *s = (<span class="t-ty">uint8_t</span>*)src, *d = (<span class="t-ty">uint8_t</span>*)dst;   <span class="t-com">// IP = 4 octets, net order</span>
+        <span class="t-fn">printf</span>(<span class="t-str">"%u.%u.%u.%u → %u.%u.%u.%u:%u  %s\n"</span>,
+               s[<span class="t-num">0</span>],s[<span class="t-num">1</span>],s[<span class="t-num">2</span>],s[<span class="t-num">3</span>], d[<span class="t-num">0</span>],d[<span class="t-num">1</span>],d[<span class="t-num">2</span>],d[<span class="t-num">3</span>], *port,
+               host ? host : <span class="t-str">"-"</span>);
+    }
+    <span class="t-key">return</span> <span class="t-num">0</span>;
+}
+
+<span class="t-key">int</span> <span class="t-fn">main</span>(<span class="t-key">void</span>) {
+    <span class="t-fn">init_extraction</span>();
+    <span class="t-key">char</span> errbuf[<span class="t-num">1024</span>];
+    <span class="t-ty">mmt_handler_t</span> *h = <span class="t-fn">mmt_init_handler</span>(<span class="t-ty">DLT_EN10MB</span>, <span class="t-num">0</span>, errbuf);
+
+    <span class="t-com">// Register the fields you care about — by (protocol, attribute) name.</span>
+    <span class="t-fn">register_extraction_attribute_by_name</span>(h, <span class="t-str">"ip"</span>,   <span class="t-str">"src"</span>);
+    <span class="t-fn">register_extraction_attribute_by_name</span>(h, <span class="t-str">"ip"</span>,   <span class="t-str">"dst"</span>);
+    <span class="t-fn">register_extraction_attribute_by_name</span>(h, <span class="t-str">"tcp"</span>,  <span class="t-str">"dest_port"</span>);
+    <span class="t-fn">register_extraction_attribute_by_name</span>(h, <span class="t-str">"http"</span>, <span class="t-str">"host"</span>);
+    <span class="t-fn">register_packet_handler</span>(h, <span class="t-num">1</span>, on_packet, <span class="t-ty">NULL</span>);
+
+    <span class="t-com">// ... same pcap / packet_process() loop as Tier 1 ...</span>
+}</pre>
+            </div>
+            <p class="api-note">Names are case-insensitive and map to MMT's 6,334 attributes. The engine classifies by payload signature, so these resolve regardless of port. See <a href="MMT-Attributes.md">MMT-Attributes</a>.</p>
+          </div>
+
+          <!-- TIER 3 -->
+          <div class="api-panel" id="tier-3" role="tabpanel" aria-labelledby="tab-3">
+            <div class="code-card">
+              <div class="code-head">
+                <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
+                <span class="fn">live_sessions.c</span>
+              </div>
+<pre class="code"><span class="t-com">#include &lt;pcap.h&gt;</span>
+<span class="t-com">#include "mmt_core.h"</span>
+
+<span class="t-com">// Called periodically per active session — read flow-level stats.</span>
+<span class="t-key">void</span> <span class="t-fn">on_session</span>(<span class="t-key">const</span> <span class="t-ty">mmt_session_t</span> *s, <span class="t-key">void</span> *args) {
+    <span class="t-fn">printf</span>(<span class="t-str">"session %"</span><span class="t-ty">PRIu64</span><span class="t-str">": %"</span><span class="t-ty">PRIu64</span><span class="t-str">" pkts, %"</span><span class="t-ty">PRIu64</span><span class="t-str">" bytes\n"</span>,
+           <span class="t-fn">get_session_id</span>(s),
+           <span class="t-fn">get_session_packet_count</span>(s),
+           <span class="t-fn">get_session_byte_count</span>(s));
+}
+
+<span class="t-com">// pcap delivers each frame straight into MMT.</span>
+<span class="t-key">void</span> <span class="t-fn">on_capture</span>(<span class="t-ty">u_char</span> *user, <span class="t-key">const</span> <span class="t-key">struct</span> <span class="t-ty">pcap_pkthdr</span> *ph, <span class="t-key">const</span> <span class="t-ty">u_char</span> *data) {
+    <span class="t-ty">mmt_handler_t</span> *h = (<span class="t-ty">mmt_handler_t</span>*)user;
+    <span class="t-key">struct</span> <span class="t-ty">pkthdr</span> hdr = { .ts = ph-&gt;ts, .caplen = ph-&gt;caplen, .len = ph-&gt;len };
+    <span class="t-fn">packet_process</span>(h, &amp;hdr, data);
+}
+
+<span class="t-key">int</span> <span class="t-fn">main</span>(<span class="t-key">int</span> argc, <span class="t-key">char</span> **argv) {
+    <span class="t-fn">init_extraction</span>();
+    <span class="t-key">char</span> errbuf[<span class="t-num">1024</span>];
+    <span class="t-ty">mmt_handler_t</span> *h = <span class="t-fn">mmt_init_handler</span>(<span class="t-ty">DLT_EN10MB</span>, <span class="t-num">0</span>, errbuf);
+
+    <span class="t-com">// Report each session on a timer (0 = include incomplete packets).</span>
+    <span class="t-fn">register_session_timer_handler</span>(h, on_session, <span class="t-ty">NULL</span>, <span class="t-num">0</span>);
+
+    <span class="t-com">// Capture live from an interface and pump frames into MMT.</span>
+    <span class="t-ty">pcap_t</span> *pcap = <span class="t-fn">pcap_open_live</span>(argv[<span class="t-num">1</span>], <span class="t-num">65535</span>, <span class="t-num">1</span>, <span class="t-num">1000</span>, errbuf);
+    <span class="t-fn">pcap_loop</span>(pcap, <span class="t-num">-1</span>, on_capture, (<span class="t-ty">u_char</span>*)h);
+}</pre>
+            </div>
+            <p class="api-note">Session accessors expose packet/byte counts, uplink/downlink splits, and more. Built-in <code>tcp/rtt</code> and <code>tcp/retransmission</code> attributes add per-flow timing. Run live captures with <code>sudo</code>.</p>
+          </div>
         </div>
       </div>
+
+      <p class="api-note" style="margin-top:30px;">
+        Adding a protocol MMT doesn't cover yet is a library-level extension: a module implements
+        <code>init_proto_&lt;name&gt;_struct()</code>, declares its fields, and registers with the core at
+        build time — see <a href="Add-New-Protocol.md">Adding New Protocols</a>. Full runnable examples live in
+        <a href="https://github.com/montimage-projects/mmt-dpi/tree/main/src/examples" target="_blank" rel="noopener">src/examples/</a>.
+      </p>
     </section>
 
     <hr class="divider">
@@ -572,9 +735,9 @@
 
     <!-- QUICK START -->
     <section class="sec wrap" id="quick-start">
-      <div class="sec-tag">// quick start</div>
-      <h2 class="sec-title">Up and running in under a minute.</h2>
-      <p class="sec-lead">One command installs dependencies, builds the SDK, and installs to <code>/opt/mmt/dpi</code>. Works on Debian/Ubuntu, Fedora/RHEL, Arch, Alpine, and openSUSE.</p>
+      <div class="sec-tag">// install &amp; link</div>
+      <h2 class="sec-title">Get the library, then compile against it.</h2>
+      <p class="sec-lead">Install the SDK to <code>/opt/mmt/dpi</code> (headers in <code>include/</code>, <code>libmmt_core</code> in <code>lib/</code>), then build your program. Linux: Debian/Ubuntu, Fedora/RHEL, Arch, Alpine, openSUSE.</p>
 
       <div class="term" style="max-width:none; margin-top:34px;">
         <div class="term-bar">
@@ -583,15 +746,16 @@
           <button class="copy-btn" onclick="copyInstall(this)">copy</button>
         </div>
         <div class="term-body">
-          <div><span class="out"># Option 1 — one-line install (recommended)</span></div>
+          <div><span class="out"># 1 — install the library (one line; or grab a .deb/.rpm from Releases)</span></div>
           <div><span class="pr">$ </span><span class="cmd">curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | bash</span></div>
           <div style="height:14px"></div>
-          <div><span class="out"># Option 2 — build from source</span></div>
-          <div><span class="pr">$ </span><span class="cmd">git clone https://github.com/montimage-projects/mmt-dpi.git</span></div>
-          <div><span class="pr">$ </span><span class="cmd">cd mmt-dpi/sdk &amp;&amp; make -j$(nproc) &amp;&amp; sudo make install</span></div>
+          <div><span class="out"># 2 — compile your program against libmmt_core</span></div>
+          <div><span class="pr">$ </span><span class="cmd">gcc -o hello_packet hello_packet.c \</span></div>
+          <div><span class="cmd">      -I /opt/mmt/dpi/include -L /opt/mmt/dpi/lib -lmmt_core -ldl -lpcap</span></div>
           <div style="height:14px"></div>
-          <div><span class="out"># Option 3 — prebuilt .deb / .rpm from the Releases page</span></div>
-          <div><span class="pr">$ </span><span class="cmd">sudo apt install ./mmt-dpi_*_ubuntu-24.04_x86_64.deb</span></div>
+          <div><span class="out"># 3 — run it on a capture</span></div>
+          <div><span class="pr">$ </span><span class="cmd">./hello_packet traffic.pcap</span></div>
+          <div><span class="ok">packet size: 1514</span></div>
         </div>
       </div>
 
@@ -678,6 +842,16 @@
         btn.style.color = "#5af78e";
         setTimeout(function(){ btn.textContent = prev; btn.style.color = ""; }, 1600);
       });
+    }
+
+    function showTier(n){
+      for (var i = 1; i <= 3; i++){
+        var tab = document.getElementById('tab-' + i);
+        var panel = document.getElementById('tier-' + i);
+        var on = (i === n);
+        tab.setAttribute('aria-selected', on ? 'true' : 'false');
+        panel.classList.toggle('active', on);
+      }
     }
   </script>
 </body>
