@@ -76,7 +76,9 @@ static void test_hex2char(void) {
     fprintf(stderr, "  test: hex2char\n");
     CHECK(hex2char('0', '1') == 1, "hex2char('0','1') == 1");
     CHECK(hex2char('1', '0') == 16, "hex2char('1','0') == 16");
-    CHECK(hex2char('A', 'F') == 175, "hex2char('A','F') == 175");
+    /* hex2char returns char; cast to unsigned so the high byte 0xAF compares
+       as 175 on both signed-char (x86 default) and unsigned-char (ARM) hosts. */
+    CHECK((unsigned char)hex2char('A', 'F') == 175, "hex2char('A','F') == 175");
     CHECK(hex2char('0', '0') == 0, "hex2char('0','0') == 0");
     /* Invalid chars return '\0' */
     CHECK(hex2char('G', '0') == '\0', "hex2char('G','0') == '\\0'");

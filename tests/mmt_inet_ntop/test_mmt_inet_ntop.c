@@ -114,17 +114,19 @@ static void test_ipv6_zero(void) {
     CHECK_STR_EQ(result, "::", "IPv6 all zeros");
 }
 
-/* ---- Test: IPv6 full address ---- */
+/* ---- Test: IPv6 full address (no zero runs to compress) ---- */
 static void test_ipv6_full(void) {
     fprintf(stderr, "  test: IPv6 full address\n");
     struct in6_addr addr;
-    memset(&addr, 0, sizeof(addr));
+    /* 2001:0db8:85a3:0001:0002:8a2e:0370:7334 — no run of zeros, so no :: */
+    const unsigned char bytes[16] = {
+        0x20, 0x01, 0x0d, 0xb8, 0x85, 0xa3, 0x00, 0x01,
+        0x00, 0x02, 0x8a, 0x2e, 0x03, 0x70, 0x73, 0x34
+    };
+    memcpy(&addr, bytes, sizeof(bytes));
     char buf[INET6_ADDRSTRLEN];
     const char *result = mmt_inet_ntop(AF_INET6, &addr, buf, sizeof(buf));
-    CHECK(result != NULL, "IPv6 address should not return NULL");
-    if (result) {
-        fprintf(stderr, "    result: %s\n", result);
-    }
+    CHECK_STR_EQ(result, "2001:db8:85a3:1:2:8a2e:370:7334", "IPv6 full address");
 }
 
 /* ---- Test: IPv6 mapped address (::ffff:1.2.3.4) ---- */
@@ -132,12 +134,15 @@ static void test_ipv6_mapped(void) {
     fprintf(stderr, "  test: IPv6 mapped address (::ffff:1.2.3.4)\n");
     struct in6_addr addr;
     memset(&addr, 0, sizeof(addr));
+    addr.__in6_u.__u6_addr8[10] = 0xff;
+    addr.__in6_u.__u6_addr8[11] = 0xff;
+    addr.__in6_u.__u6_addr8[12] = 1;
+    addr.__in6_u.__u6_addr8[13] = 2;
+    addr.__in6_u.__u6_addr8[14] = 3;
+    addr.__in6_u.__u6_addr8[15] = 4;
     char buf[INET6_ADDRSTRLEN];
     const char *result = mmt_inet_ntop(AF_INET6, &addr, buf, sizeof(buf));
-    CHECK(result != NULL, "IPv6 mapped should not return NULL");
-    if (result) {
-        fprintf(stderr, "    result: %s\n", result);
-    }
+    CHECK_STR_EQ(result, "::ffff:1.2.3.4", "IPv6 mapped address");
 }
 
 /* ---- Test: buffer too small ---- */

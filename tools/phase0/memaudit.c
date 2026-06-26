@@ -114,6 +114,10 @@ static stored_pkt_t *load_pcap(const char *path, long *npkts, int *datalink, cha
         pkts[n].header.caplen = ph.caplen;
         pkts[n].header.len = ph.len;
         pkts[n].data = malloc(ph.caplen ? ph.caplen : 1);
+        if (!pkts[n].data) {
+            for (size_t j = 0; j < n; j++) free(pkts[j].data);
+            free(pkts); pcap_close(pcap); return NULL;
+        }
         memcpy(pkts[n].data, d, ph.caplen);
         n++;
     }
@@ -637,7 +641,8 @@ static void test_active_sessions(stored_pkt_t *pkts, long npkts, int datalink) {
     for (long i = 0; i < npkts; i++) {
         packet_process(h, &pkts[i].header, pkts[i].data);
         uint64_t cur = get_active_session_count(h);
-        EXPECT(cur >= 0, "session count non-negative");
+        /* active sessions can never exceed the number of packets fed so far */
+        EXPECT(cur <= (uint64_t)(i + 1), "session count bounded by packets processed");
         (void)prev; prev = cur;
     }
 
