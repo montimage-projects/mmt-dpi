@@ -10,10 +10,10 @@ MMT global handler is a set of internal global variables that maintain the state
 ## Internals ##
 MMT global handler is constituted of:
 
- * The list of registered [protocols](/montimage/mmt-sdk/wiki/MMT Protocol/)
- * The list of registered [protocol stacks](/montimage/mmt-sdk/wiki/Protocol Stack/)
+ * The list of registered [protocols](./MMT-Protocol.md)
+ * The list of registered [protocol stacks](./Protocol-Stack.md)
  * Global configuration options (default values for the configuration options)
- * The list of initialised [MMT Handlers](/montimage/mmt-sdk/wiki/MMT Handler/)
+ * The list of initialised [MMT Handlers](./MMT-Handler.md)
 
 ## API ##
 

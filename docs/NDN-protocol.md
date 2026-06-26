@@ -2,32 +2,9 @@
 
 ## Overview
 
-** Working branch: ** ndn
-
-** Started date: ** ---
-
-** Deadline: ** ---
-
-** Developer: ** @luongnv89
-
-** Probe example **: 
-
-## List of tasks
-
-* Study about protocol -> understand packet format specification/ how to classify protocol - **DONE**
-
-* Create data struct for extracting protocol attributes  - **DONE**
-
-* Study some open-source library (if it exists) to see how do they do  - ** NO NEED** 
-
-* Implement classify NDN packet  - **DONE**
-
-* Implement parse NDN packet data  - **DONE**
-
-* Test NDN plugin  - **DONE**
-
-* Merge to MMT-SDK - ** DONE **
-
+MMT-DPI classifies Named Data Networking (NDN) traffic and extracts its
+attributes. See the [packet format](./NDN-packet-format.md) and
+[structure design](./NDN-design.md) pages for parsing details.
 
 ## View NDN packet in Wireshark
 
@@ -40,12 +17,12 @@ To view NDN packet in Wireshark application:
 
 ## Contents
 
-[NDN packet format](/montimage/mmt-sdk/wiki/NDN%20packet%20format)
+[NDN packet format](./NDN-packet-format.md)
 
-[Structure design](/montimage/mmt-sdk/wiki/NDN%20design)
+[Structure design](./NDN-design.md)
 
-[Test case](/montimage/mmt-sdk/wiki/NDN%20test%20case)
+[Test case](./NDN-test-case.md)
 
-[ChronoChat application](/montimage/mmt-sdk/wiki/chronochat)
+[ChronoChat application](./ChronoChat.md)
 
-[Documents](/montimage/mmt-sdk/wiki/NDN%20documents)
+[Documents](./NDN-documents.md)

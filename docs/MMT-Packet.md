@@ -9,7 +9,7 @@
 A packet in MMT is a structured data element that can be analysed and classified in order to extract attributes of interest. A packet can be any data entry like a log entry, a network packet, a structured data, etc. A packet can belong to a path of protocols identified by the classification process of MMT. A packet is therefore the elementary data unit fed by the user to the MMT core.
 
 ## Packet Journey in the Core ##
-Please refer to [Packet Journey](/montimage/mmt-sdk/wiki/Packet Journey/) page.
+Please refer to [Packet Journey](./Packet-Journey.md) page.
 
 ## API ##
 ### Packet Structure ###

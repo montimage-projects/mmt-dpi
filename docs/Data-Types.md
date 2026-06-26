@@ -6,7 +6,7 @@
 ------------------
 
 
-MMT Data types are defined in order to provide an harmonized type definitions for [MMT Attributes](/montimage/mmt-sdk/wiki/MMT Attributes/). 
+MMT Data types are defined in order to provide an harmonized type definitions for [MMT Attributes](./MMT-Attributes.md). 
 ## API ##
 ### Supported Data Types ###
 The list of supported data types is defined in [types_defs.h](/montimage/mmt-sdk/src/mmt_core/public_include/types_defs.h).
