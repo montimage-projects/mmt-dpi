@@ -1,7 +1,7 @@
 # MMT-DPI
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![C/C++ CI](https://github.com/Montimage/mmt-dpi/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Montimage/mmt-dpi/actions/workflows/c-cpp.yml)
+[![C/C++ CI](https://github.com/montimage-projects/mmt-dpi/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/montimage-projects/mmt-dpi/actions/workflows/c-cpp.yml)
 
 A high-performance C library for deep packet inspection (DPI), designed to extract data attributes from network packets, server logs, and structured events for real-time traffic analysis.
 
@@ -22,26 +22,26 @@ A high-performance C library for deep packet inspection (DPI), designed to extra
 Install MMT-DPI with a single command (installs dependencies, builds, and installs automatically):
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Montimage/mmt-dpi/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | bash
 ```
 
 or using `wget`:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/Montimage/mmt-dpi/main/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | bash
 ```
 
 **Custom options** (via environment variables):
 
 ```bash
 # Install to a custom directory
-curl -sSL https://raw.githubusercontent.com/Montimage/mmt-dpi/main/install.sh | MMT_BASE=/usr/local/mmt bash
+curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | MMT_BASE=/usr/local/mmt bash
 
 # Use a specific branch
-curl -sSL https://raw.githubusercontent.com/Montimage/mmt-dpi/main/install.sh | BRANCH=dev bash
+curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | BRANCH=dev bash
 
 # Skip automatic dependency installation
-curl -sSL https://raw.githubusercontent.com/Montimage/mmt-dpi/main/install.sh | SKIP_DEPS=1 bash
+curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | SKIP_DEPS=1 bash
 ```
 
 Supports **Linux** distributions: Debian/Ubuntu, Fedora/RHEL, Arch, Alpine, and openSUSE.
@@ -51,7 +51,7 @@ Supports **Linux** distributions: Debian/Ubuntu, Fedora/RHEL, Arch, Alpine, and 
 If you prefer to build manually:
 
 ```bash
-git clone https://github.com/Montimage/mmt-dpi.git
+git clone https://github.com/montimage-projects/mmt-dpi.git
 cd mmt-dpi
 
 # Install dependencies (Debian/Ubuntu)
@@ -124,10 +124,11 @@ mmt-dpi/
 │   ├── mmt_mobile/        # LTE/5G mobile network protocols
 │   ├── mmt_business_app/  # Business application protocols
 │   ├── mmt_security/      # Security protocol handling
-│   ├── examples/          # Usage examples
-│   └── lib/               # Shared library code
+│   ├── mmt_dicom/         # DICOM medical-imaging protocol
+│   └── examples/          # Usage examples
 ├── sdk/                   # Build system entry point
 ├── rules/                 # Platform-specific build rules
+├── plugins/               # Protocol plugin engine
 ├── docs/                  # Documentation
 └── dist/                  # Distribution packaging
 ```
@@ -144,6 +145,7 @@ mmt-dpi/
 
 ## Documentation
 
+- [User Guide](docs/USER_GUIDE.md) — install, run the examples, write your first program
 - [Compilation and Installation](docs/Compilation-and-Installation-Instructions.md)
 - [Protocol Stack Architecture](docs/Protocol-Stack.md)
 - [Adding New Protocols](docs/Add-New-Protocol.md)
@@ -152,7 +154,33 @@ mmt-dpi/
 - [Session Management](docs/MMT-Session.md)
 - [Memory Management](docs/Memory-Management.md)
 - [Deployment Considerations](docs/Deployment-Consideration.md)
+- [Changelog](CHANGELOG.md)
 - [Full Documentation](docs/)
+
+## Related Publications
+
+The following peer-reviewed publications and Montimage white papers present, evaluate, or apply MMT-DPI (and the wider MMT toolset that embeds it). Topic tags: `[dpi-core]` core engine, `[iot]` IoT monitoring, `[5g]` 5G/mobile networks, `[nids]` intrusion detection.
+
+### Tools and frameworks built on MMT-DPI
+
+- **Online Network Traffic Security Inspection Using MMT Tool** — W. Mallouli, B. Wehbi, E. Montes de Oca, M. Bourdelles. *System Testing and Validation*, Vol. 192, 2012. `[dpi-core]`
+- **Events-Based Security Monitoring Using MMT Tool** — B. Wehbi, E. Montes de Oca, M. Bourdelles. *5th IEEE International Conference on Software Testing, Verification and Validation (ICST)*, 2012. IEEE Xplore: 6200200. `[dpi-core]`
+- **Network Monitoring using MMT: An application based on the User-Agent field in HTTP headers** — A.R. Cavalli, W. Mallouli, et al., 2016. HAL: hal-01335530. `[dpi-core]`
+- **5GReplay: A 5G Network Traffic Fuzzer — Application to Attack Injection** — Z. Salazar, H.N. Nguyen, W. Mallouli, A.R. Cavalli, E. Montes de Oca. *ARES 2021*, 16th International Conference on Availability, Reliability and Security. `[5g]` `[nids]`
+- **A Network Traffic Mutation Based Ontology to Expand the Training Set of AI-Based Network Intrusion Detection Systems** — Z. Salazar, F. Zaïdi, H.N. Nguyen, A.R. Cavalli, E. Montes de Oca, W. Mallouli. *IEEE Access*, 2023. `[nids]`
+
+### Applications of MMT in IoT and industrial monitoring
+
+- **A Framework for Security Monitoring of Real IoT Testbeds** — W. Mallouli, A.R. Cavalli, E. Montes de Oca, et al. *ICSOFT 2021*, 16th International Conference on Software Technologies. `[iot]`
+- **Industrial IoT Security Monitoring and Test on Fed4Fire+ Platforms** — W. Mallouli, A.R. Cavalli, et al. Springer, 2019. DOI: [10.1007/978-3-030-31280-0_17](https://doi.org/10.1007/978-3-030-31280-0_17). `[iot]`
+- **A novel monitoring solution for 6LoWPAN-based Wireless Sensor Networks** — A.R. Cavalli, W. Mallouli, et al., 2016. HAL: hal-01391251. `[iot]`
+- **A security monitoring system for internet of things** — V. Casola, A. De Benedictis, A. Riccio, D. Rivera, W. Mallouli, E. Montes de Oca. *Internet of Things* (Elsevier), Vol. 7, 100080, 2019. `[iot]`
+
+### White papers and product literature
+
+- **Cyber Secure Communications in Intelligent Transport Systems** — Montimage white paper. Available from the [Montimage publications page](https://montimage.com/pubs/).
+
+For additional Montimage publications on 5G, NDN security monitoring, DevOps security, and adjacent topics, see [Wissam Mallouli's Google Scholar profile](https://scholar.google.com/citations?user=LTKlUkwAAAAJ&hl=en), [Edgardo Montes de Oca's Google Scholar profile](https://scholar.google.com/citations?user=u2YE0WQAAAAJ&hl=en), and the [Montimage publications page](https://montimage.com/pubs/).
 
 ## Contributing
 

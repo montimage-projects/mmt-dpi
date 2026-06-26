@@ -79,3 +79,20 @@ tools/phase0/ci/baseline/classification.actual.txt
 tests/*/test_*
 !tests/*/test_*.c
 !tests/*/test_*.h
+
+# --- OSS-readiness flow additions ---
+# Package build artifacts
+*.deb
+*.rpm
+*.zip
+# Local install staging
+local_install/
+# IDD / tooling state
+.gitissue/
+.oss-ready/
+# Throwaway analysis reports
+accuracy_comparison_report.md
+benchmark_comparison.md
+CODE_REVIEW_2026.md
+MASTER_IMPROVEMENT_PLAN.md
+REVIEW_REPORT.md
