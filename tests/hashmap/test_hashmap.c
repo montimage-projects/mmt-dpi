@@ -144,9 +144,10 @@ static void test_walker(mmt_hashmap_t *map, mmt_hent_t *he, void *arg) {
 static void test_walk(void) {
     fprintf(stderr, "  test: walk visits all entries\n");
     mmt_hashmap_t *map = hashmap_alloc();
+    int vals[50];
     for (int i = 0; i < 50; i++) {
-        int val = i;
-        hashmap_insert_kv(map, (uint64_t)i, &val);
+        vals[i] = i;
+        hashmap_insert_kv(map, (uint64_t)i, &vals[i]);
     }
 
     walk_count = 0;
