@@ -69,6 +69,35 @@
     .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
     section { position: relative; }
 
+    /* anchored section tops clear the 60px sticky nav */
+    section[id], [id]#top { scroll-margin-top: 76px; }
+
+    /* keyboard focus: visible amber ring on every interactive element
+       (mirrors the :hover affordances, which alone left keyboard users with
+       only the UA default). Tuned to read on both --bg and --panel. */
+    a:focus-visible,
+    button:focus-visible,
+    summary:focus-visible,
+    .btn:focus-visible,
+    .api-tab:focus-visible,
+    .chip:focus-visible,
+    .copy-btn:focus-visible,
+    .nav-cta:focus-visible {
+      outline: 2px solid var(--mi-amber);
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
+
+    /* respect users who ask for less motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+      }
+      html { scroll-behavior: auto; }
+    }
+
     /* ---------- ambient grid + glow ---------- */
     .bg-fx {
       position: fixed; inset: 0; z-index: 0; pointer-events: none;
@@ -90,7 +119,7 @@
     nav {
       position: sticky; top: 0; z-index: 50;
       backdrop-filter: blur(10px);
-      background: rgba(10,14,20,.72);
+      background: rgba(19,17,16,.72);   /* warm-dark, matches --bg (was a cool blue) */
       border-bottom: 1px solid var(--border);
     }
     .nav-inner { display: flex; align-items: center; gap: 20px; height: 60px; }
@@ -104,7 +133,39 @@
       border: 1px solid var(--border-2); color: var(--text) !important; background: var(--panel);
     }
     .nav-cta:hover { border-color: var(--cyan-dim); background: var(--panel-2); }
-    @media (max-width: 720px){ .nav-links a:not(.nav-cta){ display:none; } }
+
+    /* hamburger — hidden on desktop, shown ≤720px */
+    .nav-toggle {
+      display: none; margin-left: auto;
+      width: 40px; height: 36px; padding: 0; cursor: pointer;
+      background: var(--panel); border: 1px solid var(--border-2); border-radius: 8px;
+      color: var(--text); align-items: center; justify-content: center;
+    }
+    .nav-toggle:hover { border-color: var(--cyan-dim); background: var(--panel-2); }
+    .nav-toggle svg { width: 18px; height: 18px; display: block; }
+    .nav-toggle .ic-close { display: none; }
+    .nav-toggle[aria-expanded="true"] .ic-open { display: none; }
+    .nav-toggle[aria-expanded="true"] .ic-close { display: block; }
+
+    @media (max-width: 720px){
+      .nav-toggle { display: inline-flex; }
+      /* collapse the section links into a dropdown under the bar */
+      .nav-links {
+        position: absolute; top: 60px; left: 0; right: 0;
+        margin-left: 0; flex-direction: column; align-items: stretch; gap: 0;
+        background: var(--panel); border-bottom: 1px solid var(--border);
+        box-shadow: 0 24px 40px -24px rgba(0,0,0,.8);
+        display: none;
+      }
+      .nav-links.open { display: flex; }
+      .nav-links a {
+        padding: 14px 24px; border-bottom: 1px solid var(--border); font-size: .95rem;
+      }
+      .nav-links a:last-child { border-bottom: none; }
+      .nav-links .nav-cta {
+        margin: 14px 24px; text-align: center; border-radius: 8px;
+      }
+    }
 
     /* ---------- hero ---------- */
     .hero { padding: 86px 0 60px; }
@@ -332,6 +393,12 @@
     .foot-meta { font-family: var(--mono); font-size: .82rem; line-height: 1.8; }
 
     .divider { height: 1px; background: var(--border); margin: 0; border: none; }
+
+    /* visually hidden, still announced by screen readers */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
   </style>
 </head>
 
@@ -345,7 +412,11 @@
     <nav>
       <div class="wrap nav-inner">
         <a class="brand" href="#top"><img src="assets/montimage-logo.svg" alt="Montimage" width="26" height="26">MMT&#8209;DPI</a>
-        <div class="nav-links">
+        <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navLinks" aria-label="Toggle navigation menu" onclick="toggleNav()">
+          <svg class="ic-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+        </button>
+        <div class="nav-links" id="navLinks">
           <a href="#features">Features</a>
           <a href="#api">API</a>
           <a href="#protocols">Protocols</a>
@@ -500,17 +571,17 @@
 
       <div class="api-grid">
         <div class="api-tabs" role="tablist" aria-label="API tiers">
-          <button class="api-tab" role="tab" aria-selected="true" aria-controls="tier-1" id="tab-1" onclick="showTier(1)">
+          <button class="api-tab" role="tab" aria-selected="true" tabindex="0" aria-controls="tier-1" id="tab-1" onclick="showTier(1)">
             <div class="t-step">TIER 01 · BASIC</div>
             <div class="t-name">Your first program</div>
             <div class="t-desc">Read one attribute from a pcap file.</div>
           </button>
-          <button class="api-tab" role="tab" aria-selected="false" aria-controls="tier-2" id="tab-2" onclick="showTier(2)">
+          <button class="api-tab" role="tab" aria-selected="false" tabindex="-1" aria-controls="tier-2" id="tab-2" onclick="showTier(2)">
             <div class="t-step">TIER 02 · ATTRIBUTES</div>
             <div class="t-name">Extract protocol fields</div>
             <div class="t-desc">Register many fields by name and read them per packet.</div>
           </button>
-          <button class="api-tab" role="tab" aria-selected="false" aria-controls="tier-3" id="tab-3" onclick="showTier(3)">
+          <button class="api-tab" role="tab" aria-selected="false" tabindex="-1" aria-controls="tier-3" id="tab-3" onclick="showTier(3)">
             <div class="t-step">TIER 03 · SESSIONS &amp; LIVE</div>
             <div class="t-name">Flow stats, live capture</div>
             <div class="t-desc">Per-session counters on a live interface.</div>
@@ -746,6 +817,7 @@
           <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
           <span class="term-title">bash</span>
           <button class="copy-btn" onclick="copyInstall(this)">copy</button>
+          <span id="copyStatus" class="sr-only" role="status" aria-live="polite"></span>
         </div>
         <div class="term-body">
           <div><span class="out"># 1 — install the library (one line; or grab a .deb/.rpm from Releases)</span></div>
@@ -838,12 +910,19 @@
   <script>
     function copyInstall(btn){
       var cmd = "curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | bash";
-      navigator.clipboard.writeText(cmd).then(function(){
+      var status = document.getElementById('copyStatus');
+      function done(ok){
         var prev = btn.textContent;
-        btn.textContent = "copied ✓";
-        btn.style.color = "#5af78e";
+        btn.textContent = ok ? "copied ✓" : "copy failed";
+        btn.style.color = ok ? "#5af78e" : "#ff5f56";
+        if (status) status.textContent = ok ? "Install command copied to clipboard" : "Copy failed — select and copy manually";
         setTimeout(function(){ btn.textContent = prev; btn.style.color = ""; }, 1600);
-      });
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(cmd).then(function(){ done(true); }, function(){ done(false); });
+      } else {
+        done(false);
+      }
     }
 
     function showTier(n){
@@ -852,9 +931,54 @@
         var panel = document.getElementById('tier-' + i);
         var on = (i === n);
         tab.setAttribute('aria-selected', on ? 'true' : 'false');
+        tab.setAttribute('tabindex', on ? '0' : '-1');   // roving tabindex
         panel.classList.toggle('active', on);
       }
     }
+
+    // APG tablist keyboard pattern: Left/Right cycle, Home/End jump,
+    // activation follows focus.
+    (function(){
+      var tablist = document.querySelector('.api-tabs[role="tablist"]');
+      if (!tablist) return;
+      var tabs = Array.prototype.slice.call(tablist.querySelectorAll('[role="tab"]'));
+      tablist.addEventListener('keydown', function(e){
+        var idx = tabs.indexOf(document.activeElement);
+        if (idx === -1) return;
+        var next = null;
+        switch (e.key) {
+          case 'ArrowLeft':  case 'ArrowUp':   next = (idx - 1 + tabs.length) % tabs.length; break;
+          case 'ArrowRight': case 'ArrowDown': next = (idx + 1) % tabs.length; break;
+          case 'Home':       next = 0; break;
+          case 'End':        next = tabs.length - 1; break;
+          default: return;
+        }
+        e.preventDefault();
+        showTier(next + 1);
+        tabs[next].focus();
+      });
+    })();
+
+    function toggleNav(){
+      var btn = document.getElementById('navToggle');
+      var links = document.getElementById('navLinks');
+      var open = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+      links.classList.toggle('open', !open);
+    }
+
+    // Close the mobile menu after tapping a section link.
+    (function(){
+      var links = document.getElementById('navLinks');
+      var btn = document.getElementById('navToggle');
+      if (!links || !btn) return;
+      links.addEventListener('click', function(e){
+        if (e.target.tagName === 'A' && btn.getAttribute('aria-expanded') === 'true'){
+          btn.setAttribute('aria-expanded', 'false');
+          links.classList.remove('open');
+        }
+      });
+    })();
   </script>
 </body>
 </html>
