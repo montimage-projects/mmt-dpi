@@ -24,7 +24,7 @@ jobs:
           - extra_cflags: "-fsigned-char"
             suites: "hashmap memory hexdump mmt_utils mmt_inet_ntop"
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Install dependencies
       run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
     - name: Run unit test suites
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: build-from-source
       run: |
          sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev

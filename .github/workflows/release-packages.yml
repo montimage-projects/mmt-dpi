@@ -43,13 +43,13 @@ jobs:
           - { name: rocky-9,        image: "rockylinux:9",                    pkg: rpm }
           - { name: centos-stream9, image: "quay.io/centos/centos:stream9",   pkg: rpm }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # GIT_VERSION (short hash) needs the git history
 
       - name: Set up QEMU
         if: matrix.arch == 'arm64'
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         with:
           platforms: arm64
 
@@ -61,7 +61,7 @@ jobs:
             bash tools/ci/build-package.sh "${{ matrix.distro.name }}" "${{ matrix.distro.pkg }}"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: mmt-dpi-${{ matrix.distro.name }}-${{ matrix.arch }}
           path: dist/packages/*
@@ -76,7 +76,7 @@ jobs:
       contents: write   # required to create/update the release
     steps:
       - name: Download all package artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
 
@@ -89,7 +89,7 @@ jobs:
           ls -l release
 
       - name: Create / update GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           files: release/*
           generate_release_notes: true
