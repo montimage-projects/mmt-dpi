@@ -1,6 +1,9 @@
 #!/bin/bash
 # Master test runner for all test suites
-# Usage: ./run_all_tests.sh
+# Usage: ./run_all_tests.sh [suite ...]
+#   With no arguments, runs every suite below. Pass one or more suite names
+#   (directory names under tests/) to run only those — e.g. CI runs just the
+#   core suites under EXTRA_CFLAGS=-fsigned-char.
 
 set -e
 
@@ -37,15 +40,28 @@ run_test_suite() {
     echo ""
 }
 
-# Run all test suites in order
-run_test_suite "hashmap"
-run_test_suite "memory"
-run_test_suite "hexdump"
-run_test_suite "mmt_utils"
-run_test_suite "mmt_inet_ntop"
-run_test_suite "avltree"
-run_test_suite "citrix_ica_detection"
-run_test_suite "http_header_case"
+# Default suite list (run in this order when no arguments are given).
+DEFAULT_SUITES=(
+    hashmap
+    memory
+    hexdump
+    mmt_utils
+    mmt_inet_ntop
+    avltree
+    citrix_ica_detection
+    http_header_case
+)
+
+# Run the requested suites, or all of them if none were named on the CLI.
+if [ "$#" -gt 0 ]; then
+    SUITES=("$@")
+else
+    SUITES=("${DEFAULT_SUITES[@]}")
+fi
+
+for suite in "${SUITES[@]}"; do
+    run_test_suite "$suite"
+done
 
 echo "============================================"
 echo "  Test Results"

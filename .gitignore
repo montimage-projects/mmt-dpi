@@ -74,3 +74,8 @@ agent-instructions.md
 
 # Phase 0 CI gate: freshly-captured fingerprint written only on mismatch
 tools/phase0/ci/baseline/classification.actual.txt
+
+# Compiled unit-test binaries — rebuilt by each suite's run_tests.sh
+tests/*/test_*
+!tests/*/test_*.c
+!tests/*/test_*.h

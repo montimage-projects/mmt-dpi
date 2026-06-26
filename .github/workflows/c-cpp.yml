@@ -8,6 +8,30 @@ on:
     branches: [ main ]
 
 jobs:
+  unit-tests:
+    # Compile-and-run the standalone unit suites (tests/run_all_tests.sh).
+    # The full set runs with the default toolchain; the core suites are also
+    # built with -fsigned-char so signed/unsigned-char portability bugs (plain
+    # `char` is signed on x86, unsigned on ARM) are caught in CI rather than
+    # only on the developer's machine.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - extra_cflags: ""
+            suites: ""
+          - extra_cflags: "-fsigned-char"
+            suites: "hashmap memory hexdump mmt_utils mmt_inet_ntop"
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install dependencies
+      run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
+    - name: Run unit test suites
+      env:
+        EXTRA_CFLAGS: ${{ matrix.extra_cflags }}
+      run: bash tests/run_all_tests.sh ${{ matrix.suites }}
+
   build:
 
     runs-on: ubuntu-latest

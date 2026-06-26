@@ -12,7 +12,7 @@ CORE_PUBLIC_INC="$PROJECT_DIR/src/mmt_core/public_include"
 
 # Compile test
 echo "Compiling hashmap tests..."
-gcc -Wall -Wextra -std=c11 \
+${CC:-gcc} ${EXTRA_CFLAGS:-} -Wall -Wextra -std=c11 \
     -D'u_char=unsigned char' \
     -I"$CORE_PRIVATE_INC" \
     -I"$CORE_PUBLIC_INC" \
