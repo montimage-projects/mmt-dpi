@@ -21,13 +21,9 @@ ${CC:-gcc} ${EXTRA_CFLAGS:-} -Wall -Wextra -std=c11 \
 
 # Run tests
 echo "Running mmt_utils tests..."
-"$SCRIPT_DIR/test_mmt_utils"
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -eq 0 ]; then
+if "$SCRIPT_DIR/test_mmt_utils"; then
     echo "mmt_utils tests: PASSED"
 else
     echo "mmt_utils tests: FAILED"
+    exit 1
 fi
-
-exit $EXIT_CODE

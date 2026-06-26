@@ -19,13 +19,9 @@ ${CC:-gcc} ${EXTRA_CFLAGS:-} -Wall -Wextra -std=c11 \
 
 # Run tests
 echo "Running hexdump tests..."
-"$SCRIPT_DIR/test_hexdump"
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -eq 0 ]; then
+if "$SCRIPT_DIR/test_hexdump"; then
     echo "Hexdump tests: PASSED"
 else
     echo "Hexdump tests: FAILED"
+    exit 1
 fi
-
-exit $EXIT_CODE

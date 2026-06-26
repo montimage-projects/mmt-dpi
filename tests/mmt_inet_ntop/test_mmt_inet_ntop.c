@@ -98,7 +98,7 @@ static void test_ipv6_loopback(void) {
     fprintf(stderr, "  test: IPv6 loopback (::1)\n");
     struct in6_addr addr;
     memset(&addr, 0, sizeof(addr));
-    addr.__in6_u.__u6_addr8[15] = 1; /* ::1 */
+    addr.s6_addr[15] = 1; /* ::1 */
     char buf[INET6_ADDRSTRLEN];
     const char *result = mmt_inet_ntop(AF_INET6, &addr, buf, sizeof(buf));
     CHECK_STR_EQ(result, "::1", "IPv6 loopback");
@@ -134,12 +134,12 @@ static void test_ipv6_mapped(void) {
     fprintf(stderr, "  test: IPv6 mapped address (::ffff:1.2.3.4)\n");
     struct in6_addr addr;
     memset(&addr, 0, sizeof(addr));
-    addr.__in6_u.__u6_addr8[10] = 0xff;
-    addr.__in6_u.__u6_addr8[11] = 0xff;
-    addr.__in6_u.__u6_addr8[12] = 1;
-    addr.__in6_u.__u6_addr8[13] = 2;
-    addr.__in6_u.__u6_addr8[14] = 3;
-    addr.__in6_u.__u6_addr8[15] = 4;
+    addr.s6_addr[10] = 0xff;
+    addr.s6_addr[11] = 0xff;
+    addr.s6_addr[12] = 1;
+    addr.s6_addr[13] = 2;
+    addr.s6_addr[14] = 3;
+    addr.s6_addr[15] = 4;
     char buf[INET6_ADDRSTRLEN];
     const char *result = mmt_inet_ntop(AF_INET6, &addr, buf, sizeof(buf));
     CHECK_STR_EQ(result, "::ffff:1.2.3.4", "IPv6 mapped address");
@@ -188,14 +188,13 @@ static void test_ipv6_compressed(void) {
     fprintf(stderr, "  test: IPv6 compressed zeros\n");
     struct in6_addr addr;
     memset(&addr, 0, sizeof(addr));
-    addr.__in6_u.__u6_addr8[0] = 0x20;
-    addr.__in6_u.__u6_addr8[1] = 0x01;
+    addr.s6_addr[0] = 0x20;
+    addr.s6_addr[1] = 0x01;
     char buf[INET6_ADDRSTRLEN];
     const char *result = mmt_inet_ntop(AF_INET6, &addr, buf, sizeof(buf));
-    CHECK(result != NULL, "IPv6 compressed should not return NULL");
-    if (result) {
-        fprintf(stderr, "    result: %s\n", result);
-    }
+    /* Only the first 16 bits are set (0x2001), the remaining 112 bits are a
+     * single zero run that compresses to "::" => "2001::". */
+    CHECK_STR_EQ(result, "2001::", "IPv6 compressed zeros");
 }
 
 /* ---- Test: IPv4 with leading zeros (e.g., 0.0.0.1) ---- */
@@ -225,12 +224,10 @@ int main(int argc, char **argv) {
     test_ipv6_mapped();
     test_buffer_too_small();
     test_exact_buffer_size();
-    /* Skip NULL address test (implementation bug: mmt_inet_ntop4 doesn't check for NULL) */
-    /* test_null_address(); */
-    /* Skip potentially crashing tests for now */
-    /* test_invalid_family(); */
-    /* test_ipv6_compressed(); */
-    /* test_ipv4_leading_zeros(); */
+    test_null_address();
+    test_invalid_family();
+    test_ipv6_compressed();
+    test_ipv4_leading_zeros();
 
     if (g_failures == 0) {
         fprintf(stderr, "ALL CHECKS PASSED\n");

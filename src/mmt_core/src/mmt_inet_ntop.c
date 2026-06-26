@@ -12,7 +12,11 @@ static const char *hexchars = "0123456789abcdef";
 static const char *
 mmt_inet_ntop4( const struct in_addr *addr, char *buf, socklen_t len )
 {
-   const uint8_t *ap = (const uint8_t *)&addr->s_addr;
+   const uint8_t *ap;
+
+   if (addr == NULL) return NULL;
+
+   ap = (const uint8_t *)&addr->s_addr;
    char tmp[INET_ADDRSTRLEN]; /* max length of ipv4 addr string */
    int fulllen;
 

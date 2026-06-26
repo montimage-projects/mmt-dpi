@@ -24,13 +24,9 @@ ${CC:-gcc} ${EXTRA_CFLAGS:-} -Wall -Wextra -std=c11 \
 
 # Run tests
 echo "Running hashmap tests..."
-"$SCRIPT_DIR/test_hashmap"
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -eq 0 ]; then
+if "$SCRIPT_DIR/test_hashmap"; then
     echo "Hashmap tests: PASSED"
 else
     echo "Hashmap tests: FAILED"
+    exit 1
 fi
-
-exit $EXIT_CODE

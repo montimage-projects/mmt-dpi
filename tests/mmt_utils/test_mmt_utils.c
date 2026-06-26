@@ -52,9 +52,15 @@ static int g_failures = 0;
 /* ---- hex2int ---- */
 static void test_hex2int(void) {
     fprintf(stderr, "  test: hex2int\n");
-    CHECK(hex2int('0') >= 0 && hex2int('0') <= 255, "hex2int('0') should be valid");
-    CHECK(hex2int('F') >= 0 && hex2int('F') <= 255, "hex2int('F') should be valid");
-    CHECK(hex2int('z') >= 0 && hex2int('z') <= 255, "hex2int('z') should be valid");
+    /* hex2int returns the unsigned byte value (0..255) of its char argument. */
+    CHECK(hex2int('0') == 48, "hex2int('0') == 48 (ASCII value)");
+    CHECK(hex2int('F') == 70, "hex2int('F') == 70 (ASCII value)");
+    CHECK(hex2int('z') == 122, "hex2int('z') == 122 (ASCII value)");
+    /* High-bit bytes must come back as unsigned 0..255 regardless of whether
+     * plain `char` is signed (x86) or unsigned (ARM) — exercises the
+     * `if (ret < 0) ret += 256` normalisation branch. */
+    CHECK(hex2int((char)0x80) == 128, "hex2int(0x80) == 128 (unsigned normalisation)");
+    CHECK(hex2int((char)0xFF) == 255, "hex2int(0xFF) == 255 (unsigned normalisation)");
 }
 
 /* ---- char2int ---- */

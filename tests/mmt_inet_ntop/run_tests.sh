@@ -20,13 +20,9 @@ ${CC:-gcc} ${EXTRA_CFLAGS:-} -Wall -Wextra -std=c11 \
 
 # Run tests
 echo "Running mmt_inet_ntop tests..."
-"$SCRIPT_DIR/test_mmt_inet_ntop"
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -eq 0 ]; then
+if "$SCRIPT_DIR/test_mmt_inet_ntop"; then
     echo "mmt_inet_ntop tests: PASSED"
 else
     echo "mmt_inet_ntop tests: FAILED"
+    exit 1
 fi
-
-exit $EXIT_CODE

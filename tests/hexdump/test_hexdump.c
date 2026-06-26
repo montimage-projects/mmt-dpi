@@ -58,8 +58,9 @@ static void test_empty(void) {
     uint8_t data[1] = {0};
     fhexdump(capture_fp, data, 0);
     teardown_capture();
-    /* Empty buffer should produce minimal output (just the initial header line) */
+    /* A zero-length buffer has no rows to dump, so nothing is written. */
     fprintf(stderr, "    output length: %zu\n", get_output_len());
+    CHECK(get_output_len() == 0, "empty buffer should produce no output");
 }
 
 /* ---- Test: single byte ---- */

@@ -22,13 +22,9 @@ ${CC:-gcc} ${EXTRA_CFLAGS:-} -Wall -Wextra -std=c11 \
 
 # Run tests
 echo "Running memory tests..."
-"$SCRIPT_DIR/test_memory"
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -eq 0 ]; then
+if "$SCRIPT_DIR/test_memory"; then
     echo "Memory tests: PASSED"
 else
     echo "Memory tests: FAILED"
+    exit 1
 fi
-
-exit $EXIT_CODE
