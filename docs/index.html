@@ -34,7 +34,7 @@
       --border-2:  #463c30;
       --text:      #ece4d8;
       --text-dim:  #b3a690;
-      --text-mute: #7d7159;
+      --text-mute: #9a8c70;   /* warm mute — lifted to WCAG AA (>=4.5:1 on bg & panel) */
 
       /* Accent aliases now point at Golden Amber (was cyan) */
       --cyan:      var(--mi-amber);
@@ -572,13 +572,14 @@
     <span class="t-ty">uint32_t</span> *src  = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"ip"</span>,   <span class="t-str">"src"</span>);
     <span class="t-ty">uint32_t</span> *dst  = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"ip"</span>,   <span class="t-str">"dst"</span>);
     <span class="t-ty">uint16_t</span> *port = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"tcp"</span>,  <span class="t-str">"dest_port"</span>);
-    <span class="t-key">char</span>     *host = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"http"</span>, <span class="t-str">"host"</span>);
+    <span class="t-ty">mmt_header_line_t</span> *host = <span class="t-fn">get_attribute_extracted_data_by_name</span>(ipacket, <span class="t-str">"http"</span>, <span class="t-str">"host"</span>);
 
     <span class="t-key">if</span> (src &amp;&amp; dst &amp;&amp; port) {
         <span class="t-ty">uint8_t</span> *s = (<span class="t-ty">uint8_t</span>*)src, *d = (<span class="t-ty">uint8_t</span>*)dst;   <span class="t-com">// IP = 4 octets, net order</span>
-        <span class="t-fn">printf</span>(<span class="t-str">"%u.%u.%u.%u → %u.%u.%u.%u:%u  %s\n"</span>,
+        <span class="t-com">// host is an mmt_header_line_t (ptr + len) — not a null-terminated string.</span>
+        <span class="t-fn">printf</span>(<span class="t-str">"%u.%u.%u.%u → %u.%u.%u.%u:%u  %.*s\n"</span>,
                s[<span class="t-num">0</span>],s[<span class="t-num">1</span>],s[<span class="t-num">2</span>],s[<span class="t-num">3</span>], d[<span class="t-num">0</span>],d[<span class="t-num">1</span>],d[<span class="t-num">2</span>],d[<span class="t-num">3</span>], *port,
-               host ? host : <span class="t-str">"-"</span>);
+               host ? (<span class="t-key">int</span>)host-&gt;len : <span class="t-num">1</span>, host ? host-&gt;ptr : <span class="t-str">"-"</span>);
     }
     <span class="t-key">return</span> <span class="t-num">0</span>;
 }
@@ -598,7 +599,7 @@
     <span class="t-com">// ... same pcap / packet_process() loop as Tier 1 ...</span>
 }</pre>
             </div>
-            <p class="api-note">Names are case-insensitive and map to MMT's 6,334 attributes. The engine classifies by payload signature, so these resolve regardless of port. See <a href="MMT-Attributes.md">MMT-Attributes</a>.</p>
+            <p class="api-note">Each attribute has a typed value — numeric fields come back as <code>uint*_t*</code>, while header strings like <code>http/host</code> are <code>mmt_header_line_t*</code> (a <code>ptr</code>+<code>len</code> pair, not null-terminated). Names map to MMT's 6,334 attributes; the engine classifies by payload signature, so these resolve regardless of port. See <a href="MMT-Attributes.md">MMT-Attributes</a>.</p>
           </div>
 
           <!-- TIER 3 -->
@@ -609,6 +610,7 @@
                 <span class="fn">live_sessions.c</span>
               </div>
 <pre class="code"><span class="t-com">#include &lt;pcap.h&gt;</span>
+<span class="t-com">#include &lt;inttypes.h&gt;</span>   <span class="t-com">// PRIu64</span>
 <span class="t-com">#include "mmt_core.h"</span>
 
 <span class="t-com">// Called periodically per active session — read flow-level stats.</span>
