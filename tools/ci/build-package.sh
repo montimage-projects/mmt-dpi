@@ -71,17 +71,28 @@ if [ -z "$GIT_VERSION" ]; then
 fi
 
 log "Building SDK (GIT_VERSION=$GIT_VERSION)"
+# Note: the deb/rpm targets populate their package tree from the SDK build
+# output (see `--private-prepare-build-dir`), not from an installed /opt/mmt —
+# so `make install` is deliberately NOT run here. Skipping it keeps /opt/mmt
+# empty until the package itself is installed, which is what makes the smoke
+# test below a genuine check of the package's contents (and saves build time,
+# especially under arm64 emulation).
 make -C sdk -j"$(nproc)" GIT_VERSION="$GIT_VERSION"
-make -C sdk install GIT_VERSION="$GIT_VERSION"
 make -C sdk "$PKG_TYPE" GIT_VERSION="$GIT_VERSION"
 
 log "Collecting package artifact"
 arch="$(uname -m)"
+# The Makefile names artifacts mmt-dpi_<version>_<githash>_<uname-s>_<uname-p>.
+# Strip that trailing platform segment so we can append a single, unambiguous
+# <distro>_<arch> suffix — otherwise the arch appears twice and `uname -p`
+# (often "unknown" on minimal images) leaks into the filename.
+sys_suffix="_$(uname -s)_$(uname -p)"
 mkdir -p dist/packages
 shopt -s nullglob
 built=0
 for f in sdk/*."$PKG_TYPE"; do
   base="$(basename "$f" ".$PKG_TYPE")"
+  base="${base%"$sys_suffix"}"
   dest="dist/packages/${base}_${DISTRO_ID}_${arch}.${PKG_TYPE}"
   mv "$f" "$dest"
   echo "  built: $dest"
