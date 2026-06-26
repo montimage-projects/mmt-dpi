@@ -15,6 +15,7 @@ extern "C" {
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <sys/types.h>  /* u_char */
 #include "types_defs.h"
 #include "mmt_exports.h"
 

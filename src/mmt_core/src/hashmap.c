@@ -1,5 +1,6 @@
 
 #include <stdio.h>  // printf()
+#include <sys/types.h>  // u_char (for data_defs.h)
 
 #include "packet_processing.h"
 #include "hashmap.h"
