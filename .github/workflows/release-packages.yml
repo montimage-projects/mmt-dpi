@@ -1,0 +1,93 @@
+name: Build & release packages
+
+# Compile, build and publish installable MMT-DPI packages for the major Linux
+# distribution families:
+#   - Debian / Ubuntu        -> .deb  (dpkg-deb, via `make deb`)
+#   - RedHat / Rocky / CentOS -> .rpm  (rpmbuild, via `make rpm`)
+#
+# Each distribution is built inside its own container image (GitHub-hosted
+# runners only provide Ubuntu/macOS/Windows), for both amd64 and arm64
+# (arm64 via QEMU emulation). Every run uploads the packages as CI artifacts;
+# pushing a `v*` tag additionally attaches them all to a GitHub Release.
+
+on:
+  push:
+    tags: ["v*"]            # v1.0, v1.7.10, ... -> build + publish a release
+  workflow_dispatch:        # manual build of the full matrix (no release)
+  pull_request:             # validate packaging changes without releasing
+    paths:
+      - "sdk/**"
+      - "src/**"
+      - "rules/**"
+      - "tools/ci/build-package.sh"
+      - ".github/workflows/release-packages.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.distro.name }} (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        distro:
+          - { name: ubuntu-22.04,   image: "ubuntu:22.04",                    pkg: deb }
+          - { name: ubuntu-24.04,   image: "ubuntu:24.04",                    pkg: deb }
+          - { name: debian-12,      image: "debian:12",                       pkg: deb }
+          - { name: rocky-9,        image: "rockylinux:9",                    pkg: rpm }
+          - { name: centos-stream9, image: "quay.io/centos/centos:stream9",   pkg: rpm }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # GIT_VERSION (short hash) needs the git history
+
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build ${{ matrix.distro.pkg }} in ${{ matrix.distro.image }}
+        run: |
+          docker run --rm --platform "linux/${{ matrix.arch }}" \
+            -v "$PWD":/work -w /work \
+            "${{ matrix.distro.image }}" \
+            bash tools/ci/build-package.sh "${{ matrix.distro.name }}" "${{ matrix.distro.pkg }}"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmt-dpi-${{ matrix.distro.name }}-${{ matrix.arch }}
+          path: dist/packages/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create/update the release
+    steps:
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect packages
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' \) \
+            -exec cp -v {} release/ \;
+          echo "Packages to publish:"
+          ls -l release
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
