@@ -23,20 +23,37 @@ trap 'rm -rf "${WORK}"' EXIT
 CC="${CC:-gcc}"
 CFLAGS="-O2 -Wall -g"
 
-# Pick a git ref that holds the pre-fix source.
-OLD_REF=""
-for ref in origin/main main origin/master master; do
-    if git -C "${REPO_ROOT}" cat-file -e "${ref}:src/mmt_tcpip/lib/avltree.c" 2>/dev/null; then
-        OLD_REF="${ref}"; break
-    fi
-done
-[ -z "${OLD_REF}" ] && { echo "✗ could not find a pre-fix avltree.c in git" >&2; exit 1; }
-echo "  pre-fix source ref : ${OLD_REF}"
-
 # --- build NEW (working tree) ---------------------------------------------
+# The correctness suite always runs, so build the working-tree binary first.
 echo "  building NEW (working tree) ..."
 ${CC} ${CFLAGS} -I "${LIB_DIR}" -o "${WORK}/test_new" \
     "${TEST_SRC}" "${LIB_DIR}/avltree.c"
+
+# Pick a git ref that holds a *distinct* pre-fix source. The issue #21 fix is
+# merged on main, so once this branch is merged the baseline becomes byte-
+# identical to the working tree; and in a shallow CI checkout (actions/checkout
+# without full history) the base refs are not fetched at all. In either case
+# there is no meaningful OLD-vs-NEW comparison to make, so fall back to running
+# the correctness suite alone instead of hard-failing.
+OLD_REF=""
+for ref in origin/main main origin/master master; do
+    git -C "${REPO_ROOT}" cat-file -e "${ref}:src/mmt_tcpip/lib/avltree.c" 2>/dev/null || continue
+    if ! git -C "${REPO_ROOT}" show "${ref}:src/mmt_tcpip/lib/avltree.c" \
+         | diff -q - "${LIB_DIR}/avltree.c" >/dev/null 2>&1; then
+        OLD_REF="${ref}"; break
+    fi
+done
+
+if [ -z "${OLD_REF}" ]; then
+    echo "  no distinct pre-fix avltree.c in git — running correctness suite only"
+    echo
+    echo "== correctness suite (NEW) =="
+    "${WORK}/test_new"
+    echo
+    echo "✓ avltree correctness suite passed (pre-fix baseline unavailable — OLD-vs-NEW comparison skipped)"
+    exit 0
+fi
+echo "  pre-fix source ref : ${OLD_REF}"
 
 # --- build OLD (from git) --------------------------------------------------
 echo "  building OLD (${OLD_REF}) ..."
