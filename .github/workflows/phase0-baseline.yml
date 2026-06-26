@@ -20,7 +20,7 @@ jobs:
     name: ASan/UBSan profile compiles
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
       - name: Build with BUILD=asan
@@ -39,7 +39,7 @@ jobs:
     name: Multi-threaded TSan thread-safety harness
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev python3
       - name: Run the multi-threaded harness under ThreadSanitizer
@@ -49,7 +49,7 @@ jobs:
     name: External IP-range / port attribution loaders (M9, issue #26 / #74)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
       - name: Run the external attribution loader unit test under ASan/UBSan
@@ -59,7 +59,7 @@ jobs:
     name: Payload-confirmed port-only demotion predicate (M9, issue #75)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
       - name: Run the payload-confirm predicate unit test under ASan/UBSan
@@ -69,14 +69,14 @@ jobs:
     name: Golden classification fingerprint unchanged
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
       - name: Check classification against the Phase 0 baseline
         run: tools/phase0/ci/check_classification.sh
       - name: Upload freshly captured fingerprint on mismatch
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: phase0-classification-actual
           path: tools/phase0/ci/baseline/classification.actual.txt
@@ -86,14 +86,14 @@ jobs:
     name: Labelled-pcap precision/recall holds or improves (M9, issue #74)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
       - name: Check precision/recall against the committed baseline
         run: tools/phase0/ci/check_precision.sh
       - name: Upload freshly captured metrics on mismatch
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: phase0-precision-actual
           path: tools/phase0/ci/baseline/precision.actual.txt
