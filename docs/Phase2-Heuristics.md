@@ -3,8 +3,8 @@
 *Part of the MMT-DPI Master Improvement Plan — Phase 7 (M9, issue #75).*
 
 The Phase 7 task *"revisit weak heuristics surfaced in Phase 2"*
-([`MASTER_IMPROVEMENT_PLAN.md`](../MASTER_IMPROVEMENT_PLAN.md) §3 line 214) was
-deliberately deferred until they were **enumerated**: the heuristics were
+(`MASTER_IMPROVEMENT_PLAN.md` §3 line 214 — an internal, repo-local planning
+document) was deliberately deferred until they were **enumerated**: the heuristics were
 previously uncatalogued, and the plan requires this list to exist *before any
 behaviour-changing code lands*. This document is that catalogue.
 

@@ -5,9 +5,9 @@ MMT Handler is an abstract instance responsible for processing data packets, ext
 ## MMT Handler internals ##
 MMT Handler has the following elements:
 
- * An associated [Protocol Stack](/montimage/mmt-sdk/wiki/Protocol Stack/). This defines the ROOT protocol this handler is expecting to process.
- * Instance of registered protocols. This is a complete or partial copy of the registered protocols defined in the [Global Handler](/montimage/mmt-sdk/wiki/Global Handler/).
- * List of user registered [attributes](/montimage/mmt-sdk/wiki/MMT Attributes/) for extraction.
+ * An associated [Protocol Stack](./Protocol-Stack.md). This defines the ROOT protocol this handler is expecting to process.
+ * Instance of registered protocols. This is a complete or partial copy of the registered protocols defined in the [Global Handler](./Global-Handler.md).
+ * List of user registered [attributes](./MMT-Attributes.md) for extraction.
  * List of user registered attribute handlers.
  * List of user defined packet handlers.
  * Timer management system (used mainly for sessions expiry detection). 

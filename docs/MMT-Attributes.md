@@ -20,7 +20,7 @@ MMT attributes have the following metadata:
 
  * **Attribute ID**: identifier of the attribute, MUST be unique for a given protocol.
  * **Attribute Alias**: friendly name of the attribute, MUST be unique for a given protocol.
- * **Data type**: indicates the data type of the attribute. This MUST be one of [MMT Data Types](/montimage/mmt-sdk/wiki/Data Types/). 
+ * **Data type**: indicates the data type of the attribute. This MUST be one of [MMT Data Types](./Data-Types.md). 
  * **Data length**: indicates the length in octets of the attribute data.
  * **Position in packet**: indicates the packet offset of the attribute with respect to the protocol's data. This MUST only be set for binary protocols. 
    When the attribute has no known/fixed offset, this field MUST be set to -1 (`POSITION_NOT_KNOWN`).

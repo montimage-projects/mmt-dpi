@@ -40,7 +40,7 @@
 ## Integration / Monitoring ##
  * Runtime configuration (eg.: get/set default timeout for sessions)
  * Logging: we should have a proper logging mechanism, probably integrated in a larger scoped, platform-specific logging facility (syslog on Unix, SNMP, whatever event logging subsystem Windows is using, etc...).  Of course, the specifics should be abstracted away from the user (we just want to call `log( "blabla.. %s", bla )` from the code, no matter the underlying platform).
- * [Memory Management](/montimage/mmt-sdk/wiki/Memory Management/): `mmt_malloc()` / `mmt_free()` are sparsely used in the code, mostly due to `mmt_free()` being rather impractical.  We should come up with a better wrapping scheme, let the user set thresholds at which events would be thrown (e.g.: "warning, memory usage has reached 80%"), and get some statistics for continuous integration.
+ * [Memory Management](./Memory-Management.md): `mmt_malloc()` / `mmt_free()` are sparsely used in the code, mostly due to `mmt_free()` being rather impractical.  We should come up with a better wrapping scheme, let the user set thresholds at which events would be thrown (e.g.: "warning, memory usage has reached 80%"), and get some statistics for continuous integration.
 
 ## Other points to discuss ##
  * Updates with zero loss (of library, main, plugins...)

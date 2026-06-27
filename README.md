@@ -198,9 +198,9 @@ The following peer-reviewed publications and Montimage white papers present, eva
 
 ### White papers and product literature
 
-- **Cyber Secure Communications in Intelligent Transport Systems** — Montimage white paper. Available from the [Montimage publications page](https://montimage.com/pubs/).
+- **Cyber Secure Communications in Intelligent Transport Systems** — Montimage white paper. Available from the [Montimage publications page](https://www.montimage.eu/pubs/).
 
-For additional Montimage publications on 5G, NDN security monitoring, DevOps security, and adjacent topics, see [Wissam Mallouli's Google Scholar profile](https://scholar.google.com/citations?user=LTKlUkwAAAAJ&hl=en), [Edgardo Montes de Oca's Google Scholar profile](https://scholar.google.com/citations?user=u2YE0WQAAAAJ&hl=en), and the [Montimage publications page](https://montimage.com/pubs/).
+For additional Montimage publications on 5G, NDN security monitoring, DevOps security, and adjacent topics, see [Wissam Mallouli's Google Scholar profile](https://scholar.google.com/citations?user=LTKlUkwAAAAJ&hl=en), [Edgardo Montes de Oca's Google Scholar profile](https://scholar.google.com/citations?user=u2YE0WQAAAAJ&hl=en), and the [Montimage publications page](https://www.montimage.eu/pubs/).
 
 ## Contributing
 
