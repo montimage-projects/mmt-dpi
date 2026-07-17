@@ -65,6 +65,18 @@ jobs:
       - name: Run the payload-confirm predicate unit test under ASan/UBSan
         run: bash tools/phase0/tests/run_port_confirm_test.sh
 
+  ssl-record-tests:
+    name: TLS/SSL record-version regression tests (issues #5, #100)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
+      - name: Run the TLS/SSL record-walk hardening test under ASan/UBSan
+        run: bash tools/phase0/tests/run_ssl_record_test.sh
+      - name: Run the TLS 1.2 record-version check test under ASan/UBSan
+        run: bash tools/phase0/tests/run_ssl_tls12_version_test.sh
+
   classification-gate:
     name: Golden classification fingerprint unchanged
     runs-on: ubuntu-latest

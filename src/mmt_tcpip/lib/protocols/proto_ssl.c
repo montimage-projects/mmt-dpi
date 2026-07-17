@@ -816,7 +816,7 @@ int mmt_classify_me_ssl(ipacket_t * ipacket, unsigned index) {
 	/* BW: I saw TLS packets less than 40 bytes!
 	 * TLS application: 0x17 followed by version (3.0 or 3.1 or 3.2) followed by len */
 	if (packet->payload[0] == 0x17 && packet->payload[1] == 0x03
-			&& (packet->payload[2] == 0x00 || packet->payload[2] == 0x01 || packet->payload[2] == 0x02 || packet->payload[10] == 0x03)
+			&& (packet->payload[2] == 0x00 || packet->payload[2] == 0x01 || packet->payload[2] == 0x02 || packet->payload[2] == 0x03)
 			&& (packet->payload_packet_len <= (ntohs(get_u16(packet->payload, 3)) + 5))) {
 		// SSLv3 Record
 		MMT_LOG(PROTO_SSL, MMT_LOG_DEBUG, "sslv3 len match\n");
@@ -830,7 +830,7 @@ int mmt_classify_me_ssl(ipacket_t * ipacket, unsigned index) {
 	 * TODO: can we detect the encrypeted alert in stage 0? I don't think so!!!
 	 */
 	if (packet->payload[0] == 0x15 && packet->payload[1] == 0x03
-			&& (packet->payload[2] == 0x00 || packet->payload[2] == 0x01 || packet->payload[2] == 0x02 || packet->payload[10] == 0x03)
+			&& (packet->payload[2] == 0x00 || packet->payload[2] == 0x01 || packet->payload[2] == 0x02 || packet->payload[2] == 0x03)
 			&& (packet->payload_packet_len - ntohs(get_u16(packet->payload, 3)) == 5)) {
 		// SSLv3 Record
 		MMT_LOG(PROTO_SSL, MMT_LOG_DEBUG, "sslv3 len match\n");
