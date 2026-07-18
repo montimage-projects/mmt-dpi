@@ -31,10 +31,10 @@ gcc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=all \
     -L"${PREFIX}/dpi/lib" -lmmt_tcpip -lmmt_core -ldl -lpthread -lm
 
 echo "[3/3] running http_method_classification_test under ASan/UBSan"
+rc=0
 ASAN_OPTIONS="detect_leaks=0" \
 LD_LIBRARY_PATH="${PREFIX}/dpi/lib:${LD_LIBRARY_PATH:-}" \
-    "${BIN}"
-rc=$?
+    "${BIN}" || rc=$?
 
 if [ "${rc}" -eq 0 ]; then
     echo "✓ HTTP method classification test: PASS"
