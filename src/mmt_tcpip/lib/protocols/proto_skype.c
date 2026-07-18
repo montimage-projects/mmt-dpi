@@ -29,7 +29,6 @@ int mmt_check_skype_tcp(ipacket_t * ipacket, unsigned index) {
             && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
 
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
-        uint32_t payload_len = packet->payload_packet_len;
         // int l4_offset = get_packet_offset_at_index(ipacket, index);
         
         /* skip marked packets */
@@ -46,23 +45,7 @@ int mmt_check_skype_tcp(ipacket_t * ipacket, unsigned index) {
                     && flow->l4.tcp.seen_syn
                     && flow->l4.tcp.seen_syn_ack
                     && flow->l4.tcp.seen_ack) {
-                /* issue #102: this used to match on (payload_len == 8) ||
-                 * (payload_len == 3) alone -- coincidental packet shape
-                 * with no validation of any actual Skype protocol content.
-                 * That loose match was a false-positive source, and because
-                 * this classifier was registered ahead of signature-based
-                 * classifiers (STUN, RTP, QUIC), it could steal their
-                 * flows. Disabled (guard forced false, not deleted) so the
-                 * 3-way-handshake tracking above stays intact and this
-                 * scaffold remains available if a real, content-validating
-                 * Skype signature is ever added. */
-                if (0 && ((payload_len == 8) || (payload_len == 3))) {
-                    MMT_LOG(PROTO_SKYPE, MMT_LOG_DEBUG, "Found skype.\n");
-                    debug("[TCP.SKYPE]");
-                    mmt_internal_add_connection(ipacket, PROTO_SKYPE, MMT_REAL_PROTOCOL);
-                    return 1;
-                }
-                /* printf("[SKYPE] [id: %u][len: %d]\n", flow->l4.tcp.skype_packet_id, payload_len);  */
+                ; /* No-op: false-positive heuristic removed (#102, #114) */
             }
             else{
                 MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SKYPE);
@@ -79,7 +62,6 @@ int mmt_check_skype_udp(ipacket_t * ipacket, unsigned index) { //BW: TODO: Check
             && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
 
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
-        uint32_t payload_len = packet->payload_packet_len;
 
         /* skip marked packets */
         if (packet->detected_protocol_stack[0] != PROTO_UNKNOWN)
@@ -94,27 +76,7 @@ int mmt_check_skype_udp(ipacket_t * ipacket, unsigned index) { //BW: TODO: Check
             
             /* skype-to-skype */
             if(dport!=1119){
-                /* issue #102: this used to match on payload_len == 3 with a
-                 * trailing 0x_d nibble, or payload_len >= 16 with
-                 * byte[0] != 0x30 && byte[2] == 0x02 -- coincidental
-                 * payload shape/byte-pattern with no validation of any
-                 * actual Skype protocol content. That loose match was a
-                 * false-positive source, and because this classifier was
-                 * registered ahead of signature-based classifiers (STUN,
-                 * RTP, QUIC), it could steal their flows. Disabled (guard
-                 * forced false, not deleted) so this scaffold remains
-                 * available if a real, content-validating Skype signature
-                 * is ever added. */
-                if (0 && (((payload_len == 3) && ((packet->payload[2] & 0x0F) == 0x0d))
-                    || ((payload_len >= 16)
-                    && (packet->payload[0] != 0x30) /* Avoid invalid SNMP detection */
-                    && (packet->payload[2] == 0x02)))) {
-                    MMT_LOG(PROTO_SKYPE, MMT_LOG_DEBUG, "Found skype.\n");
-                    // debug("[UDP.SKYPE]");
-                    mmt_internal_add_connection(ipacket, PROTO_SKYPE, MMT_REAL_PROTOCOL);
-                    // flow->l4.udp.skype_like_packet++;
-                    return 1;
-                }
+                ; /* No-op: false-positive heuristic removed (#102, #114) */
             }
             
 
