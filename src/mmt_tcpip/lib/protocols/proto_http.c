@@ -297,6 +297,19 @@ uint16_t http_request_url_offset(ipacket_t * ipacket) {
     } else if (packet->payload_packet_len >= 7 && mmt_memcmp(packet->payload, "REPORT ", 7) == 0) {
         MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: REPORT FOUND\n");
         return 7;
+    } else if (packet->payload_packet_len >= 6 && mmt_memcmp(packet->payload, "PATCH ", 6) == 0) {
+        /* issue #113: PATCH was missing from this table, so http.method/http.uri
+         * stayed unpopulated for PATCH requests even after PROTO_HTTP classification. */
+        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: PATCH FOUND\n");
+        return 6;
+    } else if (packet->payload_packet_len >= 6 && mmt_memcmp(packet->payload, "MKCOL ", 6) == 0) {
+        /* issue #113: WebDAV MKCOL was missing from this table. */
+        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: MKCOL FOUND\n");
+        return 6;
+    } else if (packet->payload_packet_len >= 5 && mmt_memcmp(packet->payload, "LOCK ", 5) == 0) {
+        /* issue #113: WebDAV LOCK was missing from this table. */
+        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: LOCK FOUND\n");
+        return 5;
     }
 
     return 0;
