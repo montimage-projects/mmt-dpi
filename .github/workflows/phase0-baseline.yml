@@ -77,6 +77,16 @@ jobs:
       - name: Run the TLS 1.2 record-version check test under ASan/UBSan
         run: bash tools/phase0/tests/run_ssl_tls12_version_test.sh
 
+  http-method-classification:
+    name: HTTP method table regression (issue #101, ACC-16)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
+      - name: Run the HTTP method classification test under ASan/UBSan
+        run: bash tools/phase0/tests/run_http_method_classification_test.sh
+
   classification-gate:
     name: Golden classification fingerprint unchanged
     runs-on: ubuntu-latest

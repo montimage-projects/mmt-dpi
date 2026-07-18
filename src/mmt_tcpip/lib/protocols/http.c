@@ -70,7 +70,8 @@ static char *http_methods[] = {
     "(unknown)",
     MMT_HTTP_GET,     MMT_HTTP_POST,     MMT_HTTP_OPTIONS,
     MMT_HTTP_HEAD,    MMT_HTTP_PUT,      MMT_HTTP_DELETE,
-    MMT_HTTP_CONNECT, MMT_HTTP_PROPFIND, MMT_HTTP_REPORT
+    MMT_HTTP_CONNECT, MMT_HTTP_PROPFIND, MMT_HTTP_REPORT,
+    MMT_HTTP_PATCH,   MMT_HTTP_MKCOL,    MMT_HTTP_LOCK
 };
 
 static inline int get_header_index_by_header_id(int header_id) {
@@ -280,8 +281,14 @@ void http_session_data_init(ipacket_t * ipacket, unsigned index) {
  * @param msg_len length of the message request line in octets
  * @param method pointer to the method code to be set by this function
  * @return the offset of the uri if positive value, zero means the message is not a valid request
+ *
+ * Not static: issue #101's regression test (tools/phase0/tests/
+ * http_method_classification_test.c) links against this symbol directly, the
+ * same convention already used for http2.c's extraction functions. It is not
+ * declared in any public header, so it remains internal to the SDK's API
+ * surface.
  */
-static inline int get_request_method_uri_offset(const char *msg, int msg_len, int * method) {
+int get_request_method_uri_offset(const char *msg, int msg_len, int * method) {
     int uri_offset = 0;
     *method = 0;
     /* check if the packet starts with POST or GET or any other HTTP request method */
@@ -312,6 +319,15 @@ static inline int get_request_method_uri_offset(const char *msg, int msg_len, in
     } else if (msg_len >= 7 && mmt_strncmp(msg, "REPORT ", 7) == 0) {
         uri_offset = 7;
         *method = MMT_HTTP_REPORT_CODE;
+    } else if (msg_len >= 6 && mmt_strncmp(msg, "PATCH ", 6) == 0) {
+        uri_offset = 6;
+        *method = MMT_HTTP_PATCH_CODE;
+    } else if (msg_len >= 6 && mmt_strncmp(msg, "MKCOL ", 6) == 0) {
+        uri_offset = 6;
+        *method = MMT_HTTP_MKCOL_CODE;
+    } else if (msg_len >= 5 && mmt_strncmp(msg, "LOCK ", 5) == 0) {
+        uri_offset = 5;
+        *method = MMT_HTTP_LOCK_CODE;
     }
 
     while (uri_offset < msg_len && isspace((unsigned char) msg[uri_offset])) {
@@ -1691,6 +1707,29 @@ static inline uint16_t http_request_url_offset(ipacket_t * ipacket) {
                         return 9;
                     }
                 break;
+                case 'A':
+                    /* issue #101: PATCH was missing from this table, so any
+                     * flow whose first request used PATCH was permanently
+                     * excluded from HTTP classification. */
+                    if(packet->payload_packet_len >= 6 && mmt_memcmp(packet->payload, "PATCH ", 6) == 0){
+                        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: PATCH FOUND\n");
+                        return 6;
+                    }
+                break;
+            }
+        break;
+        case 'M':
+            /* issue #101: WebDAV MKCOL was missing from this table. */
+            if(packet->payload_packet_len >= 6 && mmt_memcmp(packet->payload, "MKCOL ", 6) == 0){
+                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: MKCOL FOUND\n");
+                return 6;
+            }
+        break;
+        case 'L':
+            /* issue #101: WebDAV LOCK was missing from this table. */
+            if(packet->payload_packet_len >= 5 && mmt_memcmp(packet->payload, "LOCK ", 5) == 0){
+                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: LOCK FOUND\n");
+                return 5;
             }
         break;
         case 'O':
@@ -2232,7 +2271,6 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
                     return;
                 } else {
                     MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "retransmission not found, exclude\n");
-                    fprintf(stdout, "retransmission not found, exclude\n");
                     http_bitmask_exclude(flow);
                     return;
                 }
@@ -2243,7 +2281,6 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
             filename_start = http_request_url_offset(ipacket);
             if (filename_start == 0) {
                 MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "filename not found, exclude\n");
-                fprintf(stdout, "filename not found, exclude\n");
                 http_bitmask_exclude(flow);
                 return;
             }
@@ -2302,7 +2339,6 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
                     /* stop parsing here */
                     MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
                             "HTTP: PACKET DOES NOT HAVE A LINE STRUCTURE\n");
-                    fprintf(stdout, "HTTP: PACKET DOES NOT HAVE A LINE STRUCTURE\n");
                     http_bitmask_exclude(flow);
                     return;
                 }
@@ -2321,7 +2357,6 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
         }
     }
     MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: REQUEST NOT HTTP CONFORM\n");
-    fprintf(stdout, "HTTP: REQUEST NOT HTTP CONFORM\n");
     http_bitmask_exclude(flow);
     return;
 
