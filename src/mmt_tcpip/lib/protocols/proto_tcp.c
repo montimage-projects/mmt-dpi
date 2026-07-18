@@ -509,9 +509,20 @@ int tcp_pre_classification_function(ipacket_t * ipacket, unsigned index) {
         packet->mmt_selection_packet |= MMT_SELECTION_BITMASK_PROTOCOL_NO_TCP_RETRANSMISSION;
     }
 
-    // if (ipacket->session->packet_count > CFG_CLASSIFICATION_THRESHOLD) {
-    //    return 0;
-    // }
+    // Issue #99 (PERF-5 / ACC-17): once an *unknown* TCP flow exceeds a bounded
+    // packet budget, give up classifying it, mirroring the UDP stop-guard
+    // (proto_udp.c:71). Returning 0 makes proto_packet_classify_next() skip both
+    // the ~99-checker chain walk AND post-classification for the rest of the
+    // flow's life, so long-lived unknown TCP flows stop re-scanning every packet.
+    // The 2x threshold matches UDP. The give-up is gated on the flow still being
+    // unknown: post-classification re-asserts an already-classified flow's
+    // per-packet protocol path on every packet, so an unconditional give-up would
+    // drop that path and misreport long classified flows (e.g. FTP) as unknown.
+    if (packet->flow != NULL
+        && packet->flow->detected_protocol_stack[0] == PROTO_UNKNOWN
+        && ipacket->session->packet_count > (CFG_CLASSIFICATION_THRESHOLD * 2)) {
+        return 0;
+    }
 
     return 1;
 }
@@ -631,9 +642,20 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
         packet->mmt_selection_packet |= MMT_SELECTION_BITMASK_PROTOCOL_NO_TCP_RETRANSMISSION;
     }
 
-    // if (ipacket->session->packet_count > CFG_CLASSIFICATION_THRESHOLD) {
-    //    return 0;
-    // }
+    // Issue #99 (PERF-5 / ACC-17): once an *unknown* TCP flow exceeds a bounded
+    // packet budget, give up classifying it, mirroring the UDP stop-guard
+    // (proto_udp.c:71). Returning 0 makes proto_packet_classify_next() skip both
+    // the ~99-checker chain walk AND post-classification for the rest of the
+    // flow's life, so long-lived unknown TCP flows stop re-scanning every packet.
+    // The 2x threshold matches UDP. The give-up is gated on the flow still being
+    // unknown: post-classification re-asserts an already-classified flow's
+    // per-packet protocol path on every packet, so an unconditional give-up would
+    // drop that path and misreport long classified flows (e.g. FTP) as unknown.
+    if (packet->flow != NULL
+        && packet->flow->detected_protocol_stack[0] == PROTO_UNKNOWN
+        && ipacket->session->packet_count > (CFG_CLASSIFICATION_THRESHOLD * 2)) {
+        return 0;
+    }
 
     return 1;
 }
