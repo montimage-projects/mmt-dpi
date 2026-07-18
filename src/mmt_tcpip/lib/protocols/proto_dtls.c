@@ -10,6 +10,11 @@
 #include "extraction_lib.h"
 #include "../mmt_common_internal_include.h"
 
+/////////////// PROTOCOL INTERNAL CODE GOES HERE ///////////////////
+static MMT_PROTOCOL_BITMASK detection_bitmask;
+static MMT_PROTOCOL_BITMASK excluded_protocol_bitmask;
+static MMT_SELECTION_BITMASK_PROTOCOL_SIZE selection_bitmask;
+
 /*
  * Search info about DTLS header structure on April 21, 2022
  * version 1.0: https://datatracker.ietf.org/doc/html/rfc4347#section-4.1
@@ -44,38 +49,48 @@ static bool _is_dtls_version( uint16_t version ){
 	case DTLS_VERSION_1_0:
 	case DTLS_VERSION_1_2:
 	case DTLS_VERSION_1_3:
-	case 0x0100: //1.0??? HN does not found doc about this number
-		// but it is in a pcap file:
-		// https://wiki.wireshark.org/SampleCaptures#dtls-with-decryption-keys
 		return true;
 	default:
 		return false;
 	}
 }
 
-static int classify_dtls_from_udp(ipacket_t * ipacket, unsigned index) {
-	int offset = get_packet_offset_at_index(ipacket, index);
+int classify_dtls_from_udp(ipacket_t * ipacket, unsigned index) {
+	struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
+	int offset;
 	dtls_header_t *dtls;
-	offset += 8; //8 bytes of UDP header
-	//not enough room for the DTLS header and its payload
-	if( ipacket->p_hdr->len - offset <= sizeof( dtls_header_t))
-		goto _not_found_dtls;
 
-	dtls = (dtls_header_t *) &ipacket->data[ offset ];
+	if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
+			&& MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
+			&& MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
 
-		//check content type
-	if( ! _is_dtls_content_type( dtls->content_type ))
-		goto _not_found_dtls;
+		/* skip marked packets: an already-classified flow must not be re-claimed by DTLS */
+		if (packet->detected_protocol_stack[0] != PROTO_UNKNOWN)
+			return 0;
 
-	if( !_is_dtls_version( ntohs(dtls->version )))
-		goto _not_found_dtls;
+		offset = get_packet_offset_at_index(ipacket, index);
+		offset += 8; //8 bytes of UDP header
+		//not enough room for the DTLS header and its payload
+		if( ipacket->p_hdr->len - offset <= sizeof( dtls_header_t))
+			goto _not_found_dtls;
 
-		//until here, we conclude that we found DTLS
-	mmt_internal_add_connection(ipacket, PROTO_DTLS, MMT_REAL_PROTOCOL);
-	return 1;
+		dtls = (dtls_header_t *) &ipacket->data[ offset ];
 
-	_not_found_dtls:
-	MMT_ADD_PROTOCOL_TO_BITMASK(ipacket->internal_packet->flow->excluded_protocol_bitmask, PROTO_DTLS)
+			//check content type
+		if( ! _is_dtls_content_type( dtls->content_type ))
+			goto _not_found_dtls;
+
+		if( !_is_dtls_version( ntohs(dtls->version )))
+			goto _not_found_dtls;
+
+			//until here, we conclude that we found DTLS
+		mmt_internal_add_connection(ipacket, PROTO_DTLS, MMT_REAL_PROTOCOL);
+		return 1;
+
+		_not_found_dtls:
+		MMT_ADD_PROTOCOL_TO_BITMASK(packet->flow->excluded_protocol_bitmask, PROTO_DTLS)
+		return 0;
+	}
 	return 0;
 }
 
@@ -185,6 +200,12 @@ static attribute_metadata_t dtls_attributes_metadata[] = {
 	{DTLS_CLIENT_HELLO_CIPHER_SUITE, DTLS_CLIENT_HELLO_CIPHER_SUITE_ALIAS, MMT_U16_ARRAY, U16_ARRAY_TYPE_LEN, 0, SCOPE_PACKET, _dtls_extract_attribute },
 };
 
+void mmt_init_classify_me_dtls() {
+	selection_bitmask = MMT_SELECTION_BITMASK_PROTOCOL_UDP_WITH_PAYLOAD;
+	MMT_SAVE_AS_BITMASK(detection_bitmask, PROTO_UNKNOWN);
+	MMT_SAVE_AS_BITMASK(excluded_protocol_bitmask, PROTO_DTLS);
+}
+
 /////////////// END OF PROTOCOL INTERNAL CODE    ///////////////////
 
 int init_proto_dtls_struct() {
@@ -195,6 +216,8 @@ int init_proto_dtls_struct() {
 		for (; i < nb_attributes; i++) {
 			register_attribute_with_protocol(protocol_struct, &dtls_attributes_metadata[i]);
 		}
+
+		mmt_init_classify_me_dtls();
 
 		register_classification_function_with_parent_protocol(PROTO_UDP, classify_dtls_from_udp, 20);
 		return register_protocol(protocol_struct, PROTO_DTLS);
