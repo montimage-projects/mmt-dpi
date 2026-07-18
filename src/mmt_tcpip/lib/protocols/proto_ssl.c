@@ -31,6 +31,14 @@ version Version type
 /////////////// PROTOCOL INTERNAL CODE GOES HERE ///////////////////
 #define MMT_MAX_SSL_REQUEST_SIZE 10000
 
+/*
+ * Size of the thread-local buffer the ClientHello / ServerHello detectors hand
+ * to the server-name extractors. RFC 6066 caps a host_name at 255 bytes, so 256
+ * holds the longest legal SNI hostname (255 bytes + NUL) without truncation
+ * (issue #103); the previous 64-byte buffers silently clipped anything past 63.
+ */
+#define MMT_SSL_CERTIFICATE_BUF_LEN 256
+
 static MMT_PROTOCOL_BITMASK detection_bitmask;
 static MMT_PROTOCOL_BITMASK excluded_protocol_bitmask;
 static MMT_SELECTION_BITMASK_PROTOCOL_SIZE selection_bitmask;
@@ -384,6 +392,49 @@ int getServerNameFromServerHello(ipacket_t * ipacket, char *buffer, int buffer_l
     return (0); /* Not found */
 }
 
+/*
+ * Parse the RFC 6066 server_name (SNI) extension body per its wire structure:
+ *   uint16 server_name_list length
+ *   uint8  name_type    (0 = host_name)
+ *   uint16 name_length
+ *   byte[] name (name_length bytes)
+ * `server_name` points at the extension body; `extension_len` is its exact
+ * length, already verified by the caller to lie within the captured packet
+ * buffer. Copies up to buffer_len-1 hostname bytes into `buffer` (NUL
+ * terminated) and returns the copied length, or -1 if the body is too short for
+ * the TLV header, the declared name_length overruns extension_len, or name_type
+ * is not host_name (issue #103).
+ *
+ * This replaces the previous heuristic that scanned forward skipping bytes that
+ * looked non-printable/punctuation/whitespace: for hostname lengths where the
+ * server_name_list length or name_length field rendered as printable ASCII, the
+ * scan stopped on that framing byte and extracted a corrupted hostname.
+ * server_name is not guaranteed 2-byte aligned, so the u16 fields are read with
+ * ssl_read_u16_be rather than a raw uint16_t* cast (cf. issue #59).
+ */
+static int ssl_parse_sni_hostname(const char *server_name, uint16_t extension_len,
+                                  char *buffer, int buffer_len) {
+    if (extension_len < 5) {
+        /* not enough room for server_name_list length (2B) + name_type (1B) +
+         * name_length (2B) */
+        return -1;
+    }
+    uint8_t name_type = (uint8_t) server_name[2];
+    uint16_t name_length = ssl_read_u16_be((const uint8_t *) server_name, 3);
+
+    if (name_type != 0 /* host_name, RFC 6066 s3 */) {
+        return -1;
+    }
+    if ((uint32_t) 5 + (uint32_t) name_length > (uint32_t) extension_len) {
+        return -1;
+    }
+
+    int len = mmt_ssl_min(name_length, buffer_len - 1);
+    strncpy(buffer, &server_name[5], len);
+    buffer[len] = '\0';
+    return len;
+}
+
 int getServerNameFromClientHello(ipacket_t * ipacket, char *buffer, int buffer_len) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
 
@@ -432,28 +483,17 @@ int getServerNameFromClientHello(ipacket_t * ipacket, char *buffer, int buffer_l
                         if(offset + extension_offset + extension_len > cap_total_len) {
                             return 0;
                         }
-                        u_int begin = 0, len;
                         if(offset + extension_offset > cap_total_len) {
                             return 0;
                         }
 
                         char *server_name = (char*) &packet->payload[offset + extension_offset];
-
-                        while (begin < extension_len) {
-                            if ((!isprint(server_name[begin]))
-                                    || ispunct(server_name[begin])
-                                    || isspace(server_name[begin]))
-                                begin++;
-                            else
-                                break;
+                        int len = ssl_parse_sni_hostname(server_name, extension_len, buffer, buffer_len);
+                        if (len < 0) {
+                            return 0; /* malformed / non-host_name SNI entry */
                         }
-
-                        len = mmt_ssl_min(extension_len - begin, buffer_len - 1);
-                        strncpy(buffer, &server_name[begin], len);
-                        buffer[len] = '\0';
                         stripCertificateTrailer(buffer, buffer_len);
                         packet->https_server_name.ptr = (const uint8_t*)buffer;
-                        //packet->https_server_name.ptr = &server_name[begin];
                         packet->https_server_name.len = len;
                         //printf("FROM INSIDE SERVER NAME is %s\n", buffer);
                         packet->packet_id = ipacket->packet_id;
@@ -473,7 +513,7 @@ uint32_t sslDetectProtocolFromClientHello(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     */
 
-    static __thread char certificate[64];
+    static __thread char certificate[MMT_SSL_CERTIFICATE_BUF_LEN];
     certificate[0] = '\0';
     int rc = getServerNameFromClientHello(ipacket, certificate, sizeof (certificate));
     //int rc = 0;
@@ -515,7 +555,7 @@ uint32_t sslDetectProtocolFromServerHello(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     */
 
-    static __thread char certificate[64];
+    static __thread char certificate[MMT_SSL_CERTIFICATE_BUF_LEN];
     certificate[0] = '\0';
     int rc = getServerNameFromServerHello(ipacket, certificate, sizeof (certificate));
     //int rc = 0;
