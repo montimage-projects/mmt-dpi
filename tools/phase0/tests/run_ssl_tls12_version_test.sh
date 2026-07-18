@@ -36,10 +36,10 @@ gcc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=all \
     -L"${PREFIX}/dpi/lib" -lmmt_tcpip -lmmt_core -ldl -lpthread -lm
 
 echo "[3/3] running ssl_tls12_version_test under ASan/UBSan"
+rc=0
 ASAN_OPTIONS="detect_leaks=0" \
 LD_LIBRARY_PATH="${PREFIX}/dpi/lib:${LD_LIBRARY_PATH:-}" \
-    "${BIN}"
-rc=$?
+    "${BIN}" || rc=$?
 
 if [ "${rc}" -eq 0 ]; then
     echo "✓ TLS 1.2 record-version check test: PASS"
