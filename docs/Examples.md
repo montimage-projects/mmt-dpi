@@ -4,9 +4,9 @@
 
 
 
-To run these example,`mmt-sdk` installing is required (see [compilation and installation instructions](Compilation-and-Installation-Instructions.md)).
+To run these examples, `mmt-dpi` must be installed first (see [Compilation and Installation](Compilation-and-Installation-Instructions.md)).
 
-Now you can use `mmt-sdk` library. All the source code of example can see in `mmt-sdk/sdk/examples/`
+All example source code is in `src/examples/` (root of the repo).
 
 ## Attributes Listing ##
 This example is intended to provide the list of available protocols and for each protocol, the list of its attributes.
@@ -49,11 +49,7 @@ Run the example:
 ```
 The output is the list of available protocols and for each protocol, the list of its attributes.
 
-If you want to test your own plugins, you need to copy your plugins to `/opt/mmt/plugins` or you can create a `plugins` folder in the same directory with the example file, then copy your plugin to `plugins` folder.
-```sh
-mkdir plugins
-cp /opt/mmt/lib/libmmt_tcpip.so.0.100 plugins/libmmt_tcpip.so
-```
+If you want to test with your own plugins, place them in `/opt/mmt/plugins` (the default plugin directory, compiled in via `PLUGINS_REPOSITORY_OPT` at `rules/common.mk:30`) or create a `plugins/` folder alongside the example binary.
 
 ## Extract All ##
 This example is intended to extract everything! This means all the attributes of all registered protocols will be registered for extraction. When a packet is processed, the attributes found in the packet will be printed out.
@@ -394,7 +390,7 @@ Execute the example:
 The output is the number of session
 
 ## Simple Traffic Reporting ##
-This example is intended to extract the statisitic of all stream: TODO
+This example is intended to extract the statistics of all streams.
 
 ```c
 #include <pcap.h>

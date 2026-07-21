@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# validate-dev-setup.sh — Check-only validation for DEVELOPMENT.md setup steps.
+# Usage: ./validate-dev-setup.sh [--check] [--run-destructive]
+set -euo pipefail
+
+MODE="${1:---check}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ERRORS=0
+
+check() {
+    local desc="$1"
+    local cmd="$2"
+    if eval "$cmd" >/dev/null 2>&1; then
+        echo "  ✓ $desc"
+    else
+        echo "  ✗ $desc"
+        ERRORS=$((ERRORS + 1))
+    fi
+}
+
+if [ "$MODE" = "--run-destructive" ]; then
+    echo "Running in destructive mode (not implemented for this script)."
+    exit 0
+fi
+
+if [ "$MODE" != "--check" ]; then
+    echo "Usage: $0 [--check] [--run-destructive]"
+    exit 1
+fi
+
+echo "=== DEVELOPMENT.md validation ==="
+
+# Check 1: Build tools exist
+check "gcc available" "command -v gcc"
+check "make available" "command -v make"
+
+# Check 2: No cmake dependency in codebase
+cmake_count=$(grep -r 'cmake\|CMAKE' "$ROOT/sdk/" "$ROOT/rules/" --include='Makefile' --include='*.mk' 2>/dev/null | wc -l)
+if [ "$cmake_count" -eq 0 ]; then
+    echo "  ✓ No cmake dependency in build system (doc correctly removed cmake)"
+else
+    echo "  ✗ cmake found in build system but doc says it's not needed"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Check 3: Build options match code
+grep -q 'ifdef DEBUG' "$ROOT/rules/common.mk" && echo "  ✓ DEBUG=1 option exists" || { echo "  ✗ DEBUG=1 option missing"; ERRORS=$((ERRORS + 1)); }
+grep -q 'ifdef NDEBUG' "$ROOT/rules/common.mk" && echo "  ✓ NDEBUG=1 option exists" || { echo "  ✗ NDEBUG=1 option missing"; ERRORS=$((ERRORS + 1)); }
+grep -q 'ifdef SHOWLOG' "$ROOT/rules/common.mk" && echo "  ✓ SHOWLOG=1 option exists" || { echo "  ✗ SHOWLOG=1 option missing"; ERRORS=$((ERRORS + 1)); }
+grep -q 'ifdef VALGRIND' "$ROOT/rules/common.mk" && echo "  ✓ VALGRIND=1 option exists" || { echo "  ✗ VALGRIND=1 option missing"; ERRORS=$((ERRORS + 1)); }
+
+# Check 4: No TCP_SEGMENT or STATIC_LINK in code
+tcp_seg=$(grep -r 'TCP_SEGMENT' "$ROOT/sdk/" "$ROOT/rules/" --include='Makefile' --include='*.mk' 2>/dev/null | wc -l)
+static_link=$(grep -r 'STATIC_LINK' "$ROOT/sdk/" "$ROOT/rules/" --include='Makefile' --include='*.mk' 2>/dev/null | wc -l)
+if [ "$tcp_seg" -eq 0 ] && [ "$static_link" -eq 0 ]; then
+    echo "  ✓ TCP_SEGMENT and STATIC_LINK not in build system (doc correctly flags as unverified)"
+else
+    echo "  ✗ TCP_SEGMENT or STATIC_LINK found but doc says they don't exist"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Check 5: No make zip target
+zip_count=$(grep -c 'zip:' "$ROOT/sdk/Makefile" 2>/dev/null || echo 0)
+if [ "$zip_count" -eq 0 ]; then
+    echo "  ✓ No 'make zip' target (doc correctly removed)"
+else
+    echo "  ✗ 'make zip' target exists but doc says it doesn't"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Check 6: Public headers path
+check "sdk/include/ has headers" "test -d $ROOT/sdk/include"
+check "sdk/include/mmt_core.h exists" "test -f $ROOT/sdk/include/mmt_core.h"
+
+echo ""
+if [ $ERRORS -eq 0 ]; then
+    echo "Result: PASS (all checks passed)"
+else
+    echo "Result: FAIL ($ERRORS check(s) failed)"
+fi
+
+exit $ERRORS

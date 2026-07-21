@@ -23,17 +23,21 @@ Get current version of `MMT-DPI`:
 char * mmt_version();
 ```
 
+(`sdk/include/mmt_core.h:1045`)
+
+`init_extraction()` / `close_extraction()`: (`sdk/include/mmt_core.h:165,178`)
+
 ### User API ###
 #### Initialization
 ```c
    int init_extraction();
 ```
-Initializes MMT global context. This function MUST be called before any use of MMT. It returns a positive value on success and zero on failure. It is good practice to always check the return value of `init_extraction`.
+Initializes MMT global context. This function MUST be called before any use of MMT. It returns a positive value on success and zero on failure (`sdk/include/mmt_core.h:165`).
 
 #### Cleanup
 ```c
    int close_extraction();
 ```
-Closes MMT global context and frees any previously allocated memory. This function should be called when no further use of MMT is needed. 
+Closes MMT global context and frees any previously allocated memory (`sdk/include/mmt_core.h:178`). 
 
 ## Open Issues ##

@@ -2,36 +2,14 @@
 
 ## Overview
 
-** Working branch: ** feature/http2
+HTTP/2 protocol classification and attribute extraction in MMT-DPI. The implementation
+uses nghttp2 for HTTP/2 parsing. HTTP/2 is identified via:
+- TCP with `h2` TLS ALPN (port 443)
+- Cleartext TCP with `h2c` (HTTP/1.1 Upgrade header, port 80)
 
-** Started date: ** 03/04/2017
+HTTP/2 protocol ID: `PROTO_HTTP2` (`sdk/include/tcpip/mmt_tcpip_protocols.h`).
 
-** Deadline: ** 05/04/2017 
-
-** Developer: ** @luongnv89 
-
-** Probe example **: extract all attributes value ,... more detail after studying 
-
-## List of tasks
-
-* Study about protocol -> understand packet format specification/ how to classify protocol
-
-* Create data struct for extracting protocol attributes
-
-* Study some open-source library (if it exists) to see how do they do
-
-* Implement classify HTTP2 packet
-
-* Implement parse HTTP2 packet data
-
-* Test HTTP2 plugin
-
-* Merge to MMT-SDK
-
-
-## HTTP2 experiments
-
-Install HTTP2 : [https://github.com/nghttp2/nghttp2](https://github.com/nghttp2/nghttp2)
+> The development task list below is historical and no longer reflects active work.
 
 
 ## HTTP2 identification

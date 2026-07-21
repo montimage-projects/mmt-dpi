@@ -1,4 +1,8 @@
-# MMT_QoE demo
+# MMT-QoE Demo
+
+> ⚠️ This document describes the MMT_QoE / mmtprobe / MMT_Operator ecosystem, which
+> is a separate product that embeds MMT-DPI. The installation steps reference
+> external URLs and software not included in this repository.
 
 [TOC]
 

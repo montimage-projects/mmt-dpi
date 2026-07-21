@@ -3,8 +3,8 @@
 *Part of the MMT-DPI Master Improvement Plan — Phase 7 (M9, issues #26 & #74).*
 
 Historically MMT-DPI shipped ~10,000 IP ranges and a fixed set of L4 ports
-**hardcoded** in the C sources (`mmt_tcpip_classif_utils.c`,
-`mmt_tcpip_plugin_internal.c`). Refreshing a stale CDN/cloud range or adding a
+**hardcoded** in the C sources (`src/mmt_tcpip/lib/mmt_tcpip_classif_utils.c`,
+`src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.c`). Refreshing a stale CDN/cloud range or adding a
 port hint meant editing C and rebuilding the library.
 
 M9 makes this attribution data **externally updatable**. The compiled-in tables
@@ -61,7 +61,7 @@ separate set that is consulted *before* the built-in/extend tables. Use this to
 > file with no `override` rules) classification is byte-identical to the
 > compiled-in baseline, as gated by the golden classification fingerprint.
 
-See [`data/ip_ranges.example.txt`](../data/ip_ranges.example.txt).
+See [`data/ip_ranges.example.txt`](../data/ip_ranges.example.txt) (`data/ip_ranges.example.txt`).
 
 ### Refreshing high-impact CDN/cloud ranges (issue #75)
 
@@ -118,7 +118,7 @@ returns no match, so they never override a built-in mapping. A rule tagged
 `override` (issue #74) is consulted **before** the switch, so it can replace a
 built-in port→protocol mapping.
 
-See [`data/port_map.example.txt`](../data/port_map.example.txt).
+See [`data/port_map.example.txt`](../data/port_map.example.txt) (`data/port_map.example.txt`).
 
 ### Port attribution is a hint, not a verdict
 
@@ -146,7 +146,7 @@ attributed on the port alone.
 
 ```c
 enable_port_classify(mmt);                  // turn on port-based guessing
-enable_port_classify_payload_confirm(mmt);  // require payload confirmation (issue #75)
+enable_port_classify_payload_confirm(mmt);  // require payload confirmation (sdk/include/mmt_core.h:679)
 ```
 
 > **OFF by default.** `mmt_init_handler` sets

@@ -58,9 +58,9 @@ sudo apt-get install libpcap-dev
 You can test `mmt-dpi` library with some examples in [`src/examples`](../src/examples) to see how it works.
 
 ```sh
-cd ./examples
+cd src/examples
 gcc -o extract_all extract_all.c -I /opt/mmt/dpi/include -L /opt/mmt/dpi/lib -lmmt_core -ldl -lpcap
-sudo ./extract_all -i eth0
+./extract_all -i eth0
 ```
 
 ---------------------------------

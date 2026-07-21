@@ -2,27 +2,9 @@
 
 ## Overview
 
-** Working branch: ** `feature/dns`
-
-** Started date: ** `13/07/2016`
-
-** Deadline: ** `18/07/2016`
-
-** Developer: ** @luongnv89
-
-** Probe example **: extract file information such as: Transaction Id, ...
-
-## List of tasks
-
-* Study about protocol -> understand packet format specification
-
-* Create data struct for extracting protocol attributes
-
-* Implement parse DNS packet data
-
-* Test DNS plugin
-
-* Merge to `dev` branch
+DNS protocol classification and attribute extraction in MMT-DPI. The DNS parser
+is implemented in `src/mmt_tcpip/lib/protocols/proto_dns.c` (1113+ lines) and
+registered as `PROTO_DNS` in `sdk/include/tcpip/mmt_tcpip_protocols.h`.
 
 ## DNS packets attributes
 

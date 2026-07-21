@@ -1,8 +1,15 @@
-# Discussion Points #
+# Discussion Points
 
 [TOC]
 
 ------------------
+
+> ⚠️ This document contains open design questions and TBD items. It is not
+> implementation documentation — it records design discussions for reference.
+
+* generalize the protocol API to structured data
+* Protocol Modelling for automatic generation of plugins (binary + text based protocol) : BNF + IETF
+* global attributes (packet count, data volume, session count, etc...) per protocol, protocol family, ID
 
 
 * generalize the protocol API to structured data

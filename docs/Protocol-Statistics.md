@@ -22,14 +22,11 @@ In the following figure, Facebook has two statistics instances; one for path TCP
 
 ## API ##
 ### Common Attributes ###
-MMT provides a set of attributes (common to all protocols) to access the protocol statistics:
+MMT provides a set of attributes (common to all protocols) to access the protocol statistics (`src/mmt_core/public_include/data_defs.h:234-241`):
 
  * `PROTO_PACKET_COUNT` OR "packet_count"
  * `PROTO_DATA_VOLUME` OR "data_count"
  * `PROTO_PAYLOAD_VOLUME` OR "payload_count"
- * `PROTO_SESSIONS_COUNT` OR "session_count"
- * `PROTO_ACTIVE_SESSIONS_COUNT` OR "a_session_count"
- * `PROTO_TIMEDOUT_SESSIONS_COUNT` OR "t_session_count"
  * `PROTO_STATISTICS` OR "stats"
 
 ### User API ###
@@ -37,22 +34,22 @@ MMT provides a set of attributes (common to all protocols) to access the protoco
 ```c
    proto_statistics_t * get_protocol_stats(mmt_handler_t *mmt_handler, uint32_t proto_id);
 ```
-   Returns a pointer to the protocol statistics (list) of the given protocol.
+   Returns a pointer to the protocol statistics (list) of the given protocol (`sdk/include/mmt_core.h:881`).
 
 ```c
    void get_protocol_stats_path(mmt_handler_t *mmt_handler, proto_statistics_t *stats, proto_hierarchy_t *proto_hierarchy);
 ```
-   Provides the protocol path of the given statistics instance.
+   Provides the protocol path of the given statistics instance (`sdk/include/mmt_core.h:901`).
 
 ```c
    void get_children_stats(proto_statistics_t * parent_stats, proto_statistics_t * children_stats);
 ```
-   Provides the aggregation of the children protocol statistics.
+   Provides the aggregation of the children protocol statistics (`sdk/include/mmt_core.h:891`).
 
 ```c
    void reset_statistics(proto_statistics_t * stats);
 ```
-   Resets the given protocol statistics instance.
+   Resets the given protocol statistics instance (`sdk/include/mmt_core.h:911`).
 
 ```c
    void enable_protocol_statistics(mmt_handler_t *mmt_handler);

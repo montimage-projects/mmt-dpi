@@ -8,7 +8,7 @@ Open Wireshark from Terminal:
 wireshark -X lua_script:ndn.lua
 ```
 
-The file `ndn.lua` you can download from here: `/montimage/mmt-test/scripts/ndn.lua`
+The file `ndn.lua` was previously hosted at `/montimage/mmt-test/scripts/ndn.lua` but is no longer in this repository.
 
 ## Understand NDN data format
 
