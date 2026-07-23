@@ -61,8 +61,6 @@ else
 fi
 
 # Check 6: Version consistency
-version_sdk=$(grep '^VERSION' "$ROOT/sdk/Makefile" 2>/dev/null | head -1 || echo "")
-version_core=$(grep '#define VERSION' "$ROOT/sdk/include/mmt_core.h" 2>/dev/null | head -1 || echo "")
 version_common=$(grep '^VERSION' "$ROOT/rules/common.mk" 2>/dev/null | head -1 || echo "")
 version_zip=$(grep 'VERSION=' "$ROOT/dist/ZIP/install.sh" 2>/dev/null | head -1 || echo "")
 if [ -n "$version_common" ] && [ -n "$version_zip" ]; then
