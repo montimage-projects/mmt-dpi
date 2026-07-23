@@ -61,7 +61,7 @@ done
 check "sdk/include/mmt_core.h exists" "test -f $ROOT/sdk/include/mmt_core.h"
 
 # Check 7: No MMT_SEC_DTLS_CIPHER_ALLOWLIST in code (doc should not list it)
-count=$(grep -r 'MMT_SEC_DTLS_CIPHER_ALLOWLIST' "$ROOT/sdk/" "$ROOT/src/" 2>/dev/null | wc -l)
+count=$(grep -r 'MMT_SEC_DTLS_CIPHER_ALLOWLIST' "$ROOT/sdk/" "$ROOT/src/" 2>/dev/null | wc -l || true)
 if [ "$count" -eq 0 ]; then
     echo "  ✓ MMT_SEC_DTLS_CIPHER_ALLOWLIST not in code (doc correctly flags as unverified)"
 else
