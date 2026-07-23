@@ -29,7 +29,7 @@ What actually happened instead.
 
 - OS: [e.g., Ubuntu 22.04, Fedora 39]
 - Compiler: [e.g., GCC 9.4]
-- MMT-DPI Version: [e.g., 1.7.10]
+- MMT-DPI Version: [e.g., 1.8.0]
 - Architecture: [e.g., x86_64, ARM]
 
 ## Pcap Sample

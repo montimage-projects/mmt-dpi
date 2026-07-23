@@ -3,7 +3,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![C/C++ CI](https://github.com/montimage-projects/mmt-dpi/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/montimage-projects/mmt-dpi/actions/workflows/c-cpp.yml)
 
-A high-performance C library for deep packet inspection (DPI), designed to extract data attributes from network packets, server logs, and structured events for real-time traffic analysis (version 1.7.0.0 [`sdk/include/mmt_core.h:74`](sdk/include/mmt_core.h:74)).
+A high-performance C library for deep packet inspection (DPI), designed to extract data attributes from network packets, server logs, and structured events for real-time traffic analysis (version 1.8.0 [`rules/common.mk:1`](rules/common.mk:1)).
 
 ## Key Features
 
@@ -11,7 +11,7 @@ A high-performance C library for deep packet inspection (DPI), designed to extra
 - **Attribute Extraction** - Extract detailed protocol-specific fields (IPs, ports, headers, payloads, etc.)
 - **Session Tracking** - Track and analyze network sessions with flow-level statistics (RTT, retransmissions, byte/packet counts)
 - **Extensible Plugin Architecture** - Add new protocol support via modular plugins
-- **Wide Protocol Coverage** - TCP/IP stack, HTTP/HTTP2, QUIC (RFC 9000), DNS, FTP, DTLS, GTP, MQTT, OSPF, RADIUS, and more
+- **Wide Protocol Coverage** - TCP/IP stack, HTTP/HTTP2, QUIC (RFC 9000), DNS, FTP, DTLS, GTP, MQTT, OSPF, RADIUS, DICOM, syslog (RFC 3164/5424), PTP, and more
 - **5G/LTE Mobile Protocols** - NAS, S1AP, NGAP, GTPv2, Diameter for mobile network monitoring
 - **Linux-Based** - Supports major Linux distributions (Debian/Ubuntu, Fedora/RHEL, Arch, Alpine, openSUSE)
 
