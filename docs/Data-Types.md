@@ -9,7 +9,7 @@
 MMT Data types are defined in order to provide an harmonized type definitions for [MMT Attributes](./MMT-Attributes.md). 
 ## API ##
 ### Supported Data Types ###
-The list of supported data types is defined in [types_defs.h](../src/mmt_core/public_include/types_defs.h).
+The list of supported data types is defined in [types_defs.h](../sdk/include/types_defs.h).
 ```c
    MMT_UNDEFINED_TYPE, /**< no type constant value */
 ```
@@ -73,22 +73,22 @@ The list of supported data types is defined in [types_defs.h](../src/mmt_core/pu
 ```c
    MMT_BINARY_DATA, /**< binary constant value */
 ```
-   Identifier of binary data as defined in `mmt_binary_data_t`. It is defined as a buffer of 64 octets max, preceded with an integer defining the effective length of data in the buffer (value from 0 to 64). It has a length of `BINARY_64DATA_TYPE_LEN`.
+   Identifier of binary data. Defined as `mmt_binary_data_t` in `sdk/include/types_defs.h:89` — a `uint32_t len` followed by `uint8_t data[BINARY_64DATA_LEN]` (64 bytes). Total length is `BINARY_64DATA_TYPE_LEN` (68 bytes).
 
 ```c
    MMT_BINARY_VAR_DATA, /**< binary constant value with variable size given by function getExtractionDataSizeByProtocolAndFieldIds */
 ```
-   Identifier of binary data as defined in `mmt_binary_var_data_t`. It is defined as a buffer of 1024 octets max, preceded with an integer defining the effective length of data in the buffer (value from 0 to 1024). It has a length of `BINARY_1024DATA_TYPE_LEN`.
+   Identifier of binary data. Defined as `mmt_binary_var_data_t` in `sdk/include/types_defs.h:101` — a `uint32_t len` followed by `uint8_t data[BINARY_1024DATA_LEN]` (1024 bytes). Total length is `BINARY_1024DATA_TYPE_LEN` (1028 bytes).
 
 ```c
    MMT_STRING_DATA, /**< text string data constant value. Len plus data. Data is expected to be '\0' terminated and maximum BINARY_64DATA_LEN long */
 ```
-   Identifier of binary data as defined in `mmt_binary_data_t`. It is defined as a buffer of 64 octets max, preceded with an integer defining the effective length of data in the buffer (value from 0 to `MMT_BINARY_DATA`). The difference with `MMT_BINARY_DATA` is that the data is supposed to be a valid string (terminating with null character). It has a length of `BINARY_64DATA_TYPE_LEN`.
+   Identifier of a text string (null-terminated). Defined as `mmt_string_data_struct` in `sdk/include/types_defs.h:106` — a `uint32_t len` followed by `char data[BINARY_64DATA_LEN]` (64 bytes max, null-terminated). Total length is `BINARY_64DATA_TYPE_LEN` (68 bytes).
 
 ```c
    MMT_STRING_LONG_DATA_POINTER, /**< text string data constant value. Len plus data. Data is expected to be '\0' terminated and maximum STRING_DATA_LEN octets long */
 ```
-   Identifier of binary data. It is defined as a buffer of 1504 octets max, preceded with an integer defined the effective length of data in the buffer (value from 0 to 1504). The data part should be a valid string (terminating with null character). It has a length of `STRING_DATA_TYPE_LEN`.
+   Identifier of a long text string (null-terminated). Defined as `MMT_STRING_LONG_DATA` in `sdk/include/types_defs.h:197` — a `uint32_t len` followed by `char data[STRING_DATA_LEN]` (1504 bytes max). Total length is `STRING_DATA_TYPE_LEN` (1508 bytes).
 
 ```c
    MMT_STRING_DATA_POINTER, /**< pointer constant value (size is void *). The data pointed to is of type string with null terminating character included */
@@ -99,7 +99,7 @@ The list of supported data types is defined in [types_defs.h](../src/mmt_core/pu
 ```c
    MMT_HEADER_LINE, /**< string pointer value with variable size. The data pointed to is of type string however,  not necessary null terminating */
 ```
-   Identifier of a header line pointer. The data pointed to is of type string not necessary null terminating character included. Max accepted header line length is 8k (default for Apache) . 
+   Identifier of a header line pointer. The data pointed to is of type string, not necessarily null-terminated. Max accepted header line length is 8k (default for Apache). 
 
 
 

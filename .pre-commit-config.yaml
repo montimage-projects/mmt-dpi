@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: shellcheck (scripts/*.sh)
+        entry: shellcheck
+        language: system
+        files: ^scripts/.*\.sh$

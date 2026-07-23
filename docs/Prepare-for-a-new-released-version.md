@@ -12,26 +12,21 @@ src/mmt_core/public_include/mmt_core.h
 
 ## Verify the classification
 
-```
-cd mmt-test/wall_e
-./walle -c wall-e.conf
-```
-
-Check the `.csv` report to see if there is any protocol that cannot be verified!
+<!-- FLAG: unverified — `mmt-test/wall_e` and `mmt-test/data-sets/` directories
+     do not exist in this repository. The classification verification step
+     referenced external tooling that is not present in the repo. -->
 
 ## Check the memory leak
 
-Check the memory leak with `extract_all.c` and `probe` for those pcap files:
+Run the `extract_all` example under Valgrind on sample pcaps:
 
-```
-mmt-test/data-sets/memo/google-fr.pcap
-mmt-test/data-sets/memo/bbc-com.pcap
-mmt-test/data-sets/memo/366apps_7MB.pcap
-mmt-test/data-sets/memo/84apps_120MB.pcap
-mmt-test/data-sets/memo/65apps_360MB.pcap
+```bash
+cd src/examples
+gcc -o extract_all extract_all.c -I /opt/mmt/dpi/include -L /opt/mmt/dpi/lib -lmmt_core -ldl -lpcap
+valgrind --leak-check=full --show-reachable=yes ./extract_all -t src/examples/google-fr.pcap
 ```
 
-Compare the result and fix the leaks if there is any
+A sample pcap (`src/examples/google-fr.pcap`) is included for smoke testing.
 
 ## Clean code
 

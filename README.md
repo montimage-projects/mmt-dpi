@@ -3,7 +3,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![C/C++ CI](https://github.com/montimage-projects/mmt-dpi/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/montimage-projects/mmt-dpi/actions/workflows/c-cpp.yml)
 
-A high-performance C library for deep packet inspection (DPI), designed to extract data attributes from network packets, server logs, and structured events for real-time traffic analysis.
+A high-performance C library for deep packet inspection (DPI), designed to extract data attributes from network packets, server logs, and structured events for real-time traffic analysis (version 1.7.0.0 [`sdk/include/mmt_core.h:74`](sdk/include/mmt_core.h:74)).
 
 ## Key Features
 
@@ -129,8 +129,8 @@ See [`src/examples/`](src/examples/) for complete working examples:
 
 - **extract_all** - Extract all protocol attributes from packets
 - **proto_attributes_iterator** - List all registered protocols and attributes
-- **simple_packet_handler** - Basic packet processing callback
-- **mmt_online** - Live packet capture and analysis
+- **packet_handler** - Basic packet processing callback with per-packet callbacks (`src/examples/packet_handler.c`)
+- **mmt_export_info** - Dump exported protocol/attribute metadata (`src/examples/mmt_export_info.c`)
 
 For detailed API documentation, see the [full documentation](docs/).
 

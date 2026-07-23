@@ -24,12 +24,12 @@ MMT Handler has the following elements:
 ```c
    void mmt_close_handler(mmt_handler_t *mmt_handler);
 ```
-   Closes the given MMT handler and frees any allocated objet.
+   Closes the given MMT handler and frees any allocated object (`sdk/include/mmt_core.h:198`).
 
 ```c
    mmt_handler_t * get_active_session_count(mmt_handler_t * mmt_handler);
 ```
-   Get number of active session
+   Returns `uint64_t` count of active sessions (`sdk/include/mmt_core.h:209`).
 
 ```c
    int get_data_link_type(mmt_handler_t *mmt_handler);
@@ -109,16 +109,21 @@ int register_evasion_handler(mmt_handler_t * mmt_handler, generic_evasion_handle
 With `evasion_handler`:
 
 ```c
-void evasion_handler(ipacket_t * ipacket, uint32_t proto_id, unsigned proto_index, unsigned evasion_id, void * data);
+void evasion_handler(const ipacket_t * ipacket, uint32_t proto_id, unsigned proto_index, unsigned evasion_id, void * data, void * args);
 ```
+
+Signature from `sdk/include/mmt_core.h:105` (`generic_evasion_handler_callback`).
 
 ## Evasion event
 
-Define the id of evasion (`mmt_core.h`)
+Define the id of evasion (`sdk/include/mmt_core.h:86-90`):
 
 ```c
-#define EVA_IP_FRAG_PACKET 1 // Event which relates to fragment in packet
-#define EVA_IP_FRAG_SESSION 2 // Event which relates to fragmented packet in session
+#define EVA_IP_FRAGMENT_PACKET 1    // Event: too many fragments in one packet
+#define EVA_IP_FRAGMENT_SESSION 2   // Event: too many fragmented packet in one session
+#define EVA_IP_FRAGMENTED_PACKET_SESSION 3
+#define EVA_IP_FRAGMENT_OVERLAPPED 4
+#define EVA_IP_FRAGMENT_DUPLICATED 5
 ```
 
 Update the value for the limit number of fragment in packet

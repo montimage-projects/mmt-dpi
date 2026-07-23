@@ -5,7 +5,7 @@
 ### Prerequisites
 
 - GCC 4.9 to 9.x (recommended: GCC 9)
-- GNU Make, CMake
+- GNU Make
 - `libxml2-dev`
 - `libpcap-dev` (for examples and testing)
 - Valgrind (for memory leak detection)
@@ -14,7 +14,7 @@
 
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential gcc make cmake libxml2-dev libpcap-dev valgrind
+sudo apt-get install build-essential gcc make libxml2-dev libpcap-dev valgrind
 ```
 
 > **Note:** Only Linux is currently supported. macOS and Windows are not supported.
@@ -45,14 +45,15 @@ make -j$(nproc) SHOWLOG=1
 
 ### Build Options
 
-| Option | Description |
-|--------|-------------|
-| `DEBUG=1` | Enable debug mode |
-| `NDEBUG=1` | Show debug messages |
-| `SHOWLOG=1` | Show MMT_LOG messages |
-| `VALGRIND=1` | Enable Valgrind compatibility |
-| `TCP_SEGMENT=1` | Enable TCP segment reassembly |
-| `STATIC_LINK=1` | Build with static linking |
+| Option | Description | Source |
+|--------|-------------|--------|
+| `DEBUG=1` | Enable debug mode | `rules/common.mk:87` |
+| `NDEBUG=1` | Define `-DNDEBUG` (default build; disables debug() output) | `rules/common.mk:38-42` |
+| `SHOWLOG=1` | Show MMT_LOG messages (also defines `-DDEBUG -DHTTP_PARSER_STRICT`) | `rules/common.mk:160-162` |
+| `VALGRIND=1` | Enable Valgrind compatibility | `rules/common.mk:95` |
+
+<!-- FLAG: unverified — TCP_SEGMENT=1 and STATIC_LINK=1 were previously documented
+     but no Makefile rule or code reference was found. -->
 
 ## Testing
 
@@ -100,9 +101,6 @@ cd sdk
 make deb
 ```
 
-### ZIP Distribution
+(`sdk/Makefile:119`)
 
-```bash
-cd sdk
-make zip
-```
+

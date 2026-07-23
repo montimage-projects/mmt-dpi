@@ -1,10 +1,9 @@
-As a basis for a future specification for the public API, here's a comprehensive list of the symbols exported from `libmmt_extract.so`.
+> ⚠️ This document is auto-generated from `nm` output and may drift as symbols change.
+> Regenerate with: `nm -gC --defined-only ./sdk/lib/libmmt_core.so | grep ' T ' | cut -f 3- -d ' '`
+
+As a basis for a future specification for the public API, here's a comprehensive list of the symbols exported from `libmmt_core.so`.
 
 We should probably trim it down to ~30 symbols.
-
-```sh
-nm -gC --defined-only ./src/mmt_tcpip/.libs/libmmt_extract.so.1.0.0 | grep ' T ' | cut -f 3- -d ' '
-```
 
 Symbol table
 

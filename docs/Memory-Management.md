@@ -5,7 +5,7 @@
 ------------------
 
 
-This is an overview of the memory management features implemented in [memory.c](../src/mmt_core/src/memory.c).
+This is an overview of the memory management features implemented in `src/mmt_core/src/memory.c`.
 
 ## Scope ##
 
@@ -17,7 +17,7 @@ This is an overview of the memory management features implemented in [memory.c](
 ## Implementation ##
 
 Each chunk of allocated memory is prefixed with the size of the chunk.
-Global counters on allocated and freed memory are also maintained;  those counters are accessible through `mmt_meminfo()`.
+Global counters on allocated and freed memory are also maintained; those counters are accessible through `mmt_meminfo()` (`src/mmt_core/private_include/memory.h:25`, internal API).
 
 ![MMT Memory Management](images/mmt_malloc.png)
 

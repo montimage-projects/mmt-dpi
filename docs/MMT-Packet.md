@@ -16,36 +16,58 @@ Please refer to [Packet Journey](./Packet-Journey.md) page.
 An MMT user needs to feed the core with packets. A packet is identified by a the data place holder and some meta data including the packet real length, the packet snapshot length (what is really available). 
 MMT has only one entry point: `packet_process`. This is the API to feed MMT with data packets. Internally, MMT will create an `internal packet` 
 
-```
-#!cpp
+```c
 /**
  * Defines the meta-data of a packet.
  */
 typedef struct pkthdr {
-    struct timeval ts;   /**< time stamp that indicates the packet arrival time */
-    unsigned int caplen; /**< length of portion of the packet that is present */
-    unsigned int len;    /**< length of the packet (off wire) */
-    void * user_args;    /**< Pointer to a user defined argument. Can be NULL, it will not be used by the library. */
+    struct timeval ts;                    /**< time stamp that indicates the packet arrival time */
+    unsigned int caplen;                  /**< length of portion of the packet that is present */
+    unsigned int len;                     /**< length of the packet (off wire) */
+    unsigned int original_caplen;         /**< Original capture len */
+    unsigned int original_len;            /**< Original capture len */
+    unsigned int probe_id;                /**< ID of the probe processing current packet */
+    unsigned int source_id;               /**< ID of the interface/source */
+    void * user_args;                     /**< Pointer to a user defined argument. Can be NULL. */
 } pkthdr_t;
 ```
 
 ```
-#!cpp
 /**
  * Defines a packet structure.
  */
 struct ipacket_struct {
     uint64_t packet_id;                       /**< identifier of the packet. */
+    uint64_t total_caplen;                    /**< Total captured length of all assembled packets */
+    uint8_t is_completed[PROTO_PATH_SIZE];    /**< 1 - yes, 0 - no */
+    uint8_t is_fragment[PROTO_PATH_SIZE];     /**< 1 - yes, 0 - no */
+    uint16_t ipv6_ext_headers_path[PROTO_PATH_SIZE];
+    uint16_t ipv6_ext_headers_offset[PROTO_PATH_SIZE];
+    uint16_t ipv6_ext_headers_len;
+    uint16_t ipv6_overlapping[PROTO_PATH_SIZE];
+    uint16_t ipv6_outoforder[PROTO_PATH_SIZE];
+    int last_callback_fct_id;
+    unsigned nb_reassembled_packets[PROTO_PATH_SIZE];
+    proto_hierarchy_t internal_proto_hierarchy;
+    proto_hierarchy_t internal_proto_headers_offset;
+    proto_hierarchy_t internal_proto_classif_status;
     proto_hierarchy_t * proto_hierarchy;      /**< the protocol layers corresponding to this packet */
     proto_hierarchy_t * proto_headers_offset; /**< the offsets corresponding to the protocol layers of this packet */
     proto_hierarchy_t * proto_classif_status; /**< the classification status of the protocols in the path */
-    mmt_session_t * session;                  /**< pointer to the session structure to which the packet belongs*/
-    void * internal_packet;                   /**< pointer to opaque packet structure. for internal use only. Must never be changed */
-    mmt_handler_t * mmt_handler;              /**< opaque pointer to the MMT handler that processed this packet */
+    mmt_session_t * session;                  /**< pointer to the session structure to which the packet belongs */
+    mmt_tcpip_internal_packet_t * internal_packet;  /**< pointer to opaque packet structure. for internal use only. */
+    mmt_handler_t * mmt_handler;              /**< pointer to the MMT handler that processed this packet */
+    pkthdr_t internal_p_hdr;
     pkthdr_t * p_hdr;                         /**< the meta-data of the packet */
     const u_char * data;                      /**< pointer to the packet data */
+    const u_char * original_data;             /**< pointer to the original packet data */
+    int internal_cumulative_offset[PROTO_PATH_SIZE];
+    int internal_cumulative_offset_valid;
+    int internal_cumulative_offset_hwm;
 };
 ```
+
+Structures from `sdk/include/data_defs.h:114-163`.
 ### User API ###
 
 ```c

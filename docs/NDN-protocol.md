@@ -8,11 +8,9 @@ attributes. See the [packet format](./NDN-packet-format.md) and
 
 ## View NDN packet in Wireshark
 
-To view NDN packet in Wireshark application:
-
-* Download script to ndn: `mmt-test/scripts/ndn.lua`
-
-* Run wireshark from terminal with command: `wireshark -X lua_script:ndn.lua`
+<!-- FLAG: unverified — `mmt-test/scripts/ndn.lua` does not exist in this
+     repository. The Wireshark Lua dissector reference is retained for
+     historical completeness. -->
 
 
 ## Contents

@@ -15,7 +15,9 @@
 
 ## API ##
 
-** Session structure **
+### Session Structure ###
+
+The full `mmt_session_struct` is defined in `src/mmt_core/private_include/packet_processing.h:98` (not exposed in public SDK headers — only `mmt_session_t` typedef is public via `sdk/include/data_defs.h:29`).
 ```c
 /**
  * Defines the structure of a session.
