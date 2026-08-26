@@ -18,7 +18,7 @@ Only **Linux** is supported (macOS/Windows are not).
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential gcc make libxml2-dev libpcap-dev libnghttp2-dev bash git file pkg-config
+sudo apt-get install -y build-essential gcc make libxml2-dev libpcap-dev libnghttp2-dev bash git pkg-config
 ```
 
 | Package | Why it is needed |
@@ -48,12 +48,14 @@ Exit code `0` = green build. Warnings in the output (e.g. from vendored asn1c
 code) are informational; extra diagnostic warnings are deliberately not
 `-Werror` (`rules/common.mk:239-253`), so they never fail the build.
 
-The build produces shared libraries and static archives under `sdk/lib/`
-(`libmmt_core.so`, `libmmt_tcpip.so`, `libmmt_tmobile.so`,
-`libmmt_business_app.so`, `libmmt_tdicom.so`, plus matching `.a` files),
-copies public headers under `sdk/include/`, examples under `sdk/examples/`,
-and tools under `sdk/bin/`. It does **not** require root and does **not**
-install anything.
+The build produces versioned shared libraries and static archives under
+`sdk/lib/` (`libmmt_core.so.$(VERSION)`, `libmmt_tcpip.so.$(VERSION)`,
+`libmmt_tmobile.so.$(VERSION)`, `libmmt_business_app.so.$(VERSION)`,
+`libmmt_tdicom.so.$(VERSION)`, plus matching `.a` files; the unversioned
+`.so` symlinks are created by `make install`, `sdk/Makefile:45-51`), copies
+public headers under `sdk/include/` and example sources under
+`sdk/examples/` (`sdk/bin/` stays empty in a plain build). It does **not**
+require root and does **not** install anything.
 
 Clean rebuild if needed:
 
@@ -135,7 +137,7 @@ LD_LIBRARY_PATH=/tmp/mmt-sandbox/dpi/lib <your-test-binary>
 ```
 
 One subtlety: the plugin repository path is baked into compiled code as
-`PLUGINS_REPOSITORY_OPT` (`-DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\")`,
+`PLUGINS_REPOSITORY_OPT` (`-DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"`,
 see `rules/common.mk:30`). If you change `MMT_BASE` between building and
 installing, `sdk/Makefile:28-29` removes `plugins_engine.o` so it gets
 recompiled with the new path. Keep `MMT_BASE` identical across your
@@ -146,6 +148,13 @@ build/install invocations to avoid surprises.
 Two verification profiles exist in `rules/common.mk` (both add flags to
 `CFLAGS` and `CXXFLAGS` so they reach the shared-library link lines):
 
+> **⚠ Always `make -C sdk clean` before switching build profiles.**
+> Object rules depend on source timestamps only (`rules/common.mk:426-428`) —
+> changing `BUILD=` does *not* invalidate existing `.o` files, so building
+> `BUILD=asan` on top of a plain tree relinks sanitized `.so` files from
+> non-instrumented objects and reports success. Clean first, then build the
+> new profile.
+
 ### `BUILD=asan` — AddressSanitizer + UBSan
 
 Defined at `rules/common.mk:100-127`. Verification vehicle for memory-safety
@@ -153,6 +162,7 @@ hardening: catches OOB reads/writes, use-after-free, and UB on untrusted
 packet input.
 
 ```bash
+make -C sdk clean
 make -C sdk BUILD=asan MMT_BASE=/tmp/mmt-asan -j$(nproc)
 make -C sdk BUILD=asan MMT_BASE=/tmp/mmt-asan install
 # Run an instrumented example through crafted pcaps:
@@ -174,6 +184,7 @@ harness must be built with this profile — see
 [THREADING.md](./THREADING.md) for what it verifies.
 
 ```bash
+make -C sdk clean
 make -C sdk BUILD=tsan MMT_BASE=/tmp/mmt-tsan -j$(nproc)
 make -C sdk BUILD=tsan MMT_BASE=/tmp/mmt-tsan install
 ```
@@ -206,11 +217,13 @@ only fatal when `ENABLESEC=1`.
 Run this after setting up a fresh environment; all four commands must succeed:
 
 ```bash
-make -C sdk -j$(nproc)          # exit 0, green build (~1–2 min)
+make -C sdk -j$(nproc)          # exit 0, green build (seconds to ~2 min depending on machine)
 bash tests/run_all_tests.sh     # 8/8 suites PASSED, exit 0 (~25 s)
 make -C sdk ENABLESEC=1 -j$(nproc)   # exit 0 (optional engines build)
-make -C sdk BUILD=asan MMT_BASE=/tmp/mmt-asan -j$(nproc)   # exit 0 (sanitizer profile)
+make -C sdk clean && make -C sdk BUILD=asan MMT_BASE=/tmp/mmt-asan -j$(nproc)   # exit 0 (sanitizer profile)
 ```
 
 If any of these fails, fix the environment before attempting code changes —
-upstream tasks assume this baseline is green.
+upstream tasks assume this baseline is green. After sanitizer/`ENABLESEC`
+experiments, restore the default tree with `make -C sdk clean &&
+make -C sdk -j$(nproc)`.
