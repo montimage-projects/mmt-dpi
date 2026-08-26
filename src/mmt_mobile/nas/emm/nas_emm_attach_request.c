@@ -17,12 +17,18 @@
 
 int nas_emm_decode_attach_request(nas_emm_attach_request_t *msg, const uint8_t *buffer, uint32_t len){
 
-	uint32_t decoded = 0;
-	uint32_t ret = 0;
+	int decoded = 0;
+	int ret = 0;
+
+	CHECK_PDU_POINTER_AND_LENGTH_DECODER(buffer, 2, len);
 
 	DECODE_U8(buffer+decoded, msg->eps_attach_type, decoded );
 
-	decoded += nas_decode_eps_mobile_identity(&msg->old_guti_or_imsi, 0, buffer+decoded, len-decoded) ;
+	// F-BUG-215: capture negative decoder errors in signed and early-return before uint32 wrap
+	ret = nas_decode_eps_mobile_identity(&msg->old_guti_or_imsi, 0, buffer+decoded, len-decoded);
+	if (ret < 0)
+		return ret;
+	decoded += ret;
 
 
 	return decoded;
