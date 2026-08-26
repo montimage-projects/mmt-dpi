@@ -32,6 +32,7 @@ overview and quick start, see the [root README](../README.md).
 * [Phase-2 Heuristics](./Phase2-Heuristics.md)
 
 ## Development & Operations ##
+* [Agent Environment Notes](./AGENT_ENVIRONMENT.md) — toolchain, build/test commands of record, `MMT_BASE`, sanitizer profiles, `ENABLESEC`
 * [Development](./DEVELOPMENT.md) — local setup, build options, testing, debugging
 * [Developer Notes](./Developer.md) — entry point for extending MMT-DPI and per-protocol docs
 * [Deployment](./DEPLOYMENT.md) — install layout, linking, runtime environment
