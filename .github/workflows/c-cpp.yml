@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: [ main ]
 
+# Least-privilege default (F-SEC-005): every job gets a read-only token unless
+# it declares its own elevated permissions block.
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     # Compile-and-run the standalone unit suites (tests/run_all_tests.sh).
