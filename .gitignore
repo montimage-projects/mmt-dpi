@@ -78,6 +78,11 @@ tests/*/test_*
 !tests/*/test_*.c
 !tests/*/test_*.h
 
+# gcov intermediate data + generated coverage reports (--coverage mode)
+tests/*/*.gcda
+tests/*/*.gcno
+tests/coverage/
+
 # --- OSS-readiness flow additions ---
 # Package build artifacts
 *.deb

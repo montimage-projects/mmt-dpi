@@ -78,3 +78,13 @@ Append-only log of ambiguities resolved during doc-manager runs.
 
 - Q: `docs/Install-mmt-sdk-on-CubieBoard-X.md` is an orphaned doc (not linked from any other doc) referencing mmt-sdk 0.1 for a CubieBoard X. It is not linked from `docs/README.md` or `Developer.md`.
   A (doc-manager): Left in place for historical reference but flagged as orphaned. Not linked from any navigation doc.
+
+- Q: Issue #123 asks for c-cpp.yml jobs that "build with BUILD=asan and BUILD=tsan and run bash tests/run_all_tests.sh", but BUILD= is a rules/*.mk variable that only affects SDK library builds — the standalone suites compile directly with gcc and never read it.
+  A (issue-resolver): The runner gained a SANITIZE=asan|tsan mode that applies the exact flag sets of the SDK profiles to every suite compile+link line, and suites that build the SDK internally (citrix_ica_detection, http_header_case) forward BUILD=${SDK_BUILD_PROFILE} to their internal make. The workflow matrix carries the literal BUILD=asan / BUILD=tsan tokens mapping them to SANITIZE values.
+  Source: `tests/run_all_tests.sh:58-84`, `tests/citrix_ica_detection/run_tests.sh:26-31`, `.github/workflows/c-cpp.yml` (sanitizer-tests job).
+- Q: TSan-instrumented suite binaries abort at startup with "ThreadSanitizer: unexpected memory mapping" on modern kernels (vm.mmap_rnd_bits default raised to 32; TSan's fixed shadow layout needs ~28-30 bits).
+  A (issue-resolver): tests/run_all_tests.sh re-execs itself once under `setarch $(uname -m) -R` (ASLR disabled) when SANITIZE=tsan, guarded by MMT_TSAN_REEXEC so it happens exactly once. No user/CI action needed.
+  Source: `tests/run_all_tests.sh:75-78`.
+- Q: Issue #124 suggests gcov+lcov (or gcovr), but neither lcov nor gcovr is installed in the dev environment and the acceptance criteria only require a machine-readable report plus a printed line percentage.
+  A (issue-resolver): Implemented with gcov alone (`gcov --json-format` + jq, both shipped with gcc/standard images); the runner emits a genuine lcov-format tracefile at tests/coverage/coverage.info, so lcov tooling can still consume it. System headers outside the repo are excluded from the report.
+  Source: `tests/run_all_tests.sh:166-249`.

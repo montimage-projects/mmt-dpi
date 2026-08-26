@@ -16,10 +16,14 @@ char * str_hex2str(char *hstr, int start_index, int end_index){
 
     if(end_index < start_index ) return NULL;
 
-    int length = end_index - start_index + 2;
+    /* [start_index, end_index] is inclusive on both ends: examine
+     * end-start+1 characters and keep room for the terminating NUL.
+     * Callers pass length-1 as end_index for an NUL-terminated input,
+     * so the last examined character is the final byte before NUL. */
+    int length = end_index - start_index + 1;
 
     char *ret;
-    ret = (char*)malloc(length);
+    ret = (char*)malloc(length + 1);
     if(ret == NULL) return NULL;
     int i = 0;
     
