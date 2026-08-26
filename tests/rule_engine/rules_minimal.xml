@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<!--
+  Minimal MMT security-rule set used by tests/rule_engine to exercise the
+  rule-file parser (read_rules/processNode in src/mmt_security/tips.c).
+
+  The schema is derived directly from tips.c:
+    - document root is ignored, <beginning> is skipped;
+      each <property> opens a new rule tree (processNode, tips.c:1373)
+    - <operator> nodes carry value= boolean connectors (THEN/OR/AND/NOT/
+      REPEAT/COMPUTE), nested operators build the event sub-tree
+      (tips.c:1390, tips.c:1503+)
+    - the boolean_expression= attribute is compiled into condition leaves;
+      identifiers follow PROTO.FIELD [.EVENT_REF] and operators are
+      == != > >= < <= && || (create_boolean_expression, tips.c:945)
+    - referencing an unknown protocol/attribute aborts parsing with
+      Error 9 (tips.c:1094), so the expressions below resolve against
+      the always-present META protocol only.
+-->
+<beginning>
+
+  <!-- Simple SECURITY_RULE over two constant comparisons on META
+       attributes: proves the full parse -> condition-tree construction ->
+       register_extraction_attribute chain succeeds end-to-end. -->
+  <property property_id="100001" type_property="SECURITY_RULE"
+            description="Rule engine self-test: META timestamps must exist"
+            if_satisfied="OK" if_not_satisfied="VIOLATION">
+    <event event_id="1">
+      <operator value="AND" boolean_expression="((META.utime &gt; 0)&amp;&amp;(META.packet_len &gt; 0))"/>
+    </event>
+  </property>
+
+  <!-- Second property: exercises numeric comparison on another
+       expression form so the parser handles more than one leaf. -->
+  <property property_id="100002" type_property="TEST"
+            description="Rule engine self-test: single comparison"
+            if_satisfied="OK" if_not_satisfied="VIOLATION">
+    <event event_id="1">
+      <operator value="GT" boolean_expression="(META.packet_index &gt; 0)"/>
+    </event>
+  </property>
+
+</beginning>
