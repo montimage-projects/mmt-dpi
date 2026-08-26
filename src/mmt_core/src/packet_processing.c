@@ -1594,10 +1594,11 @@ struct attribute_internal_struct * get_registered_attribute_internal_struct(cons
  * @return a positive value if the extraction was done, zero otherwise
  */
 int internal_extract_attribute(const ipacket_t * ipacket, struct attribute_internal_struct * tmp_attr_ref, unsigned index) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || tmp_attr_ref == NULL) return 0;
     // Central caplen guard (F-BUG-001): reject fixed-offset attributes that would read past caplen
     if (tmp_attr_ref->position_in_packet >= 0 && tmp_attr_ref->data_len > 0) {
         int proto_offset = get_packet_offset_at_index(ipacket, index);
-        if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+        if (proto_offset < 0) return 0;
         size_t needed = (size_t)proto_offset + (size_t)tmp_attr_ref->position_in_packet + (size_t)tmp_attr_ref->data_len;
         if (needed > ipacket->p_hdr->caplen) return 0;
     }

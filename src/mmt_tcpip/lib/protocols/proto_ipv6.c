@@ -309,12 +309,13 @@ mmt_key_t ip6_fragment_key(const struct ipv6hdr *ip6h,
 
 static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
 {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
     mmt_handler_t *mmt = ipacket->mmt_handler;
     mmt_hashmap_t *map = mmt->ip_streams;
     mmt_key_t key;
     ipv6_dgram_t *dg;
     int offset = get_packet_offset_at_index(ipacket, index);
-    if (offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (offset < 0) return 0;
     if (ipacket->p_hdr->caplen < (unsigned)(offset + (int)sizeof(struct ipv6hdr))) return 0;
     mmt_una_ipv6hdr_t *ip6h = (mmt_una_ipv6hdr_t *)&ipacket->data[offset];
     uint8_t next_hdr = ip6h->nexthdr;
@@ -389,8 +390,9 @@ static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
 
 void ipv6_parse_extension_headers(ipacket_t *ipacket, unsigned index)
 {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return;
     int offset = get_packet_offset_at_index(ipacket, index);
-    if (offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return;
+    if (offset < 0) return;
     if (ipacket->p_hdr->caplen < (unsigned)(offset + (int)sizeof(struct ipv6hdr))) return;
     mmt_una_ipv6hdr_t *ip6h = (mmt_una_ipv6hdr_t *)&ipacket->data[offset];
     uint8_t next_hdr = ip6h->nexthdr;
@@ -406,8 +408,9 @@ void ipv6_parse_extension_headers(ipacket_t *ipacket, unsigned index)
 
 void *ip6_sessionizer(void *protocol_context, ipacket_t *ipacket, unsigned index, int *is_new_session)
 {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return NULL;
     int offset = get_packet_offset_at_index(ipacket, index);
-    if (offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return NULL;
+    if (offset < 0) return NULL;
     if (ipacket->p_hdr->caplen < (unsigned)(offset + (int)sizeof(struct ipv6hdr))) return NULL;
     mmt_session_key_t ipv6_session_key;
     int packet_direction;

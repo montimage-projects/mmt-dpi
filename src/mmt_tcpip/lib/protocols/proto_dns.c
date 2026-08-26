@@ -655,11 +655,12 @@ dns_answer_t * dns_extract_answers(const u_char *dns_answers_payload,int nb_answ
 }
 
 int dns_get_answers_offset(const ipacket_t * ipacket, unsigned proto_index){
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
     /* Get the protocol offset */
     int answer_payload_offset = 12;
 
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     // Get number of queries
     int qdcount_offset = 4;
     if ((size_t)proto_offset + (size_t)qdcount_offset + 2 > ipacket->p_hdr->caplen) return 0;
@@ -683,10 +684,11 @@ int dns_get_answers_offset(const ipacket_t * ipacket, unsigned proto_index){
 }
 
 int dns_get_auth_records_payload_offset(const ipacket_t * ipacket, unsigned proto_index){
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
     /* Get the protocol offset */
     
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     // Get number of answers
     int auth_records_payload_offset = dns_get_answers_offset(ipacket,proto_index);
     int ancount_offset = 6;
@@ -709,10 +711,11 @@ int dns_get_auth_records_payload_offset(const ipacket_t * ipacket, unsigned prot
 }
 
 int dns_get_add_records_payload_offset(const ipacket_t * ipacket, unsigned proto_index){
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
     /* Get the protocol offset */
     
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     // Get number of answers
     int add_records_payload_offset = dns_get_auth_records_payload_offset(ipacket,proto_index);
     int nscount_offset = 8;
@@ -741,13 +744,14 @@ int dns_get_add_records_payload_offset(const ipacket_t * ipacket, unsigned proto
  */
 int dns_qr_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[1].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[1].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -757,13 +761,14 @@ int dns_qr_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_opcode_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[2].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[2].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -773,13 +778,14 @@ int dns_opcode_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_aa_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[3].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[3].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -792,13 +798,14 @@ int dns_aa_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_tc_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[4].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[4].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -808,13 +815,14 @@ int dns_tc_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_rd_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[5].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[5].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -824,13 +832,14 @@ int dns_rd_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_ra_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[6].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[6].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -844,13 +853,14 @@ int dns_ra_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_z_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[7].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[7].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -860,13 +870,14 @@ int dns_z_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_ans_auth_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[8].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[8].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -880,13 +891,14 @@ int dns_ans_auth_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_data_auth_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[9].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[9].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -900,13 +912,14 @@ int dns_data_auth_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_rcode_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
     int attribute_offset = dns_attributes_metadata[10].position_in_packet;
     /* unused
     int attribute_length = dns_attributes_metadata[10].data_len;
     */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + sizeof(uint16_t) > ipacket->p_hdr->caplen) return 0;
     uint16_t flags = ntohs(*(uint16_t *) & ipacket->data[proto_offset + attribute_offset]);
     //struct qropcodeaatcrdrazans_authdata_authrcode * temp_qropcodeaatcrdrazans_authdata_authrcode = (struct qropcodeaatcrdrazans_authdata_authrcode *) & flags;
@@ -920,9 +933,10 @@ int dns_rcode_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_queries_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     // Get number of queries
     int qdcount_offset = 4;
     if ((size_t)proto_offset + (size_t)qdcount_offset + 2 > ipacket->p_hdr->caplen) return 0;
@@ -944,9 +958,10 @@ int dns_queries_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_answers_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     // Get number of queries
     int ancount_offset = 6;
     if ((size_t)proto_offset + (size_t)ancount_offset + 2 > ipacket->p_hdr->caplen) return 0;
@@ -968,9 +983,10 @@ int dns_answers_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_auth_records_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     // Get number of queries
     int nscount_offset = 8;
     if ((size_t)proto_offset + (size_t)nscount_offset + 2 > ipacket->p_hdr->caplen) return 0;
@@ -992,9 +1008,10 @@ int dns_auth_records_extraction(const ipacket_t * ipacket, unsigned proto_index,
 
 int dns_add_records_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     // Get number of queries
     int arcount_offset = 10;
     if ((size_t)proto_offset + (size_t)arcount_offset + 2 > ipacket->p_hdr->caplen) return 0;

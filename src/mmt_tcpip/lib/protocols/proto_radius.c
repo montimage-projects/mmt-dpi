@@ -53,6 +53,7 @@ read_be32( const uint8_t *x )
  */
 int radius_authenticator_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
 
@@ -60,7 +61,7 @@ int radius_authenticator_extraction(const ipacket_t * ipacket, unsigned proto_in
     int attribute_offset = sizeof (struct radius_header);
 
     int attribute_length = 16; /* Length of the authenticator field */
-    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (proto_offset < 0) return 0;
     if ((size_t)proto_offset + (size_t)attribute_offset + (size_t)attribute_length > ipacket->p_hdr->caplen) return 0;
 
     *((unsigned int *) extracted_data->data) = attribute_length;
