@@ -24,11 +24,12 @@ CC="${CC:-gcc}"
 # EXTRA_CFLAGS carries sanitizer/coverage instrumentation requested by
 # tests/run_all_tests.sh (appended last so its -O level wins over -O2).
 CFLAGS="-O2 -Wall -g ${EXTRA_CFLAGS:-}"
+read -r -a cflags <<< "${CFLAGS}"
 
 # --- build NEW (working tree) ---------------------------------------------
 # The correctness suite always runs, so build the working-tree binary first.
 echo "  building NEW (working tree) ..."
-${CC} ${CFLAGS} -I "${LIB_DIR}" -o "${SCRIPT_DIR}/test_new" \
+${CC} "${cflags[@]}" -I "${LIB_DIR}" -o "${SCRIPT_DIR}/test_new" \
     "${TEST_SRC}" "${LIB_DIR}/avltree.c"
 
 # Pick a git ref that holds a *distinct* pre-fix source. The issue #21 fix is
@@ -62,7 +63,7 @@ echo "  building OLD (${OLD_REF}) ..."
 mkdir -p "${WORK}/old"
 git -C "${REPO_ROOT}" show "${OLD_REF}:src/mmt_tcpip/lib/avltree.c" > "${WORK}/old/avltree.c"
 git -C "${REPO_ROOT}" show "${OLD_REF}:src/mmt_tcpip/lib/avltree.h" > "${WORK}/old/avltree.h"
-${CC} ${CFLAGS} -I "${WORK}/old" -o "${WORK}/test_old" \
+${CC} "${cflags[@]}" -I "${WORK}/old" -o "${WORK}/test_old" \
     "${TEST_SRC}" "${WORK}/old/avltree.c"
 
 # --- 1. correctness on NEW -------------------------------------------------

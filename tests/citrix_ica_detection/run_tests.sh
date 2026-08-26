@@ -52,7 +52,8 @@ fi
 # tests/run_all_tests.sh; the binary stays in the suite dir so gcov data
 # (.gcno/.gcda) survives for the coverage report.
 echo "  [2/3] compiling test ..."
-${CC} ${EXTRA_CFLAGS:-} -O2 -Wall -o "${SCRIPT_DIR}/test_citrix_ica" \
+read -r -a extra_cflags <<< "${EXTRA_CFLAGS:-}"
+${CC} "${extra_cflags[@]}" -O2 -Wall -o "${SCRIPT_DIR}/test_citrix_ica" \
     "${TEST_SRC}" -I "${INC}" -L "${LIB}" -lmmt_core -ldl
 
 # --- 3. run with CWD-relative plugins/ pointing at the built plugins -------

@@ -89,8 +89,8 @@ curl -fsSL "$CLOUDFLARE_URL" \
 
 # Azure (issue #83)
 # ServiceTags_Public.json is updated weekly; the date in the URL must be refreshed.
-printf '\n# Azure -> AZURE (weekly ServiceTags JSON)\n' \
-    'Source: https://www.microsoft.com/en-us/download/details.aspx?id=56519'
+printf '\n# Azure -> AZURE (weekly ServiceTags JSON)\n# Source: %s\n' \
+    'https://www.microsoft.com/en-us/download/details.aspx?id=56519'
 curl -fsSL "$AZURE_URL" \
     | jq -r '.values[].properties.addressPrefixes[]' \
     | emit AZURE
