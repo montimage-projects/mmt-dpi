@@ -47,14 +47,22 @@ static inline void _get_set_amf_ue_ngap_id( action_t act, ngap_message_t *msg, N
 		b = a;                    \
 	}
 
+static inline void _get_set_nas_pdu( action_t act, ngap_message_t *msg, const NGAP_NAS_PDU_t *nas_pdu ){
+	//NAS_PDU is meaningful only when decoding (GET_ACTION);
+	//when encoding (SET_ACTION) the PDU being built already carries its own NAS_PDU
+	if( act != GET_ACTION || msg == NULL || nas_pdu == NULL )
+		return;
+	msg->nas_pdu.data = nas_pdu->buf;
+	msg->nas_pdu.size = nas_pdu->size;
+}
+
 static inline bool _decode_NGAP_InitialUEMessage_t(action_t act, ngap_message_t *msg, NGAP_InitialUEMessage_t *data){
 	int i, decoded = 0;
 	for( i=0; i<data->protocolIEs.list.count; i++){
 		NGAP_InitialUEMessage_IEs_t *ie_p = data->protocolIEs.list.array[i];
 		switch( ie_p->value.present ){
 		case NGAP_InitialUEMessage_IEs__value_PR_NAS_PDU:
-			msg->nas_pdu.data = ie_p->value.choice.NAS_PDU.buf;
-			msg->nas_pdu.size = ie_p->value.choice.NAS_PDU.size;
+			_get_set_nas_pdu( act, msg, &ie_p->value.choice.NAS_PDU );
 			break;
 		case NGAP_InitialUEMessage_IEs__value_PR_RAN_UE_NGAP_ID:
 			GET_SET( act, msg->ran_ue_id, ie_p->value.choice.RAN_UE_NGAP_ID );
@@ -72,8 +80,7 @@ static inline bool _decode_NGAP_DownlinkNASTransport(action_t act, ngap_message_
 		NGAP_DownlinkNASTransport_IEs_t *ie_p = data->protocolIEs.list.array[i];
 		switch( ie_p->value.present ){
 		case NGAP_DownlinkNASTransport_IEs__value_PR_NAS_PDU:
-			msg->nas_pdu.data = ie_p->value.choice.NAS_PDU.buf;
-			msg->nas_pdu.size = ie_p->value.choice.NAS_PDU.size;
+			_get_set_nas_pdu( act, msg, &ie_p->value.choice.NAS_PDU );
 			break;
 		case NGAP_DownlinkNASTransport_IEs__value_PR_AMF_UE_NGAP_ID:
 			_get_set_amf_ue_ngap_id( act, msg, & ie_p->value.choice.AMF_UE_NGAP_ID );
@@ -94,8 +101,7 @@ static inline bool _decode_NGAP_UplinkNASTransport(action_t act, ngap_message_t 
 		NGAP_UplinkNASTransport_IEs_t *ie_p = data->protocolIEs.list.array[i];
 		switch( ie_p->value.present ){
 		case NGAP_UplinkNASTransport_IEs__value_PR_NAS_PDU:
-			msg->nas_pdu.data = ie_p->value.choice.NAS_PDU.buf;
-			msg->nas_pdu.size = ie_p->value.choice.NAS_PDU.size;
+			_get_set_nas_pdu( act, msg, &ie_p->value.choice.NAS_PDU );
 			break;
 		case NGAP_UplinkNASTransport_IEs__value_PR_AMF_UE_NGAP_ID:
 			_get_set_amf_ue_ngap_id( act, msg, & ie_p->value.choice.AMF_UE_NGAP_ID );
@@ -439,10 +445,10 @@ static NGAP_NGAP_PDU_t * _visite_pdu(action_t act, ngap_message_t *msg, const ui
 	void *p;
 
 	if( msg == NULL )
-		return false;
+		return NULL;
 
 	if( length == 0 || payload == NULL )
-		return false;
+		return NULL;
 	dec_ret = aper_decode( NULL, &asn_DEF_NGAP_NGAP_PDU, (void **)&pdu_p,
 			payload,
 			length,
@@ -451,7 +457,7 @@ static NGAP_NGAP_PDU_t * _visite_pdu(action_t act, ngap_message_t *msg, const ui
 
 	if( dec_ret.code != RC_OK ){
 		ASN_STRUCT_FREE( asn_DEF_NGAP_NGAP_PDU, pdu_p );
-		return false;
+		return NULL;
 	}
 
 	GET_SET( act, msg->pdu_present, pdu_p->present );
@@ -508,23 +514,25 @@ uint32_t get_nas_pdu( void *data, uint32_t data_size, const uint8_t *payload, ui
 	NGAP_NGAP_PDU_t *pdu_p = _visite_pdu( GET_ACTION, msg, payload, length );
 
 	if( pdu_p == NULL )
-		return false;
+		return 0;
 
-	if( msg->nas_pdu.size > 0 ){
+	uint32_t copied = 0;
+	if( msg->nas_pdu.size > 0 && msg->nas_pdu.data != NULL ){
 		//copy data used by NAS_PDU
-		if( data_size > msg->nas_pdu.size )
-			data_size = msg->nas_pdu.size;
-		memcpy(data, msg->nas_pdu.data, data_size);
+		copied = msg->nas_pdu.size;
+		if( copied > data_size )
+			copied = data_size;
+		memcpy(data, msg->nas_pdu.data, copied);
 	}
 
 
 	ASN_STRUCT_FREE( asn_DEF_NGAP_NGAP_PDU, pdu_p );
-	return data_size;
+	return copied;
 }
 
 uint32_t encode_ngap( void *buffer, uint32_t buffer_size, const ngap_message_t *message, const uint8_t *payload, const uint32_t length){
 	uint32_t ret = 0;
-	if( buffer == NULL || buffer_size == 0 || payload == NULL || length == 0 )
+	if( buffer == NULL || buffer_size == 0 || payload == NULL || length == 0 || message == NULL )
 		return ret;
 
 	//clone message to keep it as const

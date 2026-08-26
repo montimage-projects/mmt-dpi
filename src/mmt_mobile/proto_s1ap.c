@@ -36,9 +36,12 @@ static inline void _free_entities_list(){
 #define HAS_STR( x ) (x[0] != '\0') //check if string is not empty
 #define HAS_VAL( x ) (x    != 0)    //check if a number is not zero
 
-#define IS_CONTAIN_ENB( msg ) (HAS_VAL( msg->enb_plmn_id )       || HAS_STR( msg->enb_name ) || HAS_VAL( msg->enb_ipv4 ))
-#define IS_CONTAIN_MME( msg ) (HAS_VAL( msg->mme_group_code_id ) || HAS_STR( msg->mme_name ) || HAS_VAL( msg->mme_ipv4 ))
-#define IS_CONTAIN_UE(  msg ) (HAS_STR( msg->imsi )       \
+//presence flags of optional IEs decoded by s1ap_decode()
+#define HAS_FLAG( msg, flag ) ((msg)->flag != 0)
+
+#define IS_CONTAIN_ENB( msg ) (HAS_VAL( msg->enb_plmn_id )       || HAS_FLAG( msg, has_enb_name ) || HAS_VAL( msg->enb_ipv4 ))
+#define IS_CONTAIN_MME( msg ) (HAS_VAL( msg->mme_group_code_id ) || HAS_FLAG( msg, has_mme_name ) || HAS_VAL( msg->mme_ipv4 ))
+#define IS_CONTAIN_UE(  msg ) (HAS_FLAG( msg, has_imsi )   \
 							   || HAS_VAL( msg->m_tmsi )  \
 							   || HAS_VAL( msg->ue_ipv4 ) \
 							   || HAS_VAL( msg->enb_ue_id ) || HAS_VAL( msg->mme_ue_id) )
@@ -62,7 +65,7 @@ static inline s1ap_entities_t* _find_entity_node( s1ap_entity_type_t type, const
 			if( HAS_VAL( msg->enb_ipv4 ) && p->entity.ipv4 == msg->enb_ipv4 )
 				return p;
 			//same name
-			if( HAS_STR( msg->enb_name ) && memcmp( msg->enb_name, p->entity.data.enb.name, S1AP_ENTITY_NAME_LENGTH ) == 0)
+			if( HAS_FLAG( msg, has_enb_name ) && memcmp( msg->enb_name, p->entity.data.enb.name, S1AP_ENTITY_NAME_LENGTH ) == 0)
 				return p;
 		}
 		return NULL;
@@ -78,7 +81,7 @@ static inline s1ap_entities_t* _find_entity_node( s1ap_entity_type_t type, const
 			if( HAS_VAL( msg->mme_ipv4 ) && p->entity.ipv4 == msg->mme_ipv4 )
 				return p;
 			//same name
-			if( HAS_STR( msg->mme_name ) && memcmp( msg->mme_name, p->entity.data.mme.name, S1AP_ENTITY_NAME_LENGTH ) == 0)
+			if( HAS_FLAG( msg, has_mme_name ) && memcmp( msg->mme_name, p->entity.data.mme.name, S1AP_ENTITY_NAME_LENGTH ) == 0)
 				return p;
 		}
 		return NULL;
@@ -100,7 +103,7 @@ static inline s1ap_entities_t* _find_entity_node( s1ap_entity_type_t type, const
 			if( HAS_VAL( msg->mme_ue_id ) && msg->mme_ue_id == p->entity.data.ue.mme_ue_s1ap_id )
 				return p;
 			//same imsi
-			if( HAS_STR( msg->imsi ) && memcmp( msg->imsi, p->entity.data.ue.imsi, sizeof( msg->imsi)) == 0 )
+			if( HAS_FLAG( msg, has_imsi ) && memcmp( msg->imsi, p->entity.data.ue.imsi, sizeof( msg->imsi)) == 0 )
 				return p;
 
 			//same ip
@@ -432,27 +435,29 @@ static int _extraction_att(const ipacket_t * packet, unsigned proto_index,
 
 	case S1AP_ATT_ENB_NAME:
 		b = (mmt_binary_data_t *)extracted_data->data;
+		IF_TRUE_UNLOCK_AND_RETURN( !HAS_FLAG( &msg, has_enb_name ), 0 );
 		b->len = strlen( msg.enb_name );
-		IF_TRUE_UNLOCK_AND_RETURN( b->len == 0, 0 );
-		if( b->len > sizeof( b->data ) )
-			b->len = sizeof( b->data );
+		//clamp with >= so that b->len + 1 (NUL) still fits into b->data
+		if( b->len >= sizeof( b->data ) )
+			b->len = sizeof( b->data ) - 1;
 		memcpy( b->data, msg.enb_name, b->len + 1);
 		break;
 	case S1AP_ATT_MME_NAME:
 		b = (mmt_binary_data_t *)extracted_data->data;
+		IF_TRUE_UNLOCK_AND_RETURN( !HAS_FLAG( &msg, has_mme_name ), 0 );
 		b->len = strlen( msg.mme_name );
-		IF_TRUE_UNLOCK_AND_RETURN( b->len == 0, 0 );
-		if( b->len > sizeof( b->data ) )
-			b->len = sizeof( b->data );
+		//clamp with >= so that b->len + 1 (NUL) still fits into b->data
+		if( b->len >= sizeof( b->data ) )
+			b->len = sizeof( b->data ) - 1;
 		memcpy( b->data, msg.mme_name, b->len + 1);
 		break;
 	case S1AP_ATT_IMSI:
-		IF_TRUE_UNLOCK_AND_RETURN( msg.imsi[0] == 0, 0 );
+		IF_TRUE_UNLOCK_AND_RETURN( !HAS_FLAG( &msg, has_imsi ), 0 );
 
 		b = (mmt_binary_data_t *) extracted_data->data;
-		b->len = sizeof( msg.imsi );
+		b->len = strnlen( msg.imsi, sizeof( msg.imsi ) );
 		memcpy( b->data, msg.imsi, b->len);
-		b->data[ b->len + 1 ] = '\0';
+		b->data[ b->len ] = '\0';
 		break;
 
 	case S1AP_ATT_QCI:

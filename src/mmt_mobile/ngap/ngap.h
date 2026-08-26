@@ -64,7 +64,8 @@ uint32_t encode_ngap( void *buffer, uint32_t buffer_size, const ngap_message_t *
  * @param buffer_size: capacity of `buffer`
  * @param payload
  * @param length
- * @return number of bytes being stored in `buffer`
+ * @return number of bytes copied from the NAS-PDU IE into `buffer`;
+ *         0 if decoding failed or the PDU contains no NAS-PDU IE
  */
 uint32_t get_nas_pdu( void *buffer, uint32_t buffer_size, const uint8_t *payload, uint32_t length );
 #endif /* SRC_MMT_MOBILE_NGAP_NGAP_H_ */
