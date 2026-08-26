@@ -110,7 +110,7 @@ if [ "$COVERAGE" -eq 1 ]; then
     # Drop stale gcov data from previous runs/profiles so the report only
     # reflects this invocation's binaries.
     find "$SCRIPT_DIR" \( -name '*.gcda' -o -name '*.gcno' \) -delete
-    echo "Mode: coverage report -> ${COVERAGE_DIR#$REPO_ROOT/}/coverage.info"
+    echo "Mode: coverage report -> ${COVERAGE_DIR#"$REPO_ROOT"/}/coverage.info"
 fi
 echo ""
 
@@ -245,7 +245,7 @@ write_coverage_report() {
     fi
     pct="$(awk -v h="$lines_hit" -v t="$lines_total" 'BEGIN { printf "%.1f", 100 * h / t }')"
     echo "Overall line coverage: ${pct}% (${lines_hit}/${lines_total} executable lines)"
-    echo "Coverage report: ${trace#$REPO_ROOT/} (lcov tracefile format)"
+    echo "Coverage report: ${trace#"$REPO_ROOT"/} (lcov tracefile format)"
 }
 
 if [ "$COVERAGE" -eq 1 ]; then
@@ -262,7 +262,7 @@ echo "  Total:  $TOTAL"
 echo "  Passed: $PASS"
 echo "  Failed: $FAIL"
 if [ "$COVERAGE" -eq 1 ]; then
-    echo "  Coverage report: ${COVERAGE_DIR#$REPO_ROOT/}/coverage.info"
+    echo "  Coverage report: ${COVERAGE_DIR#"$REPO_ROOT"/}/coverage.info"
 fi
 echo "============================================"
 

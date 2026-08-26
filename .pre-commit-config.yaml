@@ -2,7 +2,7 @@ repos:
   - repo: local
     hooks:
       - id: shellcheck
-        name: shellcheck (scripts/*.sh)
+        name: shellcheck (all tracked *.sh)
         entry: shellcheck
         language: system
-        files: ^scripts/.*\.sh$
+        files: \.sh$

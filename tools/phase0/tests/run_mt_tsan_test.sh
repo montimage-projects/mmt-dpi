@@ -36,11 +36,7 @@ RADIUS_PCAP="${WORK}/radius.pcap"
 SUPP="${TEST_DIR}/mt_tsan_suppressions.txt"
 NUM_THREADS="${MT_TSAN_THREADS:-8}"
 
-cleanup() {
-    rm -rf "${WORK}"
-    rm -rf "${PREFIX}"
-}
-trap cleanup EXIT
+trap 'rm -rf "${WORK}" "${PREFIX}"' EXIT
 
 CC="${CC:-gcc}"
 
