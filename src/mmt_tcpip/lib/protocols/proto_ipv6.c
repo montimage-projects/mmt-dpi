@@ -314,6 +314,8 @@ static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
     mmt_key_t key;
     ipv6_dgram_t *dg;
     int offset = get_packet_offset_at_index(ipacket, index);
+    if (offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if (ipacket->p_hdr->caplen < (unsigned)(offset + (int)sizeof(struct ipv6hdr))) return 0;
     mmt_una_ipv6hdr_t *ip6h = (mmt_una_ipv6hdr_t *)&ipacket->data[offset];
     uint8_t next_hdr = ip6h->nexthdr;
     uint16_t next_offset = sizeof(struct ipv6hdr);
@@ -322,6 +324,8 @@ static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
     {
         next_offset += get_next_header_offset(next_hdr, &ipacket->data[offset + next_offset], &next_hdr);
     }
+    if (next_hdr != IPPROTO_FRAGMENT) return 0;
+    if (ipacket->p_hdr->caplen < (unsigned)(offset + next_offset + 8)) return 0;
     uint16_t ext_header_len = next_offset + 8 - sizeof(struct ipv6hdr);
     mmt_una_ext_hdr_fragment_t *frag_header = (mmt_una_ext_hdr_fragment_t *)&ipacket->data[offset + next_offset];
     uint8_t more_fragment = ntohs(frag_header->flag) & 0x0001;
@@ -386,6 +390,8 @@ static inline int ip6_process_fragment(ipacket_t *ipacket, unsigned index)
 void ipv6_parse_extension_headers(ipacket_t *ipacket, unsigned index)
 {
     int offset = get_packet_offset_at_index(ipacket, index);
+    if (offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return;
+    if (ipacket->p_hdr->caplen < (unsigned)(offset + (int)sizeof(struct ipv6hdr))) return;
     mmt_una_ipv6hdr_t *ip6h = (mmt_una_ipv6hdr_t *)&ipacket->data[offset];
     uint8_t next_hdr = ip6h->nexthdr;
     uint16_t next_offset = sizeof(struct ipv6hdr);
@@ -401,6 +407,8 @@ void ipv6_parse_extension_headers(ipacket_t *ipacket, unsigned index)
 void *ip6_sessionizer(void *protocol_context, ipacket_t *ipacket, unsigned index, int *is_new_session)
 {
     int offset = get_packet_offset_at_index(ipacket, index);
+    if (offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return NULL;
+    if (ipacket->p_hdr->caplen < (unsigned)(offset + (int)sizeof(struct ipv6hdr))) return NULL;
     mmt_session_key_t ipv6_session_key;
     int packet_direction;
     // LN: Defragmentation

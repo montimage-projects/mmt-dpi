@@ -60,6 +60,8 @@ int radius_authenticator_extraction(const ipacket_t * ipacket, unsigned proto_in
     int attribute_offset = sizeof (struct radius_header);
 
     int attribute_length = 16; /* Length of the authenticator field */
+    if (proto_offset < 0 || ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
+    if ((size_t)proto_offset + (size_t)attribute_offset + (size_t)attribute_length > ipacket->p_hdr->caplen) return 0;
 
     *((unsigned int *) extracted_data->data) = attribute_length;
     memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & ipacket->data[proto_offset + attribute_offset], attribute_length);
