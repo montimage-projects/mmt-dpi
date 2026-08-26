@@ -14,12 +14,32 @@ typedef enum{
 	GET_ACTION
 } action_t;
 
+/*
+ * asn1c's stack-overflow guard measures nesting depth by the distance
+ * between the codec context and its own frame (&ctx). AddressSanitizer
+ * relocates instrumented locals onto its fake stack, so that distance
+ * always exceeds ASN__DEFAULT_STACK_MAX and every PER decode fails with
+ * RC_WMORE ("Stack limit 30000 reached"). The generated trees under
+ * src/mmt_mobile/asn1c/ must not be edited, so the limit is disabled
+ * here (and in s1ap_common.c) only for ASan builds: release keeps the
+ * guard because MMT_BUILD_ASAN is defined solely by BUILD=asan.
+ */
+static const asn_codec_ctx_t _aper_no_stack_ctx = { 0 };
+
+static inline const asn_codec_ctx_t * _aper_codec_ctx( void ){
+#if defined(MMT_BUILD_ASAN)
+	return &_aper_no_stack_ctx;
+#else
+	return NULL;
+#endif
+}
+
 bool try_decode_ngap( const uint8_t * payload, const uint32_t length ){
 	NGAP_NGAP_PDU_t *pdu_p = NULL;
 	asn_dec_rval_t dec_ret;
 	if( length == 0 )
 		return false;
-	dec_ret = aper_decode( NULL, &asn_DEF_NGAP_NGAP_PDU, (void **)&pdu_p,
+	dec_ret = aper_decode(_aper_codec_ctx(), &asn_DEF_NGAP_NGAP_PDU, (void **)&pdu_p,
 			payload,
 			length,
 			0,
@@ -449,7 +469,7 @@ static NGAP_NGAP_PDU_t * _visite_pdu(action_t act, ngap_message_t *msg, const ui
 
 	if( length == 0 || payload == NULL )
 		return NULL;
-	dec_ret = aper_decode( NULL, &asn_DEF_NGAP_NGAP_PDU, (void **)&pdu_p,
+	dec_ret = aper_decode(_aper_codec_ctx(), &asn_DEF_NGAP_NGAP_PDU, (void **)&pdu_p,
 			payload,
 			length,
 			0,

@@ -830,6 +830,26 @@ static int _decode_s1ap_successfulOutcomeMessage(s1ap_message_t *message,
  *                 E-RABToBeSetupItemCtxtSUReq/gTP-TEID
  * - IP      : In the same packet of GTP_TEID; same path/(NAS)PDU/EMS message container/PDN address
  */
+/*
+ * asn1c's stack-overflow guard measures nesting depth by the distance
+ * between the codec context and its own frame (&ctx). AddressSanitizer
+ * relocates instrumented locals onto its fake stack, so that distance
+ * always exceeds ASN__DEFAULT_STACK_MAX and every PER decode fails with
+ * RC_WMORE ("Stack limit 30000 reached"). The generated trees under
+ * src/mmt_mobile/asn1c/ must not be edited, so the limit is disabled
+ * here (and in ngap.c) only for ASan builds: release keeps the guard
+ * because MMT_BUILD_ASAN is defined solely by BUILD=asan.
+ */
+static const asn_codec_ctx_t _aper_codec_ctx_storage = { 0 };
+
+static inline const asn_codec_ctx_t * _aper_codec_ctx( void ){
+#if defined(MMT_BUILD_ASAN)
+	return &_aper_codec_ctx_storage;
+#else
+	return NULL;
+#endif
+}
+
 int s1ap_decode(s1ap_message_t *message, const uint8_t * const buffer,
 		const uint32_t length)
 {
@@ -841,7 +861,7 @@ int s1ap_decode(s1ap_message_t *message, const uint8_t * const buffer,
 	if( length == 0 )
 		return 0;
 
-	dec_ret = aper_decode(NULL,
+	dec_ret = aper_decode(_aper_codec_ctx(),
 			&asn_DEF_S1AP_PDU,
 			(void **)&pdu_p,
 			buffer,
