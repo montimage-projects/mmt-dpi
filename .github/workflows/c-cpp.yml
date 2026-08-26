@@ -122,3 +122,17 @@ jobs:
       run: |
          sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
          cd sdk/ && make -j2 && sudo make install && make test
+
+  enablesec:
+    # Compile-and-test the optional security/fuzz engines, which are only
+    # built when the SDK is built with ENABLESEC=1 (issue #126 / F-TEST-003).
+    # The rule-engine suite (tests/rule_engine) builds the SDK with
+    # ENABLESEC=1 internally, but this job is the CI gate that proves the
+    # engines compile in the shipped configuration and that the suite runs.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
+    - name: Build & test the security rule engine (ENABLESEC=1)
+      run: bash tests/run_all_tests.sh rule_engine
