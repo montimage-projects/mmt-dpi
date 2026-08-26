@@ -15,10 +15,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 TEST_SRC="${SCRIPT_DIR}/test_s1ap_ngap_decode.c"
 
-PREFIX="${MMT_PREFIX:-$(mktemp -d)}"
+if [ -z "${MMT_PREFIX:-}" ]; then
+    PREFIX="$(mktemp -d)"
+    PREFIX_CREATED=1
+else
+    PREFIX="${MMT_PREFIX}"
+fi
 WORK="$(mktemp -d)"
 BUILD_LOG="${WORK}/build.log"
-trap 'rm -rf "${WORK}"' EXIT
+if [ -n "${PREFIX_CREATED:-}" ]; then
+    trap 'rm -rf "${WORK}" "${PREFIX}"' EXIT
+else
+    trap 'rm -rf "${WORK}"' EXIT
+fi
 
 CC="${CC:-gcc}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 2)}"
@@ -29,6 +38,8 @@ SDK_MAKE_ARGS=()
 if [ -n "${SDK_BUILD_PROFILE:-}" ]; then
     SDK_MAKE_ARGS=("BUILD=${SDK_BUILD_PROFILE}")
 fi
+SDK_MAKE_STR="${SDK_MAKE_ARGS[*]:-}"
+set -- ${SDK_MAKE_STR}
 
 echo "  repo root      : ${REPO_ROOT}"
 echo "  install prefix : ${PREFIX}"
@@ -36,10 +47,10 @@ echo "  install prefix : ${PREFIX}"
 # --- 1. build + install the SDK to the isolated prefix ---------------------
 echo "  [1/3] building + installing SDK ..."
 make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
-if ! make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
+if ! make -C "${REPO_ROOT}/sdk" "$@" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
     echo "✗ SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
 fi
-if ! make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
+if ! make -C "${REPO_ROOT}/sdk" "$@" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
     echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
 fi
 

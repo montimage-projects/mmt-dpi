@@ -243,6 +243,8 @@ static inline int _decode_s1ap_initialContextSetupRequest(
 			}
 			if (_s1ap_decode_e_rabtobesetuplistctxtsureq(message, s1apERABToBeSetupListCtxtSUReq_p) < 0) {
 				S1AP_ERROR("Decoding of encapsulated IE s1apERABToBeSetupListCtxtSUReq failed\n");
+				if (s1apERABToBeSetupListCtxtSUReq_p)
+					ASN_STRUCT_FREE(asn_DEF_S1ap_E_RABToBeSetupListCtxtSUReq, s1apERABToBeSetupListCtxtSUReq_p);
 				decoded = -1;
 				goto _finish;
 			}
