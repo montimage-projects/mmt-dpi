@@ -8,6 +8,8 @@ GCC is the supported toolchain. Environment details: @docs/AGENT_ENVIRONMENT.md
 - Build (there is no top-level Makefile): `make -C sdk -j$(nproc)` — exit 0 = green; warnings are informational (never `-Werror`)
 - Test: `bash tests/run_all_tests.sh` — expect **8/8 suites PASSED**, exit 0 (~25 s); suites compile standalone against `src/`, no prior build or install needed
 - Run a subset: `bash tests/run_all_tests.sh hashmap memory`
+- Sanitized suites: `SANITIZE=asan|tsan bash tests/run_all_tests.sh` (mirrors `BUILD=asan`/`BUILD=tsan`; tsan re-execs under `setarch -R`)
+- Coverage: `bash tests/run_all_tests.sh --coverage` — writes `tests/coverage/coverage.info` (lcov tracefile) and prints the overall line percentage
 - Clean: `make -C sdk clean`
 - Optional security engines: `make -C sdk ENABLESEC=1 -j$(nproc)` (requires libxml2-dev)
 

@@ -32,6 +32,47 @@ jobs:
         EXTRA_CFLAGS: ${{ matrix.extra_cflags }}
       run: bash tests/run_all_tests.sh ${{ matrix.suites }}
 
+  sanitizer-tests:
+    # Run the unit suites (tests/run_all_tests.sh) under the sanitizer
+    # profiles. The matrix entries name the SDK profiles they mirror
+    # (BUILD=asan / BUILD=tsan in rules/common.mk); the runner translates
+    # them into per-suite instrumentation via SANITIZE=asan|tsan, and suites
+    # that build the SDK internally inherit the matching BUILD= profile.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: BUILD=asan
+            sanitize: asan
+          - profile: BUILD=tsan
+            sanitize: tsan
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev
+    - name: Run unit test suites under sanitizers (${{ matrix.profile }})
+      env:
+        SANITIZE: ${{ matrix.sanitize }}
+      run: bash tests/run_all_tests.sh
+
+  coverage:
+    # Measure unit-suite coverage (gcov): run every suite instrumented with
+    # --coverage, emit tests/coverage/coverage.info (lcov tracefile) and print
+    # the overall line percentage; publish the report as a CI artifact.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev jq
+    - name: Run unit test suites with coverage
+      run: bash tests/run_all_tests.sh --coverage
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-suite-coverage
+        path: tests/coverage/
+
   build:
 
     runs-on: ubuntu-latest

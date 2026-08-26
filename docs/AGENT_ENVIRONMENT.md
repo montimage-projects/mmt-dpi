@@ -84,7 +84,7 @@ bash tests/run_all_tests.sh
 
 Expected result: **8/8 suites pass**, total runtime roughly 20–30 s on a
 typical development machine. Exit code `0` on success, `1` on any failure.
-The suite list lives in `DEFAULT_SUITES` (`tests/run_all_tests.sh:44-53`):
+The suite list lives in `DEFAULT_SUITES` (`tests/run_all_tests.sh:141-150`):
 `hashmap`, `memory`, `hexdump`, `mmt_utils`, `mmt_inet_ntop`, `avltree`,
 `citrix_ica_detection`, `http_header_case`.
 
@@ -96,6 +96,30 @@ suite by passing its directory name:
 ```bash
 bash tests/run_all_tests.sh hashmap memory   # subset
 ```
+
+### Suite modes: sanitizers and coverage
+
+`tests/run_all_tests.sh` has two opt-in modes (`tests/run_all_tests.sh:8-84`):
+
+- `SANITIZE=asan bash tests/run_all_tests.sh` — compiles every suite with
+  ASan + UBSan (same flag set as the SDK's `BUILD=asan`,
+  `rules/common.mk:113-118`) and sets `ASAN_OPTIONS=detect_leaks=0`
+  (leak detection stays with Valgrind). Suites that build the SDK internally
+  (`citrix_ica_detection`, `http_header_case`) inherit `BUILD=asan` for their
+  internal SDK build.
+- `SANITIZE=tsan bash tests/run_all_tests.sh` — same with TSan
+  (`rules/common.mk:140-145`). On kernels with high-entropy ASLR the runner
+  re-execs itself once under `setarch -R`
+  (`tests/run_all_tests.sh:75-78`).
+- `bash tests/run_all_tests.sh --coverage` — instruments the suites with gcov,
+  aggregates all `.gcda`, and writes an lcov-format tracefile to
+  `tests/coverage/coverage.info` plus the overall line percentage in stdout
+  (`tests/run_all_tests.sh:166-249`). Requires `gcov` (shipped with gcc) and
+  `jq`; no lcov install needed.
+
+CI runs both modes on every push/PR to main (`.github/workflows/c-cpp.yml`,
+jobs `sanitizer-tests` and `coverage`); the coverage job uploads
+`tests/coverage/` as a workflow artifact.
 
 ## 4. `MMT_BASE` Install-Prefix Behavior
 
