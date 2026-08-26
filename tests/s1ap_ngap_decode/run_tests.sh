@@ -34,12 +34,13 @@ JOBS="${JOBS:-$(nproc 2>/dev/null || echo 2)}"
 
 # Optional SDK build profile forwarded by tests/run_all_tests.sh when the
 # suites run under SANITIZE=asan|tsan (mirrors BUILD= in rules/common.mk).
-SDK_MAKE_ARGS=()
+# Positional params are unused when the suite is invoked by run_all_tests.sh,
+# so they carry the optional BUILD= argument for the two make calls below.
 if [ -n "${SDK_BUILD_PROFILE:-}" ]; then
-    SDK_MAKE_ARGS=("BUILD=${SDK_BUILD_PROFILE}")
+    set -- "BUILD=${SDK_BUILD_PROFILE}"
+else
+    set --
 fi
-SDK_MAKE_STR="${SDK_MAKE_ARGS[*]:-}"
-set -- ${SDK_MAKE_STR}
 
 echo "  repo root      : ${REPO_ROOT}"
 echo "  install prefix : ${PREFIX}"
