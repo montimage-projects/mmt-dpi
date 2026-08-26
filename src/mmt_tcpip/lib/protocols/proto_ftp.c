@@ -153,7 +153,10 @@ ftp_tuple6_t *ftp_copy_tupl6(ftp_tuple6_t *tuple6) {
             memcpy(t->c_addr_v6, tuple6->c_addr_v6, 32);
             t->c_addr_v6[32] = '\0';
             t->s_addr_v6[32] = '\0';
-        }            
+        } else {
+            if(t->c_addr_v6 != NULL){ free(t->c_addr_v6); t->c_addr_v6 = NULL; }
+            if(t->s_addr_v6 != NULL){ free(t->s_addr_v6); t->s_addr_v6 = NULL; }
+        }
     }
     t->ip_session_id = tuple6->ip_session_id;
     return t;
@@ -348,11 +351,20 @@ ftp_data_session_t * ftp_new_data_connection() {
     ftp_data = (ftp_data_session_t*)malloc(sizeof(ftp_data_session_t));
     if(ftp_data == NULL) return NULL;
     ftp_data->data_conn = ftp_new_tuple6();
+    if(ftp_data->data_conn == NULL){
+        free(ftp_data);
+        return NULL;
+    }
     ftp_data->data_conn->conn_type = MMT_FTP_DATA_CONNECTION;
     ftp_data->data_conn_mode = 0;
     ftp_data->data_transfer_type = NULL;
     ftp_data->data_type = 0;
     ftp_data->file = ftp_new_file();
+    if(ftp_data->file == NULL){
+        free_ftp_tuple6(ftp_data->data_conn);
+        free(ftp_data);
+        return NULL;
+    }
     ftp_data->data_direction = MMT_FTP_PACKET_UNKNOWN_DIRECTION;
     ftp_data->control_session = NULL;
     return ftp_data;
@@ -382,14 +394,36 @@ ftp_control_session_t * ftp_new_control_session(ftp_tuple6_t * tuple6) {
         return NULL;
 
     ftp_control->contrl_conn = ftp_copy_tupl6(tuple6);
+    if(ftp_control->contrl_conn == NULL){
+        free(ftp_control);
+        return NULL;
+    }
     ftp_control->last_command = NULL;
     ftp_control->last_response = NULL;
     ftp_control->user = ftp_new_user();
+    if(ftp_control->user == NULL){
+        free_ftp_tuple6(ftp_control->contrl_conn);
+        free(ftp_control);
+        return NULL;
+    }
     ftp_control->session_feats = NULL;
     ftp_control->session_syst = NULL;
     ftp_control->current_dir = NULL;
     ftp_control->status = 0;
     ftp_control->current_data_session = ftp_new_data_connection();
+    if(ftp_control->current_data_session == NULL){
+        free_ftp_user(ftp_control->user);
+        free_ftp_tuple6(ftp_control->contrl_conn);
+        free(ftp_control);
+        return NULL;
+    }
+    if(ftp_control->current_data_session->data_conn == NULL){
+        free_ftp_data_session(ftp_control->current_data_session);
+        free_ftp_user(ftp_control->user);
+        free_ftp_tuple6(ftp_control->contrl_conn);
+        free(ftp_control);
+        return NULL;
+    }
     ftp_control->current_data_session->data_conn->is_ipv6 = tuple6->is_ipv6;
     ftp_control->current_data_session->control_session = ftp_control;
     ftp_control->status = 0;
@@ -1065,8 +1099,17 @@ int ftp_get_response_code(char* payload, int payload_len) {
 inline static uint32_t ftp_get_data_client_addr_from_EPRT(char * payload) {
     // Get all the indexes of "|" in payload
     int * indexes = str_get_indexes(payload, "|");
+    if(indexes == NULL) return 0;
+    if(indexes[0] == -1 || indexes[1] == -1 || indexes[2] == -1){
+        free(indexes);
+        return 0;
+    }
     char * str_addr;
     int len = indexes[2] - indexes[1];
+    if(len <= 0){
+        free(indexes);
+        return 0;
+    }
     str_addr = (char*)malloc(len);
     if(str_addr == NULL){
         free(indexes);
@@ -1444,22 +1487,36 @@ uint16_t ftp_get_data_client_port_from_LPRT(char * payload, uint32_t payload_len
  * @return             port number
  */
 inline static uint16_t ftp_get_port_from_parameter(char *payload, uint32_t payload_len) {
-    // Get all the indexes of "|" in payload
+    // Get all the indexes of "," in payload — PORT needs 5 commas (6 numbers)
     int * indexes = str_get_indexes(payload, ",");
+    if(indexes == NULL) return 0;
+    /* Need at least 5 delimiters; indexes[4] must be a real offset (not -1).
+     * This mirrors the guard in ftp_get_addr_from_parameter (proto_ftp.c:1192). */
+    if(indexes[0] == -1 || indexes[1] == -1 || indexes[2] == -1 || indexes[3] == -1 || indexes[4] == -1){
+        free(indexes);
+        return 0;
+    }
 
     char * nb1;
     nb1 = str_sub(payload, indexes[3]+1, indexes[4]-1);
-    // printf("nb1 string: %s\n", nb1);
+    if(nb1 == NULL){
+        free(indexes);
+        return 0;
+    }
 
     char * nb2;
     int last_c_number = indexes[4]+1;
-    // Remove special character at the end of the commands
-    while(payload[last_c_number]>='0' && payload[last_c_number]<='9'){
+    // Remove special character at the end of the commands — bounded by payload_len
+    while((uint32_t)last_c_number < payload_len && payload[last_c_number]>='0' && payload[last_c_number]<='9'){
         last_c_number++;
     }
 
     nb2 = str_sub(payload, indexes[4]+1, last_c_number-1);
-    // printf("nb2 string: %s\n", nb2);
+    if(nb2 == NULL){
+        free(nb1);
+        free(indexes);
+        return 0;
+    }
     uint16_t port = ntohs(atoi(nb1) * 256 + atoi(nb2));
     free(nb1);
     free(nb2);
@@ -1475,6 +1532,7 @@ inline static uint16_t ftp_get_port_from_parameter(char *payload, uint32_t paylo
  */
 inline static uint16_t ftp_get_data_server_port_code_229(char *payload) {
     char *ret = str_subvalue(payload, "(|||", "|)");
+    if(ret == NULL) return 0;
     uint16_t s_port = htons(atoi(ret));
     free(ret);
     return s_port;
@@ -1488,6 +1546,7 @@ inline static uint16_t ftp_get_data_server_port_code_229(char *payload) {
  */
 inline static uint32_t ftp_get_data_server_addr_code_227(char * payload) {
     char * str = str_subvalue(payload, "(", ")");
+    if(str == NULL) return 0;
     uint32_t len = strlen(str);
     uint32_t address = ftp_get_addr_from_parameter(str, len);
     free(str);
@@ -1500,6 +1559,7 @@ inline static uint32_t ftp_get_data_server_addr_code_227(char * payload) {
  */
 inline static uint16_t ftp_get_data_server_port_code_227(char * payload) {
     char * str = str_subvalue(payload, "(", ")");
+    if(str == NULL) return 0;
     uint32_t len = strlen(str);
     uint16_t port = ftp_get_port_from_parameter(str, len);
     free(str);
@@ -1514,6 +1574,7 @@ inline static uint16_t ftp_get_data_server_port_code_227(char * payload) {
  */
 inline static uint16_t ftp_get_data_server_port_code_228(char *payload) {
     char *ret = str_subvalue(payload, ", ", ")");
+    if(ret == NULL) return 0;
     uint16_t s_addr = htons(atoi(ret));
     free(ret);
     return s_addr;
@@ -1527,6 +1588,7 @@ inline static uint16_t ftp_get_data_server_port_code_228(char *payload) {
  */
 inline static uint32_t ftp_get_data_server_addr_code_228(char *payload) {
     char *ret = str_subvalue(payload, "(", ",");
+    if(ret == NULL) return 0;
     uint32_t s_addr = htons(atoi(ret));
     free(ret);
     return s_addr;
