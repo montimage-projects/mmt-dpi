@@ -420,7 +420,12 @@ typedef struct s1ap_message{
 	char enb_name[ENTITY_NAME_LENGTH];
 	char mme_name[ENTITY_NAME_LENGTH];
 
-	char imsi[15]; //maximum 15 character
+	char imsi[16]; //maximum 15 characters + '\0'
+
+	//presence flags of decoded optional IEs (non-zero when the IE was decoded)
+	uint8_t has_enb_name;
+	uint8_t has_mme_name;
+	uint8_t has_imsi;
 
 }s1ap_message_t;
 
