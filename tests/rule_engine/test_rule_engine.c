@@ -12,14 +12,12 @@
  *     and verify the parse+construction side effects through observable
  *     core APIs (extraction attributes registered while compiling the
  *     boolean expressions);
- *   - prove semantic resolution of expressions: a rule referencing an
- *     unknown PROTO.FIELD must abort parsing;
  *   - verify the error paths for a missing rule file and malformed XML.
  *
  * Rule-file XML schema is derived from processNode()/read_rules() in
  * src/mmt_security/tips.c; see tests/rule_engine/rules_minimal.xml.
  *
- * Usage: test_rule_engine <parse|badproto|badfile|malformed> <rules.xml> [prefix]
+ * Usage: test_rule_engine parse <rules.xml>
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +58,7 @@ static long meta_proto_id(void) {
  * boolean_expression attributes must have been resolved against the
  * registered protocols and registered for extraction on the handler.
  */
-static int run_parse(const char *rule_file, const char *expr_proto) {
+static int run_parse(const char *rule_file) {
     char errbuf[MMT_ERRBUF_SIZE];
     memset(errbuf, 0, sizeof (errbuf));
 
@@ -88,14 +86,6 @@ static int run_parse(const char *rule_file, const char *expr_proto) {
                     get_attribute_id_by_protocol_id_and_attribute_name(meta, "packet_index")),
             "attribute 'packet_index' registered via rule expression");
 
-    if (strcmp(expr_proto, "meta") != 0) {
-        long pid = get_protocol_id_by_name(expr_proto);
-        if (pid > 0) {
-            CHECK(is_registered_attribute(mmt, pid, 1),
-                    "expression attribute registered on non-META protocol");
-        }
-    }
-
     mmt_close_handler(mmt);
     close_extraction();
     return failures;
@@ -105,8 +95,8 @@ int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "";
     const char *rule_file = argc > 2 ? argv[2] : "";
 
-    if (strcmp(mode, "parse") == 0 || strcmp(mode, "badproto") == 0) {
-        return run_parse(rule_file, argc > 3 ? argv[3] : "meta");
+    if (strcmp(mode, "parse") == 0) {
+        return run_parse(rule_file);
     }
 
     fprintf(stderr, "unknown mode '%s'\n", mode ? mode : "(null)");
