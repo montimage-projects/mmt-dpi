@@ -59,12 +59,10 @@ build/
 .idea/
 *.code-workspace
 
-# AI dev tools
+# AI dev tools (CLAUDE.md and AGENTS.md are tracked: milestone ME, issues #120/#121)
 .claude/
 .claude*
-CLAUDE.md
 .agent/
-AGENTS.md
 WARP.md
 .cursor/
 .copilot/
