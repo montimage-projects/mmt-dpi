@@ -285,47 +285,47 @@ int ip_opts_type_extraction(const ipacket_t * packet, unsigned proto_index, attr
 
 int ip_padding_check_extraction(const ipacket_t * packet, unsigned proto_index, attribute_t * extracted_data) {
 
+    if (packet == NULL || packet->p_hdr == NULL || packet->data == NULL || extracted_data == NULL) return 0;
     int proto_offset = get_packet_offset_at_index(packet, proto_index);
-    //protocol_t * protocol_struct = get_protocol_struct_by_id(protocol_id);
-    //int attribute_offset = protocol_struct->get_attribute_position(protocol_id, attribute_id);
-    //int attr_data_len = protocol_struct->get_attribute_length(protocol_id, attribute_id);
-
+    if (proto_offset < 0) return 0;
+    if (packet->p_hdr->caplen < (unsigned)(proto_offset + (int)sizeof(struct iphdr))) return 0;
     mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) (& packet->data[proto_offset]);
     int ihl = ip_hdr->ihl;
-    if (ihl > 5) {
-        int total_opt_len = (ihl - 5) * 4;
-        int checked_len = 0;
-        while (checked_len < total_opt_len){
-            if (packet->data[proto_offset + 5*4 + checked_len] == 0x00){
-                // EOL presents
-                checked_len++;
-                if (checked_len == total_opt_len){
-                    return 0;
-                }else{
-                    int i = 0;
-                    for (i = checked_len + 1; i < total_opt_len; i++){
-                        if (packet->data[proto_offset + 5*4 + checked_len] != 0x00){
-                           *((uint8_t *) extracted_data->data) = 1;
-                           return 1;
-                        }
+    if (ihl <= 5 || ihl > 15) return 0;
+    int ihl_bytes = ihl * 4;
+    if (packet->p_hdr->caplen < (unsigned)(proto_offset + ihl_bytes)) return 0;
+    int total_opt_len = (ihl - 5) * 4;
+    if (total_opt_len <= 0 || total_opt_len > 40) return 0;
+    int checked_len = 0;
+    while (checked_len < total_opt_len){
+        if (proto_offset + 5*4 + checked_len >= (int)packet->p_hdr->caplen) return 0;
+        uint8_t kind = packet->data[proto_offset + 5*4 + checked_len];
+        if (kind == 0x00){
+            // EOL presents
+            checked_len++;
+            if (checked_len == total_opt_len){
+                return 0;
+            } else {
+                for (int i = checked_len; i < total_opt_len; i++){
+                    if (packet->data[proto_offset + 5*4 + i] != 0x00){
+                       *((uint8_t *) extracted_data->data) = 1;
+                       return 1;
                     }
-                    *((uint8_t *) extracted_data->data) = 0;
-                    return 1;
                 }
-            }else{
-                uint8_t opt_len = *((uint8_t*)&packet->data[proto_offset + 5*4 + 1 + checked_len]);
-                checked_len += opt_len;
-                if (opt_len == total_opt_len){
-                    // There is only one option
-                    return 0;
-                }
-
-                if (opt_len > total_opt_len){
-                    // Not a standard options
-                    return 0;
-                }
-
+                *((uint8_t *) extracted_data->data) = 0;
+                return 1;
             }
+        } else if (kind == 0x01) {
+            // NOP is single-byte padding
+            checked_len += 1;
+        } else {
+            if (checked_len + 1 >= total_opt_len) return 0;
+            if (proto_offset + 5*4 + checked_len + 1 >= (int)packet->p_hdr->caplen) return 0;
+            uint8_t opt_len = packet->data[proto_offset + 5*4 + 1 + checked_len];
+            if (opt_len < 2) return 0;
+            if (opt_len > total_opt_len - checked_len) return 0;
+            if (proto_offset + 5*4 + checked_len + opt_len > proto_offset + ihl_bytes) return 0;
+            checked_len += opt_len;
         }
     }
     return 0;
@@ -1646,6 +1646,8 @@ int ip_post_classification_function(ipacket_t * ipacket, unsigned index) {
     mmt_tcpip_internal_packet_t * packet = ipacket->internal_packet;
 
     int ip_offset = get_packet_offset_at_index(ipacket, index);
+    if (ip_offset < 0 || (unsigned)ip_offset > ipacket->p_hdr->caplen) return 0;
+    if (ipacket->p_hdr->caplen < (unsigned)(ip_offset + (int)sizeof(struct iphdr))) return 0;
     const mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) & ipacket->data[ip_offset];
 
     uint32_t time = ((uint64_t) ipacket->p_hdr->ts.tv_sec) * MMT_MICRO_IN_SEC + ipacket->p_hdr->ts.tv_usec;
@@ -1669,9 +1671,20 @@ int ip_post_classification_function(ipacket_t * ipacket, unsigned index) {
     // printf("[IP] not fragmented: %lu\n", ipacket->packet_id);
     packet->iph = ip_hdr;
     packet->iphv6 = NULL;
-    packet->l3_packet_len = ntohs(ip_hdr->tot_len);
+    uint32_t ihl_bytes = (uint32_t)ip_hdr->ihl * 4;
+    if (ihl_bytes < sizeof(struct iphdr) || ihl_bytes > 60) return 0;
+    if ((unsigned)(ip_offset + (int)ihl_bytes) > ipacket->p_hdr->caplen) return 0;
+    uint16_t tot_len = ntohs(ip_hdr->tot_len);
+    // Validate tot_len to prevent underflow: forged tot_len < header len would underflow l4 length huge
+    if (tot_len != 0 && tot_len < ihl_bytes) {
+        tot_len = 0; // treat as TSO/unknown, fallback to captured length below
+    }
+    packet->l3_packet_len = tot_len;
     /* BW: add the length of the truncated packet as well */
-    packet->l3_captured_packet_len = (ipacket->p_hdr->caplen - ip_offset);
+    if ((unsigned)ip_offset <= ipacket->p_hdr->caplen)
+        packet->l3_captured_packet_len = (ipacket->p_hdr->caplen - (unsigned)ip_offset);
+    else
+        packet->l3_captured_packet_len = 0;
     //HN: IP->tot_len = 0 will cause error when calculating packet->l4_packet_len (thus segementation faut)
     //Wireshark shows this when tot_len==0: [Total Length: 2930 bytes (reported as 0, presumed to be because of "TCP segmentation offload" (TSO))]
     if( packet->l3_packet_len == 0 && packet->l3_captured_packet_len > 0 )
@@ -1680,10 +1693,13 @@ int ip_post_classification_function(ipacket_t * ipacket, unsigned index) {
     /* TODO: Check the padding -> allow only certain type of padding and inform other : if packet->l3_captured_packet_len != packet->l3_packet_len -> padding */
     //packet->l4_packet_len = packet->l3_packet_len - (ip_hdr->ihl * 4); //For IPv6 this is done in tcp and udp
     // packet->l4_packet_len = packet->l3_packet_len - (ip_hdr->ihl * 4); //For IPv6 this is done in tcp and udp
-    if(ipacket->nb_reassembled_packets[index] > 1){
-        packet->l4_packet_len = packet->l3_captured_packet_len - (ip_hdr->ihl * 4); //For IPv6 this is done in tcp and udp
+    if (packet->l3_packet_len < ihl_bytes) {
+        packet->l4_packet_len = 0;
+    } else if(ipacket->nb_reassembled_packets[index] > 1){
+        if (packet->l3_captured_packet_len < ihl_bytes) packet->l4_packet_len = 0;
+        else packet->l4_packet_len = packet->l3_captured_packet_len - ihl_bytes;
     }else{
-        packet->l4_packet_len = packet->l3_packet_len - (ip_hdr->ihl * 4); //For IPv6 this is done in tcp and udp
+        packet->l4_packet_len = packet->l3_packet_len - ihl_bytes;
     }
 
     if (mmt_memcmp(&((mmt_ip4_id_t *) ((mmt_session_key_t *) session->session_key)->higher_ip)->ip, &ip_hdr->saddr, IPv4_ALEN) == 0) {
