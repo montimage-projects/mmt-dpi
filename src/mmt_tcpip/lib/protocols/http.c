@@ -435,7 +435,7 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
             if (header_id && value_offset >= 0 && value_offset < hlen) {
 
                 value_len = hlen - (value_offset + code);
-                if (value_len < 0) continue;
+                if (value_len < 0) { offset += hlen; remaining = packet->payload_packet_len - (offset - base_offset); if (remaining < 0) remaining = 0; if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset; if (remaining < 0) remaining = 0; hlen = get_next_header_line_length((const char*)&ipacket->data[offset], remaining, &code); continue; }
                 header_index = get_header_index_by_header_id(header_id);
                 struct http_session_data_struct *http = (struct http_session_data_struct *)ipacket->session->session_data[index];
                 if (!http) { offset += hlen; remaining = packet->payload_packet_len - (offset - base_offset); if (remaining < 0) remaining = 0; if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset; if (remaining < 0) remaining = 0; hlen = get_next_header_line_length((const char*)&ipacket->data[offset], remaining, &code); continue; }
