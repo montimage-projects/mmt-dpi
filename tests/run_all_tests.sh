@@ -149,6 +149,7 @@ DEFAULT_SUITES=(
     http_header_case
     s1ap_ngap_decode
     rule_engine
+    radius_hardening
 )
 
 # Run the requested suites, or all of them if none were named on the CLI.
