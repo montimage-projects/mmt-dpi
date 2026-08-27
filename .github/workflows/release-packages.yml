@@ -28,7 +28,7 @@ permissions:
 jobs:
   build:
     name: ${{ matrix.distro.name }} (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # arm64 builds run the whole toolchain under QEMU emulation and can be slow;
     # cap them so a stuck emulated job can't burn the 6-hour default limit.
     timeout-minutes: 60
@@ -71,7 +71,7 @@ jobs:
     name: Publish GitHub Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write   # required to create/update the release
     steps:

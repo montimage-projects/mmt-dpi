@@ -4,7 +4,7 @@
 
 ### Prerequisites
 
-- GCC 4.9 to 9.x (recommended: GCC 9)
+- GCC 13 (tested in CI on ubuntu-24.04)
 - GNU Make
 - `libxml2-dev`
 - `libpcap-dev` (for examples and testing)
