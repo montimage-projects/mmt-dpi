@@ -137,15 +137,21 @@ run_expect_fail() { # <label> <expected-error-substring> <logfile> <cmd...>
 LD_ENV=(env "LD_LIBRARY_PATH=${LIB}:${LD_LIBRARY_PATH:-}")
 BIN="${SCRIPT_DIR}/test_rule_engine"
 
+# --- 2b. compile metacharacter injection test (F-BUG-207 / #136) --------------
+echo "  [2b/4] compiling injection test ..."
+INJECTION_SRC="${SCRIPT_DIR}/test_injection.c"
+INJECTION_BIN="${SCRIPT_DIR}/test_injection"
+${CC} "${extra_cflags[@]}" -O2 -Wall -o "${INJECTION_BIN}" "${INJECTION_SRC}"
+
 # --- 3. run ------------------------------------------------------------------
-echo "  [3/4] loading valid rule set through init_sec_lib() ..."
+echo "  [3/5] loading valid rule set through init_sec_lib() ..."
 POSITIVE_LOG="${WORK}/positive.log"
 run_expect_ok "valid ruleset load+assertions" "${POSITIVE_LOG}" \
     "${LD_ENV[@]}" "${BIN}" parse "${RULES_XML}"
 grep '^ok - ' "${POSITIVE_LOG}" | sed 's/^/  /'
 echo "  $(grep -c '^ok - ' "${POSITIVE_LOG}") assertions passed (valid ruleset)"
 
-echo "  [4/4] parser error paths ..."
+echo "  [4/5] parser error paths ..."
 NEGATIVE_LOG="${WORK}/negative.log"
 : > "${NEGATIVE_LOG}"
 # Missing file -> init_sec_lib() fails to open it and raises Error 100
@@ -156,6 +162,12 @@ run_expect_fail "missing rule file" "Error 100" "${NEGATIVE_LOG}" \
 run_expect_fail "malformed rule XML" "Error 13" "${NEGATIVE_LOG}" \
     "${LD_ENV[@]}" "${BIN}" parse "${MALFORMED_XML}"
 echo "  2 error paths verified"
+
+echo "  [5/5] metacharacter injection test (F-BUG-207 / #136) ..."
+INJECTION_LOG="${WORK}/injection.log"
+run_expect_ok "metacharacter injection (no shell interpretation)" "${INJECTION_LOG}" "${INJECTION_BIN}"
+grep '^ok - ' "${INJECTION_LOG}" | sed 's/^/  /'
+echo "  injection test passed (packet-derived metachars treated literally)"
 
 echo
 echo "✓ Rule-engine tests passed"
