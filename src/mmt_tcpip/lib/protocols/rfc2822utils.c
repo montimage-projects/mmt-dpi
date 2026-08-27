@@ -167,8 +167,11 @@ int get_value_offset(const char * msg, int line_len) {
     }
 
     colon++;
-    while (is_space_or_htab(*colon)) {
+    while ((colon - msg) < line_len && is_space_or_htab(*colon)) {
         colon++;
+    }
+    if ((colon - msg) > line_len) {
+        return line_len;
     }
     return (colon - msg);
 }
