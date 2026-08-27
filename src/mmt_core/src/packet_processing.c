@@ -29,18 +29,56 @@ bool pointer_comp_fn_pt(void * l_p, void * r_p) {
     return (l_p < r_p);
 }
 
+int proto_hierarchy_to_str_with_size(const proto_hierarchy_t * proto_hierarchy, char * dest, size_t dest_size) {
+    if (proto_hierarchy == NULL || dest == NULL || dest_size == 0) return 0;
+    if (proto_hierarchy->len <= 0) {
+        dest[0] = '\0';
+        return 0;
+    }
+    size_t offset = 0;
+    int n = snprintf(dest + offset, dest_size - offset, "%s",
+                     get_protocol_name_by_id(proto_hierarchy->proto_path[0]));
+    if (n < 0) return (int)offset;
+    if ((size_t)n >= dest_size - offset) {
+        /* truncated */
+        return (int)(dest_size - 1);
+    }
+    offset += (size_t)n;
+    for (unsigned index = 1; index < (unsigned)proto_hierarchy->len; index++) {
+        if (offset >= dest_size) break;
+        n = snprintf(dest + offset, dest_size - offset, ".%s",
+                     get_protocol_name_by_id(proto_hierarchy->proto_path[index]));
+        if (n < 0) break;
+        if ((size_t)n >= dest_size - offset) {
+            /* truncated - ensure NUL and return truncated length */
+            return (int)(dest_size - 1);
+        }
+        offset += (size_t)n;
+    }
+    return (int)offset;
+}
+
 int proto_hierarchy_to_str(const proto_hierarchy_t * proto_hierarchy, char * dest) {
+    /* Deprecated unbounded variant - kept for ABI compatibility.
+       Delegates to bounded variant with a large assumed buffer.
+       Callers should migrate to proto_hierarchy_to_str_with_size(). */
+    if (proto_hierarchy == NULL || dest == NULL) return 0;
+    if (proto_hierarchy->len <= 0) {
+        dest[0] = '\0';
+        return 0;
+    }
     unsigned index = 0;
     int offset = 0;
     offset += sprintf(dest, "%s", get_protocol_name_by_id(proto_hierarchy->proto_path[index]));
     index++;
-    for (; index < proto_hierarchy->len; index++) {
+    for (; index < (unsigned)proto_hierarchy->len; index++) {
         offset += sprintf(&dest[offset], ".%s", get_protocol_name_by_id(proto_hierarchy->proto_path[index]));
     }
     return offset;
 }
 
 const char * get_application_name(const proto_hierarchy_t * proto_hierarchy) {
+    if (proto_hierarchy == NULL || proto_hierarchy->len <= 0) return NULL;
     return get_protocol_name_by_id(proto_hierarchy->proto_path[proto_hierarchy->len - 1]);
 }
 
@@ -3999,14 +4037,25 @@ int mmt_path_sprintf(char * buff, int len, attribute_internal_t * attr) {
     //the truncation.
     int offset = 0;
     proto_hierarchy_t * p = (proto_hierarchy_t *) attr->data;
+    if (p == NULL) return -1;
     if (p->len < 1) {
-        offset += snprintf(buff, len, ".");
+        int n = snprintf(buff, (size_t)len, ".");
+        if (n > 0) offset += n;
     } else {
         int index = 1;
-        offset += snprintf(buff, len - offset, "%u", p->proto_path[index]);
+        if (offset < len) {
+            size_t rem = (size_t)(len - offset);
+            int n = snprintf(buff, rem, "%u", p->proto_path[index]);
+            if (n > 0) offset += n;
+        }
         index++;
         for (; (index < p->len) && (index < 16) && offset < len; index++) {
-            offset += snprintf(&buff[offset], len - offset, ".%u", p->proto_path[index]);
+            if (offset >= len) break;
+            size_t rem = (size_t)(len - offset);
+            int n = snprintf(&buff[offset], rem, ".%u", p->proto_path[index]);
+            if (n < 0) break;
+            offset += n;
+            if (offset >= len) break;
         }
     }
     return offset;
@@ -4031,11 +4080,17 @@ int mmt_binary_sprintf(char * buff, int len, attribute_internal_t * attr) {
 
 int mmt_string_sprintf(char * buff, int len, attribute_internal_t * attr) {
     mmt_binary_var_data_t * b = (mmt_binary_var_data_t *) attr->data;
-    return snprintf(buff, len, "%s", (char *) &b->data);
+    if (buff == NULL || len <= 0) return -1;
+    if (b == NULL) { buff[0] = '\0'; return 0; }
+    /* F-BUG-025: use %.*s with recorded length to avoid reading past packet-derived buffer */
+    return snprintf(buff, (size_t)len, "%.*s", (int)b->len, (char *) &b->data);
 }
 
 int mmt_string_pointer_sprintf(char * buff, int len, attribute_internal_t * attr) {
-    return snprintf(buff, len, "%s", (char *) attr->data);
+    if (buff == NULL || len <= 0) return -1;
+    if (attr == NULL || attr->data == NULL) { buff[0] = '\0'; return 0; }
+    /* packet-derived pointer string is expected NUL-terminated; still bounded by dest len via snprintf */
+    return snprintf(buff, (size_t)len, "%s", (char *) attr->data);
 }
 
 int mmt_stats_sprintf(char * buff, int len, attribute_internal_t * attr) {
@@ -4053,22 +4108,44 @@ int mmt_header_line_pointer_sprintf(char * buff, int len, attribute_internal_t *
 int mmt_u16_array_sprintf(char * buff, int len, attribute_internal_t * attr) {
     mmt_u16_array_t * b = (mmt_u16_array_t *) attr->data;
     int i, total=0;
-    for( i=0; i<b->len; i++ )
-       total += snprintf(&buff[total], len-total, (i==0?"%hu":",%hu"), b->data[i]);
+    if (buff == NULL || len <= 0 || b == NULL) return -1;
+    for( i=0; i<(int)b->len; i++ ) {
+       if (total >= len) break;
+       size_t rem = (size_t)(len - total);
+       int n = snprintf(&buff[total], rem, (i==0?"%hu":",%hu"), b->data[i]);
+       if (n < 0) break;
+       total += n;
+       if (total >= len) break;
+    }
     return total;
 }
 int mmt_u32_array_sprintf(char * buff, int len, attribute_internal_t * attr) {
     mmt_u32_array_t * b = (mmt_u32_array_t *) attr->data;
     int i, total=0;
-    for( i=0; i<b->len; i++ )
-       total += snprintf(&buff[total], len-total, (i==0?"%u":",%u"), b->data[i]);
+    if (buff == NULL || len <= 0 || b == NULL) return -1;
+    for( i=0; i<(int)b->len; i++ ) {
+       if (total >= len) break;
+       size_t rem = (size_t)(len - total);
+       int n = snprintf(&buff[total], rem, (i==0?"%u":",%u"), b->data[i]);
+       if (n < 0) break;
+       total += n;
+       if (total >= len) break;
+    }
     return total;
 }
 int mmt_u64_array_sprintf(char * buff, int len, attribute_internal_t * attr) {
     mmt_u64_array_t * b = (mmt_u64_array_t *) attr->data;
     int i, total=0;
-    for( i=0; i<b->len; i++ )
-       total += snprintf(&buff[total], len-total, (i==0?"%"PRIu64:",%"PRIu64), b->data[i]);
+    if (buff == NULL || len <= 0 || b == NULL) return -1;
+    for( i=0; i<(int)b->len; i++ ) {
+       if (total >= len) break;
+       size_t rem = (size_t)(len - total);
+       /* F-BUG-018: single conversion per iteration, one argument */
+       int n = snprintf(&buff[total], rem, (i==0?"%"PRIu64:",%"PRIu64), b->data[i]);
+       if (n < 0) break;
+       total += n;
+       if (total >= len) break;
+    }
     return total;
 }
 
@@ -4150,7 +4227,7 @@ int mmt_pointer_fprintf(FILE * f, attribute_internal_t * attr) {
 
 int mmt_mac_fprintf(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_MAC_STRLEN];
-    if (mmt_mac_sprintf(buff, MMT_MAC_STRLEN, attr)) {
+    if (mmt_mac_sprintf(buff, MMT_MAC_STRLEN, attr) > 0) {
         return fprintf(f, "%s", buff);
     }
     return -1;
@@ -4158,7 +4235,7 @@ int mmt_mac_fprintf(FILE * f, attribute_internal_t * attr) {
 
 int mmt_ip_fprintf(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_IP_STRLEN];
-    if (mmt_ip_sprintf(buff, MMT_IP_STRLEN, attr)) {
+    if (mmt_ip_sprintf(buff, MMT_IP_STRLEN, attr) > 0) {
         return fprintf(f, "%s", buff);
     }
     return -1;
@@ -4166,7 +4243,7 @@ int mmt_ip_fprintf(FILE * f, attribute_internal_t * attr) {
 
 int mmt_ip6_fprintf(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_IP6_STRLEN];
-    if (mmt_ip6_sprintf(buff, MMT_IP6_STRLEN, attr)) {
+    if (mmt_ip6_sprintf(buff, MMT_IP6_STRLEN, attr) > 0) {
         return fprintf(f, "%s", buff);
     }
     return -1;
@@ -4174,7 +4251,7 @@ int mmt_ip6_fprintf(FILE * f, attribute_internal_t * attr) {
 
 int mmt_path_fprintf(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_PATH_STRLEN];
-    if (mmt_path_sprintf(buff, MMT_PATH_STRLEN, attr)) {
+    if (mmt_path_sprintf(buff, MMT_PATH_STRLEN, attr) > 0) {
         return fprintf(f, "%s", buff);
     }
     return -1;
@@ -4184,22 +4261,24 @@ int mmt_timeval_fprintf(FILE * f, attribute_internal_t * attr) {
 }
 int mmt_binary_fprintf(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_BINARYVAR_STRLEN];
-    if (mmt_binary_sprintf(buff, MMT_BINARY_STRLEN, attr)) {
+    if (mmt_binary_sprintf(buff, MMT_BINARY_STRLEN, attr) > 0) {
         return fprintf(f, "%s", buff);
     }
     return -1;
 }
 int mmt_string_fprintf(FILE * f, attribute_internal_t * attr) {
     mmt_binary_var_data_t * b = (mmt_binary_var_data_t *) attr->data;
-    return fprintf(f, "%s", (char *) &b->data);
+    if (b == NULL) return -1;
+    return fprintf(f, "%.*s", (int)b->len, (char *) &b->data);
 }
 int mmt_string_pointer_fprintf(FILE * f, attribute_internal_t * attr) {
+    if (attr == NULL || attr->data == NULL) return -1;
     return fprintf(f, "%s", (char *) attr->data);
 }
 
 int mmt_header_line_pointer_fprintf(FILE * f, attribute_internal_t * attr) {
     char buff[8096 + 1]; //Max accepted header line length is 8K (default for Apache)
-    if (mmt_header_line_pointer_sprintf(buff, 8096, attr)) {
+    if (mmt_header_line_pointer_sprintf(buff, 8096, attr) > 0) {
         return fprintf(f, "%s", buff);
     }
     return -1;
@@ -4285,7 +4364,7 @@ int mmt_pointer_format(FILE * f, attribute_internal_t * attr) {
 
 int mmt_mac_format(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_MAC_STRLEN];
-    if (mmt_mac_sprintf(buff, MMT_MAC_STRLEN, attr)) {
+    if (mmt_mac_sprintf(buff, MMT_MAC_STRLEN, attr) > 0) {
         return fprintf(f, "Attribute %s.%s = %s\n",
                        get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), buff);
     }
@@ -4294,7 +4373,7 @@ int mmt_mac_format(FILE * f, attribute_internal_t * attr) {
 
 int mmt_ip_format(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_IP_STRLEN];
-    if (mmt_ip_sprintf(buff, MMT_IP_STRLEN, attr)) {
+    if (mmt_ip_sprintf(buff, MMT_IP_STRLEN, attr) > 0) {
         return fprintf(f, "Attribute %s.%s = %s\n",
                        get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), buff);
     }
@@ -4303,7 +4382,7 @@ int mmt_ip_format(FILE * f, attribute_internal_t * attr) {
 
 int mmt_ip6_format(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_IP6_STRLEN];
-    if (mmt_ip6_sprintf(buff, MMT_IP6_STRLEN, attr)) {
+    if (mmt_ip6_sprintf(buff, MMT_IP6_STRLEN, attr) > 0) {
         return fprintf(f, "Attribute %s.%s = %s\n",
                        get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), buff);
     }
@@ -4312,7 +4391,7 @@ int mmt_ip6_format(FILE * f, attribute_internal_t * attr) {
 
 int mmt_path_format(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_PATH_STRLEN];
-    if (mmt_path_sprintf(buff, MMT_PATH_STRLEN, attr)) {
+    if (mmt_path_sprintf(buff, MMT_PATH_STRLEN, attr) > 0) {
         return fprintf(f, "Attribute %s.%s = %s\n",
                        get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), buff);
     }
@@ -4325,15 +4404,16 @@ int mmt_timeval_format(FILE * f, attribute_internal_t * attr) {
 
 int mmt_binary_format(FILE * f, attribute_internal_t * attr) {
     char buff[MMT_BINARYVAR_STRLEN];
-    if (mmt_binary_sprintf(buff, MMT_BINARY_STRLEN, attr)) {
+    if (mmt_binary_sprintf(buff, MMT_BINARY_STRLEN, attr) > 0) {
         return fprintf(f, "Attribute %s.%s = %s\n",get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), buff);
     }
     return -1;
 }
 int mmt_string_format(FILE * f, attribute_internal_t * attr) {
     mmt_binary_var_data_t * b = (mmt_binary_var_data_t *) attr->data;
-    return fprintf(f, "Attribute %s.%s = %s\n",
-                   get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), (char *) &b->data);
+    if (b == NULL) return -1;
+    return fprintf(f, "Attribute %s.%s = %.*s\n",
+                   get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), (int)b->len, (char *) &b->data);
 }
 int mmt_string_pointer_format(FILE * f, attribute_internal_t * attr) {
     int ret = fprintf(f, "Attribute %s.%s = %s\n",
@@ -4344,7 +4424,7 @@ int mmt_string_pointer_format(FILE * f, attribute_internal_t * attr) {
 
 int mmt_header_line_pointer_format(FILE * f, attribute_internal_t * attr) {
     char buff[8096 + 1]; //Max accepted header line length is 8K (default for Apache)
-    if (mmt_header_line_pointer_sprintf(buff, 8096, attr)) {
+    if (mmt_header_line_pointer_sprintf(buff, 8096, attr) > 0) {
         return fprintf(f, "Attribute %s.%s = %s\n",
                        get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), buff);
     }
