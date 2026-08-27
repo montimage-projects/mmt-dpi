@@ -1044,12 +1044,14 @@ MMTAPI struct timeval MMTCALL get_last_activity_time( mmt_handler_t * handler );
 /**
  * Transforms the first len (in number of bytes) haxadecimal text represented in ASCI into binary format.
  * @param binary_data pointer where the transformed binary data will be stored
+ * @param binary_data_cap capacity of binary_data in bytes (to prevent overflow)
  * @param hex_data pointer to the hexadecimal ASCI string to transform
- * @param len the number of bytes to transform
+ * @param len the number of bytes to transform (honored: at most len bytes are written)
  * @return the length of the transformed data on success, a negative value on failure.
  */
 MMTAPI unsigned int MMTCALL htoi(
     char *binary_data,
+    size_t binary_data_cap,
     const char *hex_data,
     int len
 );

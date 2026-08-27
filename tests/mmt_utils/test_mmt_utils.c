@@ -128,11 +128,31 @@ static void test_str_hex2str(void) {
     /* end < start */
     CHECK(str_hex2str("48656C6C6F", 5, 2) == NULL, "str_hex2str end < start == NULL");
 
+    /* end_index out of bounds */
+    CHECK(str_hex2str("48656C6C6F", 0, 20) == NULL, "str_hex2str end out of bounds == NULL");
+
     /* Valid range: filters printable chars from hex string */
     char *result = str_hex2str("48656C6C6F", 0, 7);
     /* The function filters out non-printable chars, so it returns the printable subset */
     CHECK(result != NULL, "str_hex2str should not return NULL for valid input");
     if (result) free(result);
+
+    /* start_index > 0 must be honored (F-BUG-007): old code read from index 0 */
+    result = str_hex2str("XX48656C6C6F", 2, 9);
+    CHECK(result != NULL, "str_hex2str start_index>0 should not be NULL");
+    if (result) {
+        /* substring "48656C6C6F" filtered printable is the whole substring;
+         * bug variant would have included the "XX" prefix. */
+        CHECK(strstr(result, "XX") == NULL, "str_hex2str start_index>0 must not include prefix");
+        free(result);
+    }
+    /* Another offset check: numeric string where offset changes content */
+    result = str_hex2str("0123456789", 4, 7);
+    CHECK(result != NULL, "str_hex2str offset 4..7 should not be NULL");
+    if (result) {
+        CHECK_STR_EQ(result, "4567", "str_hex2str('0123456789',4,7) == '4567' (honors start_index)");
+        free(result);
+    }
 }
 
 /* ---- str_hex2int ---- */
@@ -228,8 +248,15 @@ static void test_str_sub(void) {
     /* Negative start */
     CHECK(str_sub("hello", -1, 2) == NULL, "str_sub negative start == NULL");
 
+    /* Negative end (F-BUG-006) */
+    CHECK(str_sub("hello", 0, -1) == NULL, "str_sub negative end == NULL");
+
     /* start > end */
     CHECK(str_sub("hello", 5, 2) == NULL, "str_sub start > end == NULL");
+
+    /* end out of bounds (F-BUG-006: restored bounds check) */
+    CHECK(str_sub("hello", 0, 10) == NULL, "str_sub end out of bounds == NULL");
+    CHECK(str_sub("hello", 0, 5) == NULL, "str_sub end == strlen == NULL (exclusive bound)");
 
     /* Valid substring */
     char *result = str_sub("hello world", 0, 4);
@@ -299,6 +326,11 @@ static void test_str_get_indexes(void) {
     CHECK(str_get_indexes(NULL, "test") == NULL, "str_get_indexes(NULL, ...) == NULL");
     CHECK(str_get_indexes("test", NULL) == NULL, "str_get_indexes(..., NULL) == NULL");
 
+    /* Empty separator must be rejected (F-BUG-008: infinite loop + heap overflow) */
+    CHECK(str_get_indexes("hello", "") == NULL, "str_get_indexes('hello','') == NULL (empty sep)");
+    CHECK(str_get_indexes("", "a") == NULL, "str_get_indexes('','a') == NULL");
+    CHECK(str_get_indexes("hello", "") == NULL, "str_get_indexes empty separator rejected");
+
     /* Not found */
     CHECK(str_get_indexes("hello", "xyz") == NULL, "str_get_indexes('hello', 'xyz') == NULL");
 
@@ -309,6 +341,16 @@ static void test_str_get_indexes(void) {
         CHECK(indexes[0] == 0, "first index should be 0");
         CHECK(indexes[1] == 12, "second index should be 12");
         CHECK(indexes[2] == -1, "terminator should be -1");
+        free(indexes);
+    }
+
+    /* Single-char delimiter */
+    indexes = str_get_indexes("a,b,c", ",");
+    CHECK(indexes != NULL, "str_get_indexes('a,b,c',',') should find delimiters");
+    if (indexes) {
+        CHECK(indexes[0] == 1, "first comma at 1");
+        CHECK(indexes[1] == 3, "second comma at 3");
+        CHECK(indexes[2] == -1, "terminator");
         free(indexes);
     }
 }
@@ -367,6 +409,25 @@ static void test_str_subvalue(void) {
 
     /* begin after end */
     CHECK(str_subvalue("hello", "llo", "hel") == NULL, "str_subvalue begin after end == NULL");
+
+    /* Truncated 227/229 reply patterns (F-BUG-121): missing delimiters must return NULL
+     * instead of strlen(NULL)/atoi(NULL). These mirror the FTP 227/228/229 parsers. */
+    CHECK(str_subvalue("227 Entering Passive Mode", "(|||", "|)") == NULL,
+          "str_subvalue truncated 227 '(|||' == NULL");
+    CHECK(str_subvalue("227 (192,168,1,1,7,138", "(", ")") == NULL,
+          "str_subvalue truncated 227 '(' without ')' == NULL");
+    CHECK(str_subvalue("229 Entering Extended Passive (|||1031", "(|||", "|)") == NULL,
+          "str_subvalue truncated 229 '(|||' without trailing '|)' == NULL");
+    /* PORT x (no comma) — str_get_indexes returns NULL, ftp_get_port_from_parameter guards */
+    CHECK(str_get_indexes("PORT x", ",") == NULL,
+          "str_get_indexes('PORT x',',') == NULL (no comma, F-BUG-120)");
+    CHECK(str_get_indexes("192,168", ",") != NULL,
+          "str_get_indexes('192,168',',') has 1 comma (needs 5 for PORT)");
+    int *idx = str_get_indexes("192,168", ",");
+    if (idx) {
+        CHECK(idx[1] == -1, "PORT '192,168' second delimiter is -1 (reject <5)");
+        free(idx);
+    }
 }
 
 /* ---- str_print_array (sanity check, no crash) ---- */
