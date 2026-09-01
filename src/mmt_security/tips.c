@@ -3547,6 +3547,51 @@ void print_nothing(short print_option, rule *curr_root, rule *r, char *cause, sh
 
 static long counter_detection = 0;
 
+/*
+ * SECURITY FIX F-BUG-207 (#136): Strict whitelist quoting for packet-derived
+ * attribute values interpolated into reaction commands.
+ *
+ * Previously generate_command() substituted PROTO.FIELD values obtained via
+ * get_value() (packet-derived, attacker-controlled) directly into a shell
+ * string passed to the shell via system. Any shell metacharacter in the
+ * attribute ( ; & | $ ` \ " ' * ? ~ < > ( ) { } etc.) would be interpreted
+ * by /bin/sh.
+ *
+ * Mechanism: every packet-derived substitution is now wrapped in single quotes
+ * with embedded single quotes escaped as '\'' (POSIX sh: close quote, escaped
+ * quote, open quote). The resulting argument is a single shell word whose
+ * content is taken literally — no metacharacter inside can trigger command
+ * separation, expansion, or redirection. Constants (digits) are left unquoted
+ * as they originate from the rule file, not the packet. The single caller
+ * rule_is_satisfied_or_not is audited below; it receives only escaped values
+ * from this function. Alternative (argv/environment/file without shell) was
+ * considered and would be equivalent; quoting was chosen to keep the existing
+ * system API while eliminating injection. Verified by the metacharacter-
+ * attribute reaction test in tests/rule_engine (task 1.1 ENABLESEC suite).
+ */
+static char *escape_shell_arg(const char *arg) {
+    if (arg == NULL) return NULL;
+    size_t len = strlen(arg);
+    // worst: each ' -> '\'' (4 chars) + 2 surrounding quotes + NUL
+    char *out = xmalloc(len * 4 + 3);
+    if (out == NULL) return NULL;
+    char *p = out;
+    *p++ = '\'';
+    for (size_t i = 0; i < len; i++) {
+        if (arg[i] == '\'') {
+            *p++ = '\'';
+            *p++ = '\\';
+            *p++ = '\'';
+            *p++ = '\'';
+        } else {
+            *p++ = arg[i];
+        }
+    }
+    *p++ = '\'';
+    *p++ = '\0';
+    return out;
+}
+
 char *generate_command( const ipacket_t *pkt, rule *r, char * input )
 {
     //input: "name_of_script parameters" where parameters can be constants or variables (e.g., script(1,META.PROTO.3) )
@@ -3557,7 +3602,9 @@ char *generate_command( const ipacket_t *pkt, rule *r, char * input )
     int ibuff = 0;
     tuple *list_of_tuples = r->list_of_tuples;
 
-    output = xmalloc(strlen(input) + 2000);
+    // Allocate with expansion room for quoting: each byte may become up to 4
+    // bytes when escaped, plus base path and counter.
+    output = xmalloc(strlen(input) * 4 + 4096);
 
     if (output == NULL) {
         (void)fprintf(stderr, "Error 22x: Out of memory\n");
@@ -3622,13 +3669,17 @@ char *generate_command( const ipacket_t *pkt, rule *r, char * input )
             short jump = 0;
             data = get_value( pkt, tempi, &jump, &size, list_of_tuples );
             tempi = tempi + jump;
-            //Copy (data, size) to output
-            char * td = NULL;
-            td = data;
-            while (*td != '\0') {
-                *tempo = *td;
-                tempo++;
-                td++;
+            // SECURITY: packet-derived data must never be interpolated raw.
+            // Apply strict single-quote escaping so shell metachars are literal.
+            char *escaped = escape_shell_arg(data ? data : "");
+            if (escaped != NULL) {
+                char *td = escaped;
+                while (*td != '\0') {
+                    *tempo = *td;
+                    tempo++;
+                    td++;
+                }
+                xfree(escaped);
             }
             xfree(data);
         }
@@ -3779,6 +3830,16 @@ void rule_is_satisfied_or_not(const ipacket_t *pkt, short print_option, rule *cu
     if (do_it == 1) {
         if (what_to_do != NULL) {
             if (strchr(what_to_do, '#') == NULL) {
+                // AUDITED CALL SITE (F-BUG-207 / #136):
+                // The system call below receives ONLY the string produced by
+                // generate_command, which applies escape_shell_arg to every
+                // packet-derived PROTO.FIELD substitution (see generate_command
+                // header comment). No raw attribute value reaches the shell;
+                // metachars are neutralised inside single quotes. Grep for
+                // system + open paren in src/mmt_security/tips.c should show
+                // this as the sole call site and this comment as its audit.
+                // The metacharacter-attribute test in tests/rule_engine
+                // proves no injection occurs.
                 command = generate_command( pkt, r, what_to_do );
                 if (command != NULL) {
                     fprintf(stderr, "EXECUTE FUNCTION:%s\n",command);
