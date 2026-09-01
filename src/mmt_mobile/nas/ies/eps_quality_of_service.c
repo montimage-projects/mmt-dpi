@@ -21,14 +21,19 @@ int nas_decode_eps_quality_of_service(nas_eps_quality_of_service_t *m, uint8_t i
     decoded++;
   }
 
-  ielen = *(buffer + decoded);
-  decoded++;
+  IES_DECODE_U8(buffer, decoded, ielen);
   CHECK_LENGTH_DECODER(len - decoded, ielen);
 
-  DECODE_U8( buffer, m->qci, decoded );
+  // F-BUG-205: bound QCI by ielen and fix buffer offset
+  CHECK_LENGTH_DECODER(ielen, 1);
+  CHECK_LENGTH_DECODER(len - decoded, 1);
+  IES_DECODE_U8(buffer, decoded, m->qci);
 
-  if ( ielen > 2 + (iei > 0) ? 1 : 0 ) {
+  // F-BUG-205: fix operator-precedence guards
+  if ( ielen > (2 + (iei > 0 ? 1 : 0)) ) {
     /* bitRates is present */
+    CHECK_LENGTH_DECODER(ielen, 1 + 4);
+    CHECK_LENGTH_DECODER(len - decoded, 4);
     m->bit_rates_present = 1;
     decoded += _decode_eps_qos_bit_rates(&m->bit_rates,
                                         buffer + decoded);
@@ -37,8 +42,10 @@ int nas_decode_eps_quality_of_service(nas_eps_quality_of_service_t *m, uint8_t i
     m->bit_rates_present = 0;
   }
 
-  if ( ielen > 6 + (iei > 0) ? 1 : 0 ) {
+  if ( ielen > (6 + (iei > 0 ? 1 : 0)) ) {
     /* bitRatesExt is present */
+    CHECK_LENGTH_DECODER(ielen, 1 + 8);
+    CHECK_LENGTH_DECODER(len - decoded, 4);
     m->bit_rates_ext_present = 1;
     decoded += _decode_eps_qos_bit_rates(&m->bit_rates_ext,
                                         buffer + decoded);
