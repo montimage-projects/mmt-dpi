@@ -11,7 +11,7 @@ In the next sections we will describe the procedure to add a new Web Protocol. F
 
 ## 1- Create the Protocol Plugin
 
-In the TCP/IP header file **include/mmt_tcpip_protocols.h** add:
+In the TCP/IP header file **`src/mmt_tcpip/include/mmt_tcpip_protocols.h`** add:
 
 ```c
 // Add the following line to the end of the protocol numbers definitions
@@ -24,7 +24,7 @@ In the TCP/IP header file **include/mmt_tcpip_protocols.h** add:
 #define PROTO_LEMONDE_ALIAS "lemonde"
 ```
 
-In the TCP/IP protocols folder **lib/protocols/** add the following filename **proto_lemonde.c**:
+In the TCP/IP protocols folder **`src/mmt_tcpip/lib/protocols/`** add the following filename **`proto_lemonde.c`** (see existing `src/mmt_tcpip/lib/protocols/proto_dns.c` for a reference).
 
 ```c
 #include "mmt_core.h"
@@ -48,7 +48,7 @@ int init_proto_lemonde_struct() {
 ```
 ## 2- Initialize the Protocol
 
-In the TCP/IP internal include header file **lib/mmt_common_internal_include.h** add **lemonde** protocol intialization definition at the end of the protocol initialization definitions block:
+In the TCP/IP internal include header file **`src/mmt_tcpip/lib/mmt_common_internal_include.h`** add **lemonde** protocol initialization definition at the end of the protocol initialization definitions block:
 
 ```c
     /////////// PLUGIN INIT FOR PROTO_LEMONDE //////////////////
@@ -63,7 +63,7 @@ If a protocol needs a classification for example protocol rtp, we need to add a 
    
 ```
 
-In the TCP/IP configured protocols library file **lib/configured_protocols.c** add **lemonde** protocol initialization at the end of protocold initialization block:
+In the TCP/IP configured protocols library file **`src/mmt_tcpip/lib/configured_protocols.c`** add **lemonde** protocol initialization at the end of protocol initialization block:
 
 ```c
     /////////// INITILIZING PROTO_LEMONDE //////////////////
@@ -86,7 +86,7 @@ In the same file, update function **get_application_class_by_protocol_id** to in
 
 Now comes the last part where the classification rules for **lemonde** needs to be added. As **lemonde** is a WEB protocol, the classification is directly derived from the **hostnames** of **lemonde** website. An investigation needs to be performed in order to gat the list of domain names for a Web application as there could be many. We will consider here that **lemonde** protocol uses just one hostname **lemonde.fr**.
 
-In the TCP/IP classification utilities source file **lib/mmt_tcpip_classif_utils.c** add to the end of **doted_host_names** structure the following:
+In the TCP/IP classification utilities source file **`src/mmt_tcpip/lib/mmt_tcpip_classif_utils.c`** add to the end of **`doted_host_names`** structure the following:
 
 ```c
     // Add a line for every domain name you have

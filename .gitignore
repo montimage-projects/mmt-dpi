@@ -59,12 +59,10 @@ build/
 .idea/
 *.code-workspace
 
-# AI dev tools
+# AI dev tools (CLAUDE.md and AGENTS.md are tracked: milestone ME, issues #120/#121)
 .claude/
 .claude*
-CLAUDE.md
 .agent/
-AGENTS.md
 WARP.md
 .cursor/
 .copilot/
@@ -79,6 +77,11 @@ tools/phase0/ci/baseline/classification.actual.txt
 tests/*/test_*
 !tests/*/test_*.c
 !tests/*/test_*.h
+
+# gcov intermediate data + generated coverage reports (--coverage mode)
+tests/*/*.gcda
+tests/*/*.gcno
+tests/coverage/
 
 # --- OSS-readiness flow additions ---
 # Package build artifacts

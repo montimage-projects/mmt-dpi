@@ -19,7 +19,7 @@ A stack must have the following information
  * **Classification function**: indicating the ROOT protocol
  * **Internal context**: Opaque from user point of view
 
-An [MMT Handler](/montimage/mmt-sdk/wiki/MMT Handler/) **MUST** be associated to a protocol stack. 
+An [MMT Handler](./MMT-Handler.md) **MUST** be associated to a protocol stack. 
 When the handler processes a packet, it will first call the classification function of the stack to identify the ROOT protocol. 
 
 ## API ##

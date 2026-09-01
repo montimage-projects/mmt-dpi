@@ -21,12 +21,15 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
 CC="${CC:-gcc}"
-CFLAGS="-O2 -Wall -g"
+# EXTRA_CFLAGS carries sanitizer/coverage instrumentation requested by
+# tests/run_all_tests.sh (appended last so its -O level wins over -O2).
+CFLAGS="-O2 -Wall -g ${EXTRA_CFLAGS:-}"
+read -r -a cflags <<< "${CFLAGS}"
 
 # --- build NEW (working tree) ---------------------------------------------
 # The correctness suite always runs, so build the working-tree binary first.
 echo "  building NEW (working tree) ..."
-${CC} ${CFLAGS} -I "${LIB_DIR}" -o "${WORK}/test_new" \
+${CC} "${cflags[@]}" -I "${LIB_DIR}" -o "${SCRIPT_DIR}/test_new" \
     "${TEST_SRC}" "${LIB_DIR}/avltree.c"
 
 # Pick a git ref that holds a *distinct* pre-fix source. The issue #21 fix is
@@ -48,7 +51,7 @@ if [ -z "${OLD_REF}" ]; then
     echo "  no distinct pre-fix avltree.c in git — running correctness suite only"
     echo
     echo "== correctness suite (NEW) =="
-    "${WORK}/test_new"
+    "${SCRIPT_DIR}/test_new"
     echo
     echo "✓ avltree correctness suite passed (pre-fix baseline unavailable — OLD-vs-NEW comparison skipped)"
     exit 0
@@ -60,13 +63,13 @@ echo "  building OLD (${OLD_REF}) ..."
 mkdir -p "${WORK}/old"
 git -C "${REPO_ROOT}" show "${OLD_REF}:src/mmt_tcpip/lib/avltree.c" > "${WORK}/old/avltree.c"
 git -C "${REPO_ROOT}" show "${OLD_REF}:src/mmt_tcpip/lib/avltree.h" > "${WORK}/old/avltree.h"
-${CC} ${CFLAGS} -I "${WORK}/old" -o "${WORK}/test_old" \
+${CC} "${cflags[@]}" -I "${WORK}/old" -o "${WORK}/test_old" \
     "${TEST_SRC}" "${WORK}/old/avltree.c"
 
 # --- 1. correctness on NEW -------------------------------------------------
 echo
 echo "== [1/3] correctness suite (NEW) =="
-"${WORK}/test_new"
+"${SCRIPT_DIR}/test_new"
 
 # --- 2. shape equivalence OLD vs NEW --------------------------------------
 echo

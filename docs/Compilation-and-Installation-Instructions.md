@@ -3,7 +3,10 @@
 ------------------
 
 # Before compiling
-Please use the gxx version from `4.9` upto `9.x`. Some users have experienced some problems during the installation with the compiler `gxx >= 10`
+A modern C/C++ toolchain is required. MMT-DPI is continuously built and tested
+on Ubuntu 22.04 / 24.04, Debian 12, Rocky Linux 9 and CentOS Stream 9 using the
+GCC and Clang versions shipped by those distributions (GCC 11–13, Clang 14+).
+Any reasonably recent GCC or Clang should work.
 
 # Pre-requisites
 
@@ -55,9 +58,9 @@ sudo apt-get install libpcap-dev
 You can test `mmt-dpi` library with some examples in [`src/examples`](../src/examples) to see how it works.
 
 ```sh
-cd ./examples
+cd src/examples
 gcc -o extract_all extract_all.c -I /opt/mmt/dpi/include -L /opt/mmt/dpi/lib -lmmt_core -ldl -lpcap
-sudo ./extract_all -i eth0
+./extract_all -i eth0
 ```
 
 ---------------------------------

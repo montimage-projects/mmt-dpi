@@ -1,0 +1,5 @@
+# SC2015 (A && B || C is not if-then-else): scripts/validate-*.sh use this
+# shape exclusively as `grep -q PATTERN FILE && echo PASS || { echo FAIL; ERRORS+=1; }`,
+# where B is always a plain `echo` that cannot fail — the hazard this rule
+# warns about (C running when A is true) cannot occur here.
+disable=SC2015

@@ -148,6 +148,9 @@ ftp_user_struct{
 | FTP_PACKET_REQUEST | MMT_FTP_XXXX_CMD | | The FTP command sent from client to server |
 | FTP_PACKET_REQUEST_PARAMETER |  |  | The parameter of FTP command |
 | FTP_PACKET_RESPONSE_CODE | MMT_FTP_XXX_CODE |  | The FTP response code sent from server to client |
+
+<!-- FLAG: unverified — MMT_FTP_XXXX_CMD and MMT_FTP_XXX_CODE are placeholder names
+     from the original design doc; actual enum values may differ. -->
 | FTP_PACKET_RESPONSE_VALUE |  |  | The value of response code |
 | FTP_PACKET_DATA_LEN |  |  | The payload len of FTP packet |
 | PROTO_PAYLOAD |  |  | The pointer to the data payload of FTP packet |

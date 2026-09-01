@@ -70,7 +70,8 @@ static char *http_methods[] = {
     "(unknown)",
     MMT_HTTP_GET,     MMT_HTTP_POST,     MMT_HTTP_OPTIONS,
     MMT_HTTP_HEAD,    MMT_HTTP_PUT,      MMT_HTTP_DELETE,
-    MMT_HTTP_CONNECT, MMT_HTTP_PROPFIND, MMT_HTTP_REPORT
+    MMT_HTTP_CONNECT, MMT_HTTP_PROPFIND, MMT_HTTP_REPORT,
+    MMT_HTTP_PATCH,   MMT_HTTP_MKCOL,    MMT_HTTP_LOCK
 };
 
 static inline int get_header_index_by_header_id(int header_id) {
@@ -270,6 +271,9 @@ generic_attribute_extraction_function get_http_attribute_extraction_function(int
 
 void http_session_data_init(ipacket_t * ipacket, unsigned index) {
     struct http_session_data_struct * http_session_data = (struct http_session_data_struct *) mmt_malloc(sizeof (struct http_session_data_struct));
+    if (!http_session_data) {
+        return;
+    }
     memset(http_session_data, 0, sizeof (struct http_session_data_struct));
     ipacket->session->session_data[index] = http_session_data;
 }
@@ -280,8 +284,14 @@ void http_session_data_init(ipacket_t * ipacket, unsigned index) {
  * @param msg_len length of the message request line in octets
  * @param method pointer to the method code to be set by this function
  * @return the offset of the uri if positive value, zero means the message is not a valid request
+ *
+ * Not static: issue #101's regression test (tools/phase0/tests/
+ * http_method_classification_test.c) links against this symbol directly, the
+ * same convention already used for http2.c's extraction functions. It is not
+ * declared in any public header, so it remains internal to the SDK's API
+ * surface.
  */
-static inline int get_request_method_uri_offset(const char *msg, int msg_len, int * method) {
+int get_request_method_uri_offset(const char *msg, int msg_len, int * method) {
     int uri_offset = 0;
     *method = 0;
     /* check if the packet starts with POST or GET or any other HTTP request method */
@@ -312,6 +322,15 @@ static inline int get_request_method_uri_offset(const char *msg, int msg_len, in
     } else if (msg_len >= 7 && mmt_strncmp(msg, "REPORT ", 7) == 0) {
         uri_offset = 7;
         *method = MMT_HTTP_REPORT_CODE;
+    } else if (msg_len >= 6 && mmt_strncmp(msg, "PATCH ", 6) == 0) {
+        uri_offset = 6;
+        *method = MMT_HTTP_PATCH_CODE;
+    } else if (msg_len >= 6 && mmt_strncmp(msg, "MKCOL ", 6) == 0) {
+        uri_offset = 6;
+        *method = MMT_HTTP_MKCOL_CODE;
+    } else if (msg_len >= 5 && mmt_strncmp(msg, "LOCK ", 5) == 0) {
+        uri_offset = 5;
+        *method = MMT_HTTP_LOCK_CODE;
     }
 
     while (uri_offset < msg_len && isspace((unsigned char) msg[uri_offset])) {
@@ -353,9 +372,15 @@ static inline int get_response_code_offset(const char *msg, int msg_len, char **
 static inline int
 parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //TODO: optimization work required here! VERY IMPORTANT
     int code, hlen;
+    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
+    int base_offset = get_packet_offset_at_index(ipacket, index);
+    int remaining = packet->payload_packet_len - (offset - base_offset);
+    if (remaining < 0) remaining = 0;
+    if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset;
+    if (remaining < 0) remaining = 0;
 
     //Get the length of the first http header line
-    hlen = get_next_header_line_length((const char*)&ipacket->data[offset], ipacket->p_hdr->len - offset, & code);
+    hlen = get_next_header_line_length((const char*)&ipacket->data[offset], remaining, & code);
 
     //if the header line is positive
     if (hlen) {
@@ -365,19 +390,22 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
         char * version = NULL;
 
         http = ((struct http_session_data_struct *) ipacket->session->session_data[index]);
-        line_first_element_offset = get_request_method_uri_offset((const char*)&ipacket->data[offset], ipacket->p_hdr->len - offset, &method);
+        if (!http) return 0;
+        line_first_element_offset = get_request_method_uri_offset((const char*)&ipacket->data[offset], remaining, &method);
 
         //This is a request; update the session context accordingly
         if (line_first_element_offset) {
             int uri_len = get_next_white_space_offset_no_limit((const char*)&ipacket->data[offset + line_first_element_offset], hlen - line_first_element_offset);
+            if (uri_len < 0) uri_len = 0;
             http->http_method   = method;
             http->requested_uri = (char *) mmt_malloc(uri_len + 1);
+            if (!http->requested_uri) return 0;
             memcpy(http->requested_uri, &ipacket->data[offset + line_first_element_offset], uri_len);
             http->requested_uri[uri_len] = '\0';
 
             //printf("Method %i --- URI %s \n", http->http_method,
             //        http->requested_uri);
-        } else if((line_first_element_offset = get_response_code_offset((const char*)&ipacket->data[offset], ipacket->p_hdr->len - offset, &version)) > 0) {
+        } else if((line_first_element_offset = get_response_code_offset((const char*)&ipacket->data[offset], remaining, &version)) > 0) {
             //This is not a request; check if it is a response
             http->http_version = version;
             //printf("version %s \n", http->http_version);
@@ -387,7 +415,11 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
         }
 
         offset += hlen;
-        hlen = get_next_header_line_length((const char*)&ipacket->data[offset], ipacket->p_hdr->len - offset, &code);
+        remaining = packet->payload_packet_len - (offset - base_offset);
+        if (remaining < 0) remaining = 0;
+        if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset;
+        if (remaining < 0) remaining = 0;
+        hlen = get_next_header_line_length((const char*)&ipacket->data[offset], remaining, &code);
         while (hlen > 2) {
             int header_id, header_index, value_offset, value_len, field_len;
             line_first_element_offset = get_next_non_white_space_offset_no_limit((const char*)&ipacket->data[offset], hlen);
@@ -400,17 +432,20 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
 
             header_id = get_header_id_by_field_name((const char*)&ipacket->data[offset + line_first_element_offset], field_len);
 
-            if (header_id && value_offset) {
+            if (header_id && value_offset >= 0 && value_offset < hlen) {
 
                 value_len = hlen - (value_offset + code);
+                if (value_len < 0) { offset += hlen; remaining = packet->payload_packet_len - (offset - base_offset); if (remaining < 0) remaining = 0; if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset; if (remaining < 0) remaining = 0; hlen = get_next_header_line_length((const char*)&ipacket->data[offset], remaining, &code); continue; }
                 header_index = get_header_index_by_header_id(header_id);
                 struct http_session_data_struct *http = (struct http_session_data_struct *)ipacket->session->session_data[index];
+                if (!http) { offset += hlen; remaining = packet->payload_packet_len - (offset - base_offset); if (remaining < 0) remaining = 0; if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset; if (remaining < 0) remaining = 0; hlen = get_next_header_line_length((const char*)&ipacket->data[offset], remaining, &code); continue; }
                 http->session_field_values[header_index].field_id   = header_id;
                 http->session_field_values[header_index].field      = get_header_field_name_by_header_id(header_id);
                 http->session_field_values[header_index].header_len = hlen;
                 http->session_field_values[header_index].value_len  = value_len;
 
                 http->session_field_values[header_index].value = (char *) mmt_malloc(value_len + 1);
+                if (!http->session_field_values[header_index].value) { offset += hlen; remaining = packet->payload_packet_len - (offset - base_offset); if (remaining < 0) remaining = 0; if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset; if (remaining < 0) remaining = 0; hlen = get_next_header_line_length((const char*)&ipacket->data[offset], remaining, &code); continue; }
                 memcpy(http->session_field_values[header_index].value,
                         &ipacket->data[offset + value_offset], value_len);
                 http->session_field_values[header_index].value[value_len] = '\0';
@@ -423,7 +458,11 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
                 //        http->session_field_values[header_index].value);
             }
             offset += hlen;
-            hlen = get_next_header_line_length((const char*)&ipacket->data[offset], ipacket->p_hdr->len - offset, &code);
+            remaining = packet->payload_packet_len - (offset - base_offset);
+            if (remaining < 0) remaining = 0;
+            if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset;
+            if (remaining < 0) remaining = 0;
+            hlen = get_next_header_line_length((const char*)&ipacket->data[offset], remaining, &code);
         }
         return 1;
     }
@@ -433,9 +472,13 @@ parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) { //
 int http_session_data_analysis(ipacket_t * ipacket, unsigned index) {
     //printf("from http generic session data analysis\n");
     int offset = get_packet_offset_at_index(ipacket, index);
+    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
+    int remaining = packet->payload_packet_len;
+    if (remaining > (int)ipacket->p_hdr->caplen - offset) remaining = (int)ipacket->p_hdr->caplen - offset;
+    if (remaining < 0) remaining = 0;
 
     //First we check if the message starts with leading CRLF --- normally this should never be the case
-    offset += ignore_starting_crlf((const char*)&ipacket->data[offset], ipacket->p_hdr->len - offset);
+    offset += ignore_starting_crlf((const char*)&ipacket->data[offset], remaining);
 
     //Parse the first line line of the header (request or response line)
     parse_message_header_lines(ipacket, index, offset);
@@ -1691,6 +1734,29 @@ static inline uint16_t http_request_url_offset(ipacket_t * ipacket) {
                         return 9;
                     }
                 break;
+                case 'A':
+                    /* issue #101: PATCH was missing from this table, so any
+                     * flow whose first request used PATCH was permanently
+                     * excluded from HTTP classification. */
+                    if(packet->payload_packet_len >= 6 && mmt_memcmp(packet->payload, "PATCH ", 6) == 0){
+                        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: PATCH FOUND\n");
+                        return 6;
+                    }
+                break;
+            }
+        break;
+        case 'M':
+            /* issue #101: WebDAV MKCOL was missing from this table. */
+            if(packet->payload_packet_len >= 6 && mmt_memcmp(packet->payload, "MKCOL ", 6) == 0){
+                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: MKCOL FOUND\n");
+                return 6;
+            }
+        break;
+        case 'L':
+            /* issue #101: WebDAV LOCK was missing from this table. */
+            if(packet->payload_packet_len >= 5 && mmt_memcmp(packet->payload, "LOCK ", 5) == 0){
+                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: LOCK FOUND\n");
+                return 5;
             }
         break;
         case 'O':
@@ -2232,7 +2298,6 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
                     return;
                 } else {
                     MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "retransmission not found, exclude\n");
-                    fprintf(stdout, "retransmission not found, exclude\n");
                     http_bitmask_exclude(flow);
                     return;
                 }
@@ -2243,7 +2308,6 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
             filename_start = http_request_url_offset(ipacket);
             if (filename_start == 0) {
                 MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "filename not found, exclude\n");
-                fprintf(stdout, "filename not found, exclude\n");
                 http_bitmask_exclude(flow);
                 return;
             }
@@ -2302,7 +2366,6 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
                     /* stop parsing here */
                     MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
                             "HTTP: PACKET DOES NOT HAVE A LINE STRUCTURE\n");
-                    fprintf(stdout, "HTTP: PACKET DOES NOT HAVE A LINE STRUCTURE\n");
                     http_bitmask_exclude(flow);
                     return;
                 }
@@ -2321,7 +2384,6 @@ void mmt_classify_me_http(ipacket_t * ipacket, unsigned index) {
         }
     }
     MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: REQUEST NOT HTTP CONFORM\n");
-    fprintf(stdout, "HTTP: REQUEST NOT HTTP CONFORM\n");
     http_bitmask_exclude(flow);
     return;
 

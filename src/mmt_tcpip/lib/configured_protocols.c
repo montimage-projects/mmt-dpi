@@ -4050,7 +4050,9 @@ int init_tcpip_plugin() {
     register_classification_function_with_parent_protocol(PROTO_TCP, mmt_check_fiesta, 50);
     register_classification_function_with_parent_protocol(PROTO_TCP, mmt_check_crossfire_tcp, 50);
     register_classification_function_with_parent_protocol(PROTO_TCP, mmt_check_guildwars, 50);
-    register_classification_function_with_parent_protocol(PROTO_TCP, mmt_check_skype_tcp, 60);
+    /* issue #102: mmt_check_skype_tcp registration removed -- the classifier
+     * matched on coincidental packet shape (no Skype protocol content
+     * validation) and was a false-positive source; see proto_skype.c. */
     register_classification_function_with_parent_protocol(PROTO_TCP, mmt_check_citrix, 50);
     register_classification_function_with_parent_protocol(PROTO_TCP, mmt_check_dcerpc, 50);
     register_classification_function_with_parent_protocol(PROTO_TCP, mmt_check_spotify, 50);
@@ -4079,7 +4081,10 @@ int init_tcpip_plugin() {
     register_classification_function_with_parent_protocol(PROTO_UDP, mmt_check_ssdp, 40);
     register_classification_function_with_parent_protocol(PROTO_UDP, mmt_check_syslog, 40);
     register_classification_function_with_parent_protocol(PROTO_UDP, mmt_check_netbios_udp, 40);
-    register_classification_function_with_parent_protocol(PROTO_UDP, mmt_check_skype_udp, 40);
+    /* issue #102: mmt_check_skype_udp registration removed -- the classifier
+     * matched on coincidental packet shape (no Skype protocol content
+     * validation) and outranked STUN/RTP (weight 50), causing their flows
+     * to be mislabeled Skype; see proto_skype.c. */
     register_classification_function_with_parent_protocol(PROTO_UDP, mmt_check_netflow, 40);
     register_classification_function_with_parent_protocol(PROTO_UDP, mmt_check_sflow, 40);
     register_classification_function_with_parent_protocol(PROTO_UDP, mmt_check_vmware, 40);

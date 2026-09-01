@@ -14,7 +14,7 @@ Thank you for your interest in contributing to MMT-DPI! This guide will help you
 
 ### Prerequisites
 
-- GCC (4.9 to 9.x)
+- GCC 13 (tested in CI on ubuntu-24.04)
 - GNU Make, CMake
 - `libxml2-dev`, `libpcap-dev`
 

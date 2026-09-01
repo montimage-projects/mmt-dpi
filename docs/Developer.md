@@ -1,13 +1,21 @@
-This is the page for developers. It contains the notes, documentations,.... everything need to consider when develop a new plugin, new features,.....
+# Developer Notes
 
-[TCP - protocol](/montimage/mmt-sdk/wiki/TCP%20protocol)
+This page collects notes and references for developers extending MMT-DPI —
+adding a new protocol plugin, new attributes, or new features.
 
-[FTP - protocol](/montimage/mmt-sdk/wiki/FTP%20Protocol)
+## Start here
 
-[NDN - protocol](/montimage/mmt-sdk/wiki/NDN%20protocol)
+* [Development](./DEVELOPMENT.md) — local build setup, build options, testing and debugging
+* [Architecture](./ARCHITECTURE.md) — core engine and plugin model
+* [Adding a New Protocol](./Add-New-Protocol.md) — step-by-step plugin workflow
+* [Protocol Modeling](./Protocol-Modeling.md) — how protocols are defined
+* [Data Types](./Data-Types.md) — attribute data-type reference
 
-[DNS - protocol](/montimage/mmt-sdk/wiki/DNS%20protocol)
+## Per-protocol documentation
 
-[HTTP - protocol](/montimage/mmt-sdk/wiki/HTTP%20protocol)
-
-[HTTP2 - protocol](/montimage/mmt-sdk/wiki/HTTP2%20protocol)
+* [TCP](./TCP-protocol.md) ([design](./TCP-design.md), [test cases](./TCP-test-case.md), [references](./TCP-documents.md))
+* [FTP](./FTP-Protocol.md) ([design](./FTP-design.md), [test cases](./FTP-test-case.md), [references](./FTP-documents.md))
+* [DNS](./DNS-protocol.md)
+* [HTTP](./HTTP-protocol.md)
+* [HTTP/2](./HTTP2-protocol.md)
+* [NDN](./NDN-protocol.md) ([design](./NDN-design.md), [packet format](./NDN-packet-format.md), [test cases](./NDN-test-case.md), [references](./NDN-documents.md))

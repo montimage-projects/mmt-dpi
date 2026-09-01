@@ -16,26 +16,41 @@ char * str_hex2str(char *hstr, int start_index, int end_index){
 
     if(end_index < start_index ) return NULL;
 
-    int length = end_index - start_index + 2;
+    /* end_index must be inside the string */
+    size_t hlen = strlen(hstr);
+    if((size_t)end_index >= hlen) return NULL;
+
+    /* [start_index, end_index] is inclusive on both ends: examine
+     * end-start+1 characters and keep room for the terminating NUL.
+     * Callers pass length-1 as end_index for an NUL-terminated input,
+     * so the last examined character is the final byte before NUL. */
+    int length = end_index - start_index + 1;
 
     char *ret;
-    ret = (char*)malloc(length);
+    ret = (char*)malloc(length + 1);
     if(ret == NULL) return NULL;
     int i = 0;
     
     int current_index = 0;
 
     while(i < length){
-        int c = hstr[i];
+        int c = hstr[start_index + i];
         if(c > 19 && c < 127){
-            ret[current_index] = hstr[i];
+            ret[current_index] = hstr[start_index + i];
             current_index++;
         }
         i++;
     }
     ret[current_index]='\0';
 
-    char *str_str = str_sub(ret,0,current_index);
+    if(current_index == 0){
+        free(ret);
+        char *empty = (char*)malloc(1);
+        if(empty == NULL) return NULL;
+        empty[0] = '\0';
+        return empty;
+    }
+    char *str_str = str_sub(ret,0,current_index - 1);
     free(ret);
     return str_str;
 }
@@ -151,7 +166,9 @@ int str_compare(char * str1, char * str2){
 
     if(start_index < 0) return NULL;
 
-    // if(str[end_index]end_index >= strlen(str)) return NULL;
+    if(end_index < 0) return NULL;
+
+    if((size_t)end_index >= strlen(str)) return NULL;
 
     if( start_index > end_index) return NULL;
 
@@ -229,6 +246,11 @@ int str_compare(char * str1, char * str2){
 
 int * str_get_indexes(char *str, char* str1){
     if(str ==  NULL || str1 == NULL) return NULL;
+
+    if(str1[0] == '\0') return NULL;
+
+    size_t sep_len = strlen(str1);
+    if(sep_len == 0) return NULL;
 
     int str1_index = str_index(str,str1);
     if(str1_index == -1) return NULL;

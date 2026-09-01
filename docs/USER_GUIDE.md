@@ -19,13 +19,13 @@ The fastest path is the one-liner installer (Linux only):
 curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | bash
 ```
 
-This script:
+This script (`install.sh`):
 1. Detects your distribution and installs build dependencies
-   (`build-essential`, `libxml2-dev`, `libpcap-dev`, `cmake`).
+   (`build-essential`, `libxml2-dev`, `libpcap-dev`).
 2. Clones the `main` branch into a temporary directory.
 3. Runs `make ARCH=linux MMT_BASE=/opt/mmt -jN`.
 4. Installs to `/opt/mmt/dpi/` (override with `MMT_BASE=/custom/path`).
-5. Refreshes the dynamic linker cache (`/etc/ld.so.conf.d/mmt.conf`).
+5. Refreshes the dynamic linker cache (`/etc/ld.so.conf.d/mmt-dpi.conf`).
 
 Manual build:
 
@@ -36,14 +36,18 @@ make -j$(nproc)
 sudo make install
 ```
 
-After installation, the layout under `MMT_BASE/dpi/` is:
+After installation (default `MMT_BASE=/opt/mmt`), the layout is:
 
 ```
-include/      # Public C headers (mmt_core.h, ...)
-lib/          # Shared libraries (libmmt_core.so, libmmt_tcpip.so, ...)
-plugins/      # Protocol plugin .so files loaded at runtime
-examples/     # Prebuilt example binaries
+/opt/mmt/
+├── dpi/
+│   ├── include/      # Public C headers (mmt_core.h, ...)
+│   └── lib/          # Shared libraries (libmmt_core.so, libmmt_tcpip.so, ...)
+├── plugins/          # Protocol plugin .so files loaded at runtime
+└── examples/         # Prebuilt example binaries
 ```
+
+Paths are defined in `rules/common.mk:4-7`.
 
 ## 2. First run: extract attributes from a pcap
 

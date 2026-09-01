@@ -359,42 +359,50 @@ uint32_t get_data_size_by_data_type(uint32_t data_type) {
     }
 }
 
-unsigned htoi(char * chdata, const char *ptr, int len) {
-    unsigned index_nb = 0;
-    char ch = *ptr;
-    int i = 0;
+unsigned htoi(char * chdata, size_t chdata_cap, const char *ptr, int len) {
+    if(chdata == NULL || ptr == NULL) return 0;
+    if(len <= 0 || chdata_cap == 0) return 0;
+    /* len is the number of bytes requested; never write more than
+     * chdata_cap and never read more than len*2 hex chars. */
+    size_t max_bytes = (size_t)len;
+    if(max_bytes > chdata_cap) max_bytes = chdata_cap;
 
-    for (;;) {
-        if (i == 0) {
-            i = 1;
-            chdata[index_nb] = '\0';
-            if (ch >= '0' && ch <= '9') {
-                chdata[index_nb] = (char) ((ch - '0'));
-            } else if (ch >= 'A' && ch <= 'F') {
-                chdata[index_nb] = (char) (ch - 'A' + 10);
-            } else if (ch >= 'a' && ch <= 'f') {
-                chdata[index_nb] = (char) (ch - 'a' + 10);
-            } else {
-                //*((int *) & chdata[0]) = index_nb;
+    unsigned index_nb = 0;
+    const char *p = ptr;
+    int nibble = 0; /* 0 = high nibble, 1 = low nibble */
+
+    for(size_t pos = 0; pos < max_bytes * 2; pos++){
+        char ch = p[pos];
+        int v;
+        if(ch >= '0' && ch <= '9') v = ch - '0';
+        else if(ch >= 'A' && ch <= 'F') v = ch - 'A' + 10;
+        else if(ch >= 'a' && ch <= 'f') v = ch - 'a' + 10;
+        else {
+            /* non-hex terminates: if we stopped mid-byte, that byte is
+             * incomplete — do not count it (keeps original semantics where
+             * return is index_nb or index_nb+1 depending on alignment). */
+            if(nibble == 1) return index_nb + 1;
+            return index_nb;
+        }
+        if(nibble == 0){
+            chdata[index_nb] = (char)v;
+            nibble = 1;
+        } else {
+            chdata[index_nb] = (char)((chdata[index_nb] << 4) + v);
+            nibble = 0;
+            index_nb++;
+            if(index_nb >= max_bytes){
+                /* Consumed len bytes or filled capacity — need to verify
+                 * the next char (if any) is not a stray hex that would have
+                 * continued, but bounded return is index_nb. */
                 return index_nb;
             }
-            ch = *(++ptr);
-        } else {
-            i = 0;
-            if (ch >= '0' && ch <= '9') {
-                chdata[index_nb] = ((char) (chdata[index_nb] << 4) + (ch - '0'));
-            } else if (ch >= 'A' && ch <= 'F') {
-                chdata[index_nb] = (char) ((chdata[index_nb] << 4) + (ch - 'A' + 10));
-            } else if (ch >= 'a' && ch <= 'f') {
-                chdata[index_nb] = (char) ((chdata[index_nb] << 4) + (ch - 'a' + 10));
-            } else {
-                //*((int *) & chdata[0]) = index_nb + 1;
-                return index_nb + 1;
-            }
-            ch = *(++ptr);
-            index_nb++;
         }
     }
+    /* Reached len*2 chars cleanly: if we ended mid-byte, the partial byte
+     * counts as one (mirrors original loop's index_nb+1 on odd length). */
+    if(nibble == 1) return index_nb + 1;
+    return index_nb;
 }
 
 uint32_t short_time_diff(struct timeval *starttime, struct timeval *finishtime) {

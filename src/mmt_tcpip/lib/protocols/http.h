@@ -125,6 +125,10 @@ enum {
 #define MMT_HTTP_CONNECT_CODE   7
 #define MMT_HTTP_PROPFIND_CODE  8
 #define MMT_HTTP_REPORT_CODE    9
+/* issue #101: REST/WebDAV methods missing from the hand-maintained table */
+#define MMT_HTTP_PATCH_CODE     10
+#define MMT_HTTP_MKCOL_CODE     11
+#define MMT_HTTP_LOCK_CODE      12
 
 #define MMT_HTTP_GET            "GET "
 #define MMT_HTTP_POST           "POST "
@@ -135,9 +139,12 @@ enum {
 #define MMT_HTTP_CONNECT        "CONNECT "
 #define MMT_HTTP_PROPFIND       "PROPFIND "
 #define MMT_HTTP_REPORT         "REPORT "
+#define MMT_HTTP_PATCH          "PATCH "
+#define MMT_HTTP_MKCOL          "MKCOL "
+#define MMT_HTTP_LOCK           "LOCK "
 
 #define MMT_HTTP_IS_VALID_METHOD( m ) \
-    (((m) >= MMT_HTTP_GET_CODE) && ((m) <= MMT_HTTP_REPORT_CODE))
+    (((m) >= MMT_HTTP_GET_CODE) && ((m) <= MMT_HTTP_LOCK_CODE))
 
     /**
      * HTTP response codes.

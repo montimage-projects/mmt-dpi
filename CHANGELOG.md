@@ -1,6 +1,40 @@
 RELEASE NOTES
 ---
 
+Version 1.8.0 (23 July 2026 - by EM)
+- add DICOM protocol plugin (libmmt_dicom): classify DICOM flows and extract A-ASSOCIATE, C-FIND and P-DATA attributes (called/calling AE titles, max PDU length, command group length and command field, patient name)
+- add syslog protocol parser supporting both RFC 3164 and RFC 5424 message formats
+- add classification for PTP (Precision Time Protocol) packets
+- improve Microsoft 365 and cloud service detection coverage
+- externalize IP-range and port attribution into editable data files, with IPv6 and override support and a precision test harness
+- add Cloudflare and Azure IP range detection; refresh CDN ranges and demote port-only classification unless payload-confirmed
+- enhance Citrix ICA protocol detection with nDPI-compatible patterns
+- improve Redis detection with a port-6379 hint and a broader RESP opener heuristic
+- guard global registries for multi-threaded use and document the library threading contract
+- add one-line install script for easy deployment; support rootless containers and GCC 15
+- add CI to build and release multi-distro packages (.deb and .rpm)
+- harden parser bounds-checking against malformed packets across DNS, HTTP2, TLS/SSL, QUIC, HTTP, FTP and TCP/IP (buffer over-read guards, recursion caps, minimum-length gates)
+- replace exit()/abort() calls in the shared library with error propagation
+- fix memory leaks: reassembly packets on analyzer DROP/SKIP paths, per-packet embedded-session offsets, FTP context teardown, allocator ownership for sessions/hashmap/evasion handler
+- fix thread-safety issues: atomic protocol-descriptor status flags, mutex-guarded configured-handlers map, RADIUS parser state moved from __thread to per-session
+- fix misaligned IP/L4, IPv6 and application-layer header reads reported by UBSan
+- fix GTP classification: infinite loop on zero-length next header, hardened padding handling, unknown protocol after echo request/response
+- fix TLS/SSL: read record version at the correct offset for TLS 1.2; structurally parse SNI and enlarge its buffer to 256B
+- fix DTLS: add standard bitmask guards and drop invalid version 0x0100
+- fix HTTP: case-insensitive header name matching; recognize PATCH/MKCOL/LOCK methods and populate http.method/http.uri for them
+- fix Skype false-positive UDP/TCP classification heuristic
+- restore classification give-up for unknown TCP flows and validate TCP data offset before use
+- fix DCERPC packet type offset and payload threshold
+- fix DICOM AE Title buffer overflow and strengthen DICOM payload validation
+- resize protocol bitmask to cover the full protocol id range
+- fix .deb packaging: architecture detection, dependencies, maintainer scripts
+- improve packet-processing performance: open-addressing session hash table (replacing std::map), single-pass packet dispatch, per-flow arena allocator with buffer reuse
+- reduce lookup overhead: memoized packet offsets, name-to-id hashmap, cached AVL node heights for O(1) balance-factor lookups
+- build hardening: LTO and section garbage-collection, hardening flags, link-flag hygiene, libxml2 via pkg-config
+- add ASan/UBSan and multi-threaded TSan harnesses plus comprehensive unit test suites for core utility libraries
+- update all references from montimage.com to montimage.eu
+- documentation overhaul: redesigned landing page, refreshed build and protocol pages, docs reconciled to code with validation scripts
+
 Version 1.7.10 (17 Jully 2023 - by HN)
 - fixed bug in INT protocol when parsing cloudgaming metadata
 

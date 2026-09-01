@@ -172,9 +172,11 @@ static inline int _s1ap_decode_e_rabtobesetuplistctxtsureq(
 						nas_msg_t  mm;
 						memset( &mm, 0, sizeof( mm ) );
 						if( nas_decode( &mm, octet->data, octet->len) > 0 ){
-							//need to check
+							// F-BUG-202: bound UE-IP read by pdn_type-implied minimum
 							nas_pdn_address_t *pdn = &mm.plain_msg.esm.active_default_esp_bearer_context_request.pdn_address;
-							if( pdn && pdn->pdn_type_value == NAS_PDN_VALUE_TYPE_IPV4 ){
+							if( pdn && pdn->pdn_type_value == NAS_PDN_VALUE_TYPE_IPV4
+									&& pdn->pdn_address_information.data != NULL
+									&& pdn->pdn_address_information.len >= 4 ){
 								message->ue_ipv4 = *(uint32_t *) pdn->pdn_address_information.data;
 							}
 						}
@@ -210,7 +212,13 @@ static inline int _decode_s1ap_initialContextSetupRequest(
 
 	S1AP_DEBUG("Decoding message S1ap_InitialContextSetupRequestIEs (%s:%d)\n", __FILE__, __LINE__);
 
-	ANY_to_type_aper(any_p, &asn_DEF_S1ap_InitialContextSetupRequest, (void**)&s1ap_InitialContextSetupRequest_p);
+	tempDecoded = ANY_to_type_aper(any_p, &asn_DEF_S1ap_InitialContextSetupRequest, (void**)&s1ap_InitialContextSetupRequest_p);
+	if (tempDecoded < 0 || s1ap_InitialContextSetupRequest_p == NULL) {
+		S1AP_ERROR("Decoding of S1ap_InitialContextSetupRequest failed\n");
+		if (s1ap_InitialContextSetupRequest_p)
+			ASN_STRUCT_FREE(asn_DEF_S1ap_InitialContextSetupRequest, s1ap_InitialContextSetupRequest_p);
+		return -1;
+	}
 
 	for (i = 0; i < s1ap_InitialContextSetupRequest_p->s1ap_InitialContextSetupRequest_ies.list.count; i++) {
 		S1ap_IE_t *ie_p;
@@ -237,6 +245,10 @@ static inline int _decode_s1ap_initialContextSetupRequest(
 			}
 			if (_s1ap_decode_e_rabtobesetuplistctxtsureq(message, s1apERABToBeSetupListCtxtSUReq_p) < 0) {
 				S1AP_ERROR("Decoding of encapsulated IE s1apERABToBeSetupListCtxtSUReq failed\n");
+				if (s1apERABToBeSetupListCtxtSUReq_p)
+					ASN_STRUCT_FREE(asn_DEF_S1ap_E_RABToBeSetupListCtxtSUReq, s1apERABToBeSetupListCtxtSUReq_p);
+				decoded = -1;
+				goto _finish;
 			}
 
 			decoded += tempDecoded;
@@ -269,7 +281,13 @@ static inline int _decode_s1ap_initialContextSetupResponse(
 
 	S1AP_DEBUG("Decoding message S1ap_InitialContextSetupResponseIEs (%s:%d)\n", __FILE__, __LINE__);
 
-	ANY_to_type_aper(any_p, &asn_DEF_S1ap_InitialContextSetupResponse, (void**)&s1ap_InitialContextSetupResponse_p);
+	tempDecoded = ANY_to_type_aper(any_p, &asn_DEF_S1ap_InitialContextSetupResponse, (void**)&s1ap_InitialContextSetupResponse_p);
+	if (tempDecoded < 0 || s1ap_InitialContextSetupResponse_p == NULL) {
+		S1AP_ERROR("Decoding of S1ap_InitialContextSetupResponse failed\n");
+		if (s1ap_InitialContextSetupResponse_p)
+			ASN_STRUCT_FREE(asn_DEF_S1ap_InitialContextSetupResponse, s1ap_InitialContextSetupResponse_p);
+		return -1;
+	}
 
 	for (i = 0; i < s1ap_InitialContextSetupResponse_p->s1ap_InitialContextSetupResponse_ies.list.count; i++) {
 		S1ap_IE_t *ie_p;
@@ -295,16 +313,20 @@ static inline int _decode_s1ap_initialContextSetupResponse(
 
 			if (_decode_s1ap_e_rabsetuplistctxtsures( message, s1apERABSetupListCtxtSURes_p) < 0) {
 				S1AP_ERROR("Decoding of encapsulated IE s1apERABSetupListCtxtSURes failed\n");
-			}
+				decoded = -1;
+			} else
+				decoded += tempDecoded;
 
-			decoded += tempDecoded;
 			XER_FPRINT( &asn_DEF_S1ap_E_RABSetupListCtxtSURes, s1apERABSetupListCtxtSURes_p);
 			ASN_STRUCT_FREE(asn_DEF_S1ap_E_RABSetupListCtxtSURes, s1apERABSetupListCtxtSURes_p);
+
+			goto _finish;
 		}
 		break;
 		}
 	}
 
+	_finish:
 	ASN_STRUCT_FREE(asn_DEF_S1ap_InitialContextSetupResponse, s1ap_InitialContextSetupResponse_p);
 	return decoded;
 }
@@ -320,7 +342,13 @@ static inline int _decode_s1ap_initialuemessageies(
 
 	S1AP_DEBUG("Decoding message S1ap_InitialUEMessageIEs (%s:%d)\n", __FILE__, __LINE__);
 
-	ANY_to_type_aper(any_p, &asn_DEF_S1ap_InitialUEMessage, (void**)&s1ap_InitialUEMessage_p);
+	tempDecoded = ANY_to_type_aper(any_p, &asn_DEF_S1ap_InitialUEMessage, (void**)&s1ap_InitialUEMessage_p);
+	if (tempDecoded < 0 || s1ap_InitialUEMessage_p == NULL) {
+		S1AP_ERROR("Decoding of S1ap_InitialUEMessage failed\n");
+		if (s1ap_InitialUEMessage_p)
+			ASN_STRUCT_FREE(asn_DEF_S1ap_InitialUEMessage, s1ap_InitialUEMessage_p);
+		return -1;
+	}
 
 	for (i = 0; i < s1ap_InitialUEMessage_p->s1ap_InitialUEMessage_ies.list.count; i++) {
 		S1ap_IE_t *ie_p;
@@ -377,6 +405,8 @@ static inline int _decode_s1ap_initialuemessageies(
 						message->imsi[12] ='0' + imsi->digit13;
 						message->imsi[13] ='0' + imsi->digit14;
 						message->imsi[14] ='0' + imsi->digit15;
+						message->imsi[15] = '\0';
+						message->has_imsi = 1;
 						//printf("Got IMSI: %.*s\n", 15, message->imsi );
 						break;
 					}
@@ -436,7 +466,13 @@ static inline int _decode_s1ap_S1SetupRequest(
 
 	S1AP_DEBUG("Decoding message S1ap_S1SetupRequestIEs (%s:%d)\n", __FILE__, __LINE__);
 
-	ANY_to_type_aper(any_p, &asn_DEF_S1ap_S1SetupRequest, (void**)&s1ap_S1SetupRequest_p);
+	tempDecoded = ANY_to_type_aper(any_p, &asn_DEF_S1ap_S1SetupRequest, (void**)&s1ap_S1SetupRequest_p);
+	if (tempDecoded < 0 || s1ap_S1SetupRequest_p == NULL) {
+		S1AP_ERROR("Decoding of S1ap_S1SetupRequest failed\n");
+		if (s1ap_S1SetupRequest_p)
+			ASN_STRUCT_FREE(asn_DEF_S1ap_S1SetupRequest, s1ap_S1SetupRequest_p);
+		return -1;
+	}
 
 	for (i = 0; i < s1ap_S1SetupRequest_p->s1ap_S1SetupRequest_ies.list.count; i++) {
 		S1ap_IE_t *ie_p;
@@ -469,8 +505,10 @@ static inline int _decode_s1ap_S1SetupRequest(
 				len = s1apENBname_p->size;
 			memcpy( message->enb_name,  s1apENBname_p->buf, len );
 			message->enb_name[len] = '\0';
+			if( len > 0 )
+				message->has_enb_name = 1;
 
-			S1AP_DEBUG("ENB name: %.*s\n", s1apENBname_p->size, message->enb_name.ptr );
+			S1AP_DEBUG("ENB name: %.*s\n", s1apENBname_p->size, message->enb_name );
 
 			decoded += tempDecoded;
 
@@ -497,7 +535,13 @@ static inline int _decode_s1ap_S1SetupResponse(
 
 	S1AP_DEBUG("Decoding message S1ap_S1SetupResponseIEs (%s:%d)\n", __FILE__, __LINE__);
 
-	ANY_to_type_aper(any_p, &asn_DEF_S1ap_S1SetupResponse, (void**)&s1ap_S1SetupResponse_p);
+	tempDecoded = ANY_to_type_aper(any_p, &asn_DEF_S1ap_S1SetupResponse, (void**)&s1ap_S1SetupResponse_p);
+	if (tempDecoded < 0 || s1ap_S1SetupResponse_p == NULL) {
+		S1AP_ERROR("Decoding of S1ap_S1SetupResponse failed\n");
+		if (s1ap_S1SetupResponse_p)
+			ASN_STRUCT_FREE(asn_DEF_S1ap_S1SetupResponse, s1ap_S1SetupResponse_p);
+		return -1;
+	}
 
 	for (i = 0; i < s1ap_S1SetupResponse_p->s1ap_S1SetupResponse_ies.list.count; i++) {
 		S1ap_IE_t *ie_p;
@@ -532,6 +576,8 @@ static inline int _decode_s1ap_S1SetupResponse(
 				len = s1apMMEname_p->size;
 			memcpy( message->mme_name,  s1apMMEname_p->buf, len );
 			message->mme_name[len] = '\0';
+			if( len > 0 )
+				message->has_mme_name = 1;
 
 			XER_FPRINT(&asn_DEF_S1ap_MMEname, s1apMMEname_p);
 			ASN_STRUCT_FREE(asn_DEF_S1ap_MMEname, s1apMMEname_p);
@@ -611,7 +657,13 @@ static inline int _decode_s1ap_uecontextrelease(
 
     S1AP_DEBUG("Decoding message S1ap_UEContextReleaseCommandIEs (%s:%d)\n", __FILE__, __LINE__);
 
-    ANY_to_type_aper(any_p, &asn_DEF_S1ap_UEContextReleaseCommand, (void**)&s1ap_UEContextReleaseCommand_p);
+    tempDecoded = ANY_to_type_aper(any_p, &asn_DEF_S1ap_UEContextReleaseCommand, (void**)&s1ap_UEContextReleaseCommand_p);
+    if (tempDecoded < 0 || s1ap_UEContextReleaseCommand_p == NULL) {
+        S1AP_ERROR("Decoding of S1ap_UEContextReleaseCommand failed\n");
+        if (s1ap_UEContextReleaseCommand_p)
+            ASN_STRUCT_FREE(asn_DEF_S1ap_UEContextReleaseCommand, s1ap_UEContextReleaseCommand_p);
+        return -1;
+    }
 
     for (i = 0; i < s1ap_UEContextReleaseCommand_p->s1ap_UEContextReleaseCommand_ies.list.count; i++) {
         S1ap_IE_t *ie_p;
@@ -679,7 +731,13 @@ static inline int _decode_s1ap_UEContextReleaseRequest(
 
 	S1AP_DEBUG("Decoding message S1ap_UEContextReleaseRequestIEs (%s:%d)\n", __FILE__, __LINE__);
 
-	ANY_to_type_aper(any_p, &asn_DEF_S1ap_UEContextReleaseRequest, (void**)&s1ap_UEContextReleaseRequest_p);
+	tempDecoded = ANY_to_type_aper(any_p, &asn_DEF_S1ap_UEContextReleaseRequest, (void**)&s1ap_UEContextReleaseRequest_p);
+	if (tempDecoded < 0 || s1ap_UEContextReleaseRequest_p == NULL) {
+		S1AP_ERROR("Decoding of S1ap_UEContextReleaseRequest failed\n");
+		if (s1ap_UEContextReleaseRequest_p)
+			ASN_STRUCT_FREE(asn_DEF_S1ap_UEContextReleaseRequest, s1ap_UEContextReleaseRequest_p);
+		return -1;
+	}
 
 	for (i = 0; i < s1ap_UEContextReleaseRequest_p->s1ap_UEContextReleaseRequest_ies.list.count; i++) {
 
@@ -776,6 +834,26 @@ static int _decode_s1ap_successfulOutcomeMessage(s1ap_message_t *message,
  *                 E-RABToBeSetupItemCtxtSUReq/gTP-TEID
  * - IP      : In the same packet of GTP_TEID; same path/(NAS)PDU/EMS message container/PDN address
  */
+/*
+ * asn1c's stack-overflow guard measures nesting depth by the distance
+ * between the codec context and its own frame (&ctx). AddressSanitizer
+ * relocates instrumented locals onto its fake stack, so that distance
+ * always exceeds ASN__DEFAULT_STACK_MAX and every PER decode fails with
+ * RC_WMORE ("Stack limit 30000 reached"). The generated trees under
+ * src/mmt_mobile/asn1c/ must not be edited, so the limit is disabled
+ * here (and in ngap.c) only for ASan builds: release keeps the guard
+ * because MMT_BUILD_ASAN is defined solely by BUILD=asan.
+ */
+static const asn_codec_ctx_t _aper_codec_ctx_storage = { 0 };
+
+static inline const asn_codec_ctx_t * _aper_codec_ctx( void ){
+#if defined(MMT_BUILD_ASAN)
+	return &_aper_codec_ctx_storage;
+#else
+	return NULL;
+#endif
+}
+
 int s1ap_decode(s1ap_message_t *message, const uint8_t * const buffer,
 		const uint32_t length)
 {
@@ -787,7 +865,7 @@ int s1ap_decode(s1ap_message_t *message, const uint8_t * const buffer,
 	if( length == 0 )
 		return 0;
 
-	dec_ret = aper_decode(NULL,
+	dec_ret = aper_decode(_aper_codec_ctx(),
 			&asn_DEF_S1AP_PDU,
 			(void **)&pdu_p,
 			buffer,

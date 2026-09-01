@@ -138,18 +138,35 @@ int nas_decode_eps_mobile_identity(nas_eps_mobile_identity_t *ident, uint8_t iei
 	decoded++;
 	CHECK_LENGTH_DECODER(len - decoded, ielen);
 
+	// F-BUG-203: bound fixed-size decodes by remaining length
+	if (ielen == 0) {
+		errorCodeDecoder = DECODE_BUFFER_TOO_SHORT;
+		return DECODE_BUFFER_TOO_SHORT;
+	}
+	CHECK_LENGTH_DECODER(ielen, 1);
+	CHECK_LENGTH_DECODER(len - decoded, 1);
+
 	uint8_t typeofidentity = *(buffer + decoded) & 0x7;
 
 	switch( typeofidentity){
 	case EPS_MOBILE_IDENTITY_IMSI:
+		// IMSI requires 9 bytes (F-BUG-203)
+		CHECK_LENGTH_DECODER(ielen, 9);
+		CHECK_LENGTH_DECODER(len - decoded, 9);
 		decoded_rc = _decode_imsi_eps_mobile_identity(&ident->imsi,
 				buffer + decoded);
 		break;
 	case EPS_MOBILE_IDENTITY_GUTI:
+		// GUTI requires 11 bytes
+		CHECK_LENGTH_DECODER(ielen, 11);
+		CHECK_LENGTH_DECODER(len - decoded, 11);
 		decoded_rc = _decode_guti_eps_mobile_identity(&ident->guti,
 				buffer + decoded);
 		break;
 	case EPS_MOBILE_IDENTITY_IMEI:
+		// IMEI requires 9 bytes
+		CHECK_LENGTH_DECODER(ielen, 9);
+		CHECK_LENGTH_DECODER(len - decoded, 9);
 		decoded_rc = _decode_imei_eps_mobile_identity(&ident->imei,
 				buffer + decoded);
 		break;
@@ -157,6 +174,12 @@ int nas_decode_eps_mobile_identity(nas_eps_mobile_identity_t *ident, uint8_t iei
 
 	if (decoded_rc < 0)
 		return decoded_rc;
+
+	// Ensure we do not return more than ielen allows
+	if ((uint32_t)decoded_rc > ielen) {
+		errorCodeDecoder = DECODE_BUFFER_TOO_SHORT;
+		return DECODE_BUFFER_TOO_SHORT;
+	}
 
 	return (decoded + decoded_rc);
 }

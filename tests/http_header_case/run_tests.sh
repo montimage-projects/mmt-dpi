@@ -29,16 +29,23 @@ trap 'rm -rf "${WORK}"' EXIT
 CC="${CC:-gcc}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 2)}"
 
+# Optional SDK build profile forwarded by tests/run_all_tests.sh when the
+# suites run under SANITIZE=asan|tsan (mirrors BUILD= in rules/common.mk).
+SDK_MAKE_ARGS=()
+if [ -n "${SDK_BUILD_PROFILE:-}" ]; then
+    SDK_MAKE_ARGS=("BUILD=${SDK_BUILD_PROFILE}")
+fi
+
 echo "  repo root      : ${REPO_ROOT}"
 echo "  install prefix : ${PREFIX}"
 
 # --- 1. build + install the SDK to the isolated prefix ---------------------
 echo "  [1/3] building + installing SDK ..."
 make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
-if ! make -C "${REPO_ROOT}/sdk" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
+if ! make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
     echo "✗ SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
 fi
-if ! make -C "${REPO_ROOT}/sdk" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
+if ! make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
     echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
 fi
 
@@ -50,15 +57,19 @@ if [ ! -d "${PLUGINS}" ]; then
 fi
 
 # --- 2. compile the test ---------------------------------------------------
+# EXTRA_CFLAGS carries sanitizer/coverage instrumentation requested by
+# tests/run_all_tests.sh; the binary stays in the suite dir so gcov data
+# (.gcno/.gcda) survives for the coverage report.
 echo "  [2/3] compiling test ..."
-${CC} -O2 -Wall -o "${WORK}/test_http_header_case" \
+read -r -a extra_cflags <<< "${EXTRA_CFLAGS:-}"
+${CC} "${extra_cflags[@]}" -O2 -Wall -o "${SCRIPT_DIR}/test_http_header_case" \
     "${TEST_SRC}" -I "${INC}" -L "${LIB}" -lmmt_core -ldl
 
 # --- 3. run with CWD-relative plugins/ pointing at the built plugins -------
 echo "  [3/3] running test ..."
 ln -s "${PLUGINS}" "${WORK}/plugins"
 ( cd "${WORK}" && LD_LIBRARY_PATH="${LIB}:${LD_LIBRARY_PATH:-}" \
-    ./test_http_header_case )
+    "${SCRIPT_DIR}/test_http_header_case" )
 
 echo
 echo "✓ HTTP header case-insensitivity regression test passed"

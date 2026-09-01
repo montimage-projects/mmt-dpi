@@ -295,16 +295,24 @@ int tcp_session_rtt_extraction(const ipacket_t * ipacket, unsigned proto_index,
 }
 
 int tcp_option_extraction(const ipacket_t *ipacket, unsigned proto_index, attribute_t * extracted_data){
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL || extracted_data == NULL) return 0;
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
+    if (proto_offset < 0) return 0;
+    if (ipacket->p_hdr->caplen < (unsigned)(proto_offset + (int)sizeof(struct tcphdr))) return 0;
     mmt_una_tcphdr_t * tcp_hdr = (mmt_una_tcphdr_t *) & ipacket->data[proto_offset];
     int data_offset = tcp_hdr->doff;
     //no optional fields
     if( data_offset <= 5 )
        return 0;
+    if (data_offset > 15) return 0;
     //tcp data offset specifies the size of tcp header length in 32-bit words
     //its value is from 5 (no option fields) to 15
+    int tcphdr_len = data_offset * 4;
+    if (tcphdr_len < 20 || tcphdr_len > 60) return 0;
+    if ((unsigned)(proto_offset + tcphdr_len) > ipacket->p_hdr->caplen) return 0;
     int option_offset = proto_offset + (5*4); //5 words of tcp header
-    int end_of_option = proto_offset + data_offset * 4;
+    int end_of_option = proto_offset + tcphdr_len;
+    if (end_of_option > (int)ipacket->p_hdr->caplen) end_of_option = ipacket->p_hdr->caplen;
 
     //structure of a tcp option field
     /*
@@ -325,6 +333,7 @@ int tcp_option_extraction(const ipacket_t *ipacket, unsigned proto_index, attrib
     } __attribute__((aligned(1))) *ts_field;
 
     while( option_offset < end_of_option ){
+        if (option_offset >= (int)ipacket->p_hdr->caplen) break;
         opt_field = (struct tcp_option *) &ipacket->data[ option_offset ];
         switch( opt_field->kind ){
         case 0: //end of option list
@@ -333,19 +342,23 @@ int tcp_option_extraction(const ipacket_t *ipacket, unsigned proto_index, attrib
             option_offset += 1; //jump over this option
             break;
         case 2: //Maximum segment size
-            option_offset += opt_field->length; //jump over this option
-            break;
         case 3: //Window scale
-            option_offset += opt_field->length; //jump over this option
-            break;
         case 4: //Selective Acknowledgement permitted
-            option_offset += opt_field->length; //jump over this option
-            break;
         case 5: //Selective ACKnowledgement (SACK)
+            if (option_offset + 1 >= end_of_option) return 0;
+            if (option_offset + 1 >= (int)ipacket->p_hdr->caplen) return 0;
+            if (opt_field->length < 2) return 0;
+            if (option_offset + opt_field->length > end_of_option) return 0;
+            if (option_offset + opt_field->length > (int)ipacket->p_hdr->caplen) return 0;
             option_offset += opt_field->length; //jump over this option
             break;
         case 8: //Timestamp and echo of previous timestamp
-            option_offset += opt_field->length; //jump over this option
+            if (option_offset + 1 >= end_of_option) return 0;
+            if (option_offset + 1 >= (int)ipacket->p_hdr->caplen) return 0;
+            if (opt_field->length < 2) return 0;
+            if (opt_field->length < 10) return 0;
+            if (option_offset + opt_field->length > end_of_option) return 0;
+            if (option_offset + opt_field->length > (int)ipacket->p_hdr->caplen) return 0;
             ts_field = (struct timestamp_option_field *) opt_field->data;
             //depending on which attribute we are extracting
             switch( extracted_data->field_id ){
@@ -358,8 +371,14 @@ int tcp_option_extraction(const ipacket_t *ipacket, unsigned proto_index, attrib
             default:
                 break;
             }
+            option_offset += opt_field->length; //jump over this option
             break;
         default:
+            if (option_offset + 1 >= end_of_option) return 0;
+            if (option_offset + 1 >= (int)ipacket->p_hdr->caplen) return 0;
+            if (opt_field->length < 2) return 0;
+            if (option_offset + opt_field->length > end_of_option) return 0;
+            if (option_offset + opt_field->length > (int)ipacket->p_hdr->caplen) return 0;
             option_offset += opt_field->length; //jump over this option
             break;
         }
@@ -509,9 +528,20 @@ int tcp_pre_classification_function(ipacket_t * ipacket, unsigned index) {
         packet->mmt_selection_packet |= MMT_SELECTION_BITMASK_PROTOCOL_NO_TCP_RETRANSMISSION;
     }
 
-    // if (ipacket->session->packet_count > CFG_CLASSIFICATION_THRESHOLD) {
-    //    return 0;
-    // }
+    // Issue #99 (PERF-5 / ACC-17): once an *unknown* TCP flow exceeds a bounded
+    // packet budget, give up classifying it, mirroring the UDP stop-guard
+    // (proto_udp.c:71). Returning 0 makes proto_packet_classify_next() skip both
+    // the ~99-checker chain walk AND post-classification for the rest of the
+    // flow's life, so long-lived unknown TCP flows stop re-scanning every packet.
+    // The 2x threshold matches UDP. The give-up is gated on the flow still being
+    // unknown: post-classification re-asserts an already-classified flow's
+    // per-packet protocol path on every packet, so an unconditional give-up would
+    // drop that path and misreport long classified flows (e.g. FTP) as unknown.
+    if (packet->flow != NULL
+        && packet->flow->detected_protocol_stack[0] == PROTO_UNKNOWN
+        && ipacket->session->packet_count > (CFG_CLASSIFICATION_THRESHOLD * 2)) {
+        return 0;
+    }
 
     return 1;
 }
@@ -631,9 +661,20 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
         packet->mmt_selection_packet |= MMT_SELECTION_BITMASK_PROTOCOL_NO_TCP_RETRANSMISSION;
     }
 
-    // if (ipacket->session->packet_count > CFG_CLASSIFICATION_THRESHOLD) {
-    //    return 0;
-    // }
+    // Issue #99 (PERF-5 / ACC-17): once an *unknown* TCP flow exceeds a bounded
+    // packet budget, give up classifying it, mirroring the UDP stop-guard
+    // (proto_udp.c:71). Returning 0 makes proto_packet_classify_next() skip both
+    // the ~99-checker chain walk AND post-classification for the rest of the
+    // flow's life, so long-lived unknown TCP flows stop re-scanning every packet.
+    // The 2x threshold matches UDP. The give-up is gated on the flow still being
+    // unknown: post-classification re-asserts an already-classified flow's
+    // per-packet protocol path on every packet, so an unconditional give-up would
+    // drop that path and misreport long classified flows (e.g. FTP) as unknown.
+    if (packet->flow != NULL
+        && packet->flow->detected_protocol_stack[0] == PROTO_UNKNOWN
+        && ipacket->session->packet_count > (CFG_CLASSIFICATION_THRESHOLD * 2)) {
+        return 0;
+    }
 
     return 1;
 }

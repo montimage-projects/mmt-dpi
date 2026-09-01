@@ -44,7 +44,7 @@ After installation, the following files are placed:
 └── plugins/     # Protocol plugin libraries
 ```
 
-The library path is configured via `/etc/ld.so.conf.d/mmt.conf`.
+The library path is configured via `/etc/ld.so.conf.d/mmt-dpi.conf` (`sdk/Makefile:70,117`).
 
 ## Linking Against MMT-DPI
 
@@ -71,9 +71,12 @@ By default, plugins are loaded from `/opt/mmt/dpi/plugins/`. You can also place 
 
 ### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `MMT_SEC_DTLS_CIPHER_ALLOWLIST` | Comma-separated list of allowed DTLS cipher suites |
+No environment variables are documented in the codebase for runtime configuration.
+The plugin load path is compiled in at build time via `PLUGINS_REPOSITORY_OPT`
+(`rules/common.mk:30`).
+
+<!-- FLAG: unverified — MMT_SEC_DTLS_CIPHER_ALLOWLIST was previously documented
+     but no code reference was found (grep across sdk/ and src/). -->
 
 ## Production Considerations
 

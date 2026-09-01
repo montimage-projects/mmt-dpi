@@ -2,7 +2,7 @@
 
 ## TCP state diagram
 
-![tcp state diagram](https://en.wikipedia.org/wiki/File:Tcp_state_diagram_fixed_new.svg)
+See the [TCP connection state diagram on Wikipedia](https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Protocol_operation).
 
 
 ## TCP session

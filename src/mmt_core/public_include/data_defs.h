@@ -1044,12 +1044,14 @@ MMTAPI struct timeval MMTCALL get_last_activity_time( mmt_handler_t * handler );
 /**
  * Transforms the first len (in number of bytes) haxadecimal text represented in ASCI into binary format.
  * @param binary_data pointer where the transformed binary data will be stored
+ * @param binary_data_cap capacity of binary_data in bytes (to prevent overflow)
  * @param hex_data pointer to the hexadecimal ASCI string to transform
- * @param len the number of bytes to transform
+ * @param len the number of bytes to transform (honored: at most len bytes are written)
  * @return the length of the transformed data on success, a negative value on failure.
  */
 MMTAPI unsigned int MMTCALL htoi(
     char *binary_data,
+    size_t binary_data_cap,
     const char *hex_data,
     int len
 );
@@ -1172,21 +1174,35 @@ MMTAPI uint32_t MMTCALL get_classification_threshold(
 );
 
 /**
+ * Transforms the given protocol hierarchy to string notation (bounded).
+ * @param proto_hierarchy pointer to the protocol hierarchy.
+ * @param dest pointer to where the protocol hierarchy will be printed.
+ * @param dest_size size of dest buffer in bytes (including terminating NUL).
+ * @return the length of the string notation (truncated to dest_size-1 if needed).
+ */
+MMTAPI int MMTCALL proto_hierarchy_to_str_with_size(
+    const proto_hierarchy_t *proto_hierarchy,
+    char *dest,
+    size_t dest_size
+);
+
+/**
  * Transforms the given protocol hierarchy to string notation.
  * @param proto_hierarchy pointer to the protocol hierarchy.
  * @param dest pointer to where the protocol hierarchy will be printed.
  * @return the length of the string notation of the protocol hierarchy.
+ * @deprecated Use proto_hierarchy_to_str_with_size() with explicit dest_size.
  */
 MMTAPI int MMTCALL proto_hierarchy_to_str(
     const proto_hierarchy_t *proto_hierarchy,
     char *dest
-);
+) __attribute__((deprecated("use proto_hierarchy_to_str_with_size")));
 
 /**
  * Returns a pointer to the application name corresponding to the given protocol hierarchy.
  * The application name is equivalent to the last protocol in the hierarchy.
  * @param proto_hierarchy pointer to the protocol hierarchy.
- * @return pointer to the application name corresponding to the given protocol hierarchy.
+ * @return pointer to the application name corresponding to the given protocol hierarchy, or NULL if hierarchy is empty.
  */
 MMTAPI const char* MMTCALL get_application_name(
     const proto_hierarchy_t *proto_hierarchy

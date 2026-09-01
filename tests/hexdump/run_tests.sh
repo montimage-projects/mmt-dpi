@@ -11,7 +11,8 @@ CORE_PRIVATE_INC="$PROJECT_DIR/src/mmt_core/private_include"
 
 # Compile test
 echo "Compiling hexdump tests..."
-${CC:-gcc} ${EXTRA_CFLAGS:-} -Wall -Wextra -std=c11 \
+read -r -a extra_cflags <<< "${EXTRA_CFLAGS:-}"
+${CC:-gcc} "${extra_cflags[@]}" -Wall -Wextra -std=c11 \
     -I"$CORE_PRIVATE_INC" \
     -o "$SCRIPT_DIR/test_hexdump" \
     "$SCRIPT_DIR/test_hexdump.c" \

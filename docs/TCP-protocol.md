@@ -2,36 +2,15 @@
 
 ## Overview
 
-** Working branch: ** dev-libntoh-integrated
-
-** Started date: ** ---
-
-** Deadline: ** ---
-
-** Developer: ** @luongnv89 
-
-** Probe example **: reconstruct data payload content and extract all attribute
-
-## List of tasks
-
-* Study about protocol -> understand packet format specification/ how to classify protocol -> OK
-
-* Create data struct for extracting protocol attributes -> OK
-
-* Study some open-source library (if it exists) to see how do they do -> OK
-
-* Implement classify TCP packet -> OK
-
-* Implement parse TCP packet data -> on going
-
-* Test TCP plugin -> on going
-
-* Merge to MMT-SDK -> on going
+MMT-DPI classifies TCP and extracts its attributes. TCP stream reassembly —
+reconstructing the payload content of a flow — is built on the integrated
+`libntoh` engine, allowing a probe to recover the full data payload and extract
+all attributes across reordered or overlapping segments.
 
 ## Contents
 
-[Design](/montimage/mmt-sdk/wiki/TCP%20design)
+[Design](./TCP-design.md)
 
-[Test case](/montimage/mmt-sdk/wiki/TCP%20test%20case)
+[Test case](./TCP-test-case.md)
 
-[Documents](/montimage/mmt-sdk/wiki/TCP%20documents)
+[Documents](./TCP-documents.md)

@@ -1,5 +1,6 @@
 #include "hash_utils.h"
 #include <map>
+#include <new>
 #include <cstdint>
 #include <cstddef>
 
@@ -76,6 +77,7 @@ static const size_t MMT_SESSION_INITIAL_CAP = 16; // power of two
 
 static void mmt_session_alloc_slots(mmt_session_table * t, size_t cap) {
     t->slots = (mmt_session_slot *) calloc(cap, sizeof(mmt_session_slot));
+    if (t->slots == NULL) { t->cap = 0; return; }
     t->cap   = cap;
     // calloc zero-fills -> every slot's key is NULL (MMT_SLOT_EMPTY).
 }
@@ -109,11 +111,13 @@ static void mmt_session_resize(mmt_session_table * t, size_t new_cap) {
 
 void * init_session_map_space(generic_comparison_fct comp_fct, generic_hash_fct hash_fct) {
     mmt_session_table * t = (mmt_session_table *) malloc(sizeof(mmt_session_table));
+    if (t == NULL) return NULL;
     t->size = 0;
     t->used = 0;
     t->comp = comp_fct;
     t->hash = hash_fct;
     mmt_session_alloc_slots(t, MMT_SESSION_INITIAL_CAP);
+    if (t->slots == NULL) { free(t); return NULL; }
     return reinterpret_cast<void *>(t);
 }
 
@@ -125,11 +129,11 @@ void delete_session_map_space(void * sessionmap) {
 }
 
 void * init_map_space(generic_comparison_fct comp_fct) {
-    return reinterpret_cast<void*> (new MMT_Map(comp_fct));
+    return reinterpret_cast<void*> (new (std::nothrow) MMT_Map(comp_fct));
 }
 
 void * init_int_map_space(generic_int_comparison_fct comp_fct) {
-    return reinterpret_cast<void*> (new MMT_IntMap(comp_fct));
+    return reinterpret_cast<void*> (new (std::nothrow) MMT_IntMap(comp_fct));
 }
 
 int getmapsize(void * maplist) {

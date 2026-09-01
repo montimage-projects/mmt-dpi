@@ -53,6 +53,7 @@ read_be32( const uint8_t *x )
  */
 int radius_authenticator_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
+    if (ipacket == NULL || ipacket->p_hdr == NULL || ipacket->data == NULL) return 0;
     /* Get the protocol offset */
     int proto_offset = get_packet_offset_at_index(ipacket, proto_index);
 
@@ -60,6 +61,8 @@ int radius_authenticator_extraction(const ipacket_t * ipacket, unsigned proto_in
     int attribute_offset = sizeof (struct radius_header);
 
     int attribute_length = 16; /* Length of the authenticator field */
+    if (proto_offset < 0) return 0;
+    if ((size_t)proto_offset + (size_t)attribute_offset + (size_t)attribute_length > ipacket->p_hdr->caplen) return 0;
 
     *((unsigned int *) extracted_data->data) = attribute_length;
     memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & ipacket->data[proto_offset + attribute_offset], attribute_length);
@@ -71,8 +74,11 @@ int radius_user_name_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[1]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[1]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[1]->val, radius_session_data->packet_tlvs[1]->len - 2);
+        if (radius_session_data->packet_tlvs[1]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[1]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[1]->val, vlen);
         return 1;
     }
     return 0;
@@ -82,8 +88,11 @@ int radius_user_password_extraction(const ipacket_t * ipacket, unsigned proto_in
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[2]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[2]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[2]->val, radius_session_data->packet_tlvs[2]->len - 2);
+        if (radius_session_data->packet_tlvs[2]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[2]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[2]->val, vlen);
         return 1;
     }
     return 0;
@@ -93,8 +102,11 @@ int radius_chap_password_extraction(const ipacket_t * ipacket, unsigned proto_in
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[3]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[3]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[3]->val, radius_session_data->packet_tlvs[3]->len - 2);
+        if (radius_session_data->packet_tlvs[3]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[3]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[3]->val, vlen);
         return 1;
     }
     return 0;
@@ -104,6 +116,7 @@ int radius_nas_ip_address_extraction(const ipacket_t * ipacket, unsigned proto_i
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[4]) {
+        if (radius_session_data->packet_tlvs[4]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[4]->val );
         return 1;
     }
@@ -114,6 +127,7 @@ int radius_nas_port_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[5]) {
+        if (radius_session_data->packet_tlvs[5]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[5]->val );
         return 1;
     }
@@ -124,6 +138,7 @@ int radius_service_type_extraction(const ipacket_t * ipacket, unsigned proto_ind
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[6]) {
+        if (radius_session_data->packet_tlvs[6]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[6]->val );
         return 1;
     }
@@ -134,6 +149,7 @@ int radius_framed_protocol_extraction(const ipacket_t * ipacket, unsigned proto_
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[7]) {
+        if (radius_session_data->packet_tlvs[7]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[7]->val );
         return 1;
     }
@@ -144,6 +160,7 @@ int radius_framed_ip_address_extraction(const ipacket_t * ipacket, unsigned prot
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[8]) {
+        if (radius_session_data->packet_tlvs[8]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[8]->val );
         return 1;
     }
@@ -154,6 +171,7 @@ int radius_framed_ip_netmask_extraction(const ipacket_t * ipacket, unsigned prot
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[9]) {
+        if (radius_session_data->packet_tlvs[9]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[9]->val );
         return 1;
     }
@@ -164,6 +182,7 @@ int radius_framed_mtu_extraction(const ipacket_t * ipacket, unsigned proto_index
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[12]) {
+        if (radius_session_data->packet_tlvs[12]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[12]->val );
         return 1;
     }
@@ -174,8 +193,11 @@ int radius_callback_number_extraction(const ipacket_t * ipacket, unsigned proto_
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[19]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[19]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[19]->val, radius_session_data->packet_tlvs[19]->len - 2);
+        if (radius_session_data->packet_tlvs[19]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[19]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[19]->val, vlen);
         return 1;
     }
     return 0;
@@ -185,8 +207,11 @@ int radius_callback_id_extraction(const ipacket_t * ipacket, unsigned proto_inde
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[20]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[20]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[20]->val, radius_session_data->packet_tlvs[20]->len - 2);
+        if (radius_session_data->packet_tlvs[20]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[20]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[20]->val, vlen);
         return 1;
     }
     return 0;
@@ -196,8 +221,11 @@ int radius_state_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[24]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[24]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[24]->val, radius_session_data->packet_tlvs[24]->len - 2);
+        if (radius_session_data->packet_tlvs[24]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[24]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[24]->val, vlen);
         return 1;
     }
     return 0;
@@ -207,8 +235,11 @@ int radius_class_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[25]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[25]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[25]->val, radius_session_data->packet_tlvs[25]->len - 2);
+        if (radius_session_data->packet_tlvs[25]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[25]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[25]->val, vlen);
         return 1;
     }
     return 0;
@@ -218,6 +249,7 @@ int radius_session_timeout_extraction(const ipacket_t * ipacket, unsigned proto_
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[27]) {
+        if (radius_session_data->packet_tlvs[27]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[27]->val );
         return 1;
     }
@@ -228,6 +260,7 @@ int radius_idle_timeout_extraction(const ipacket_t * ipacket, unsigned proto_ind
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[28]) {
+        if (radius_session_data->packet_tlvs[28]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[28]->val );
         return 1;
     }
@@ -238,9 +271,12 @@ int radius_called_station_id_extraction(const ipacket_t * ipacket, unsigned prot
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[30]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[30]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[30]->val, radius_session_data->packet_tlvs[30]->len - 2);
-        ((u_char *) extracted_data->data)[sizeof (int) +radius_session_data->packet_tlvs[30]->len - 2] = '\0';
+        if (radius_session_data->packet_tlvs[30]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[30]->len - 2;
+        if (vlen >= BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN - 1;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[30]->val, vlen);
+        ((u_char *) extracted_data->data)[sizeof (int) +vlen] = '\0';
         return 1;
     }
     return 0;
@@ -250,9 +286,12 @@ int radius_calling_station_id_extraction(const ipacket_t * ipacket, unsigned pro
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[31]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[31]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[31]->val, radius_session_data->packet_tlvs[31]->len - 2);
-        ((u_char *) extracted_data->data)[sizeof (int) +radius_session_data->packet_tlvs[31]->len - 2] = '\0';
+        if (radius_session_data->packet_tlvs[31]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[31]->len - 2;
+        if (vlen >= BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN - 1;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[31]->val, vlen);
+        ((u_char *) extracted_data->data)[sizeof (int) +vlen] = '\0';
         return 1;
     }
     return 0;
@@ -262,8 +301,11 @@ int radius_nas_identifier_extraction(const ipacket_t * ipacket, unsigned proto_i
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[32]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[32]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[32]->val, radius_session_data->packet_tlvs[32]->len - 2);
+        if (radius_session_data->packet_tlvs[32]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[32]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[32]->val, vlen);
         return 1;
     }
     return 0;
@@ -273,6 +315,7 @@ int radius_acct_status_type_extraction(const ipacket_t * ipacket, unsigned proto
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[40]) {
+        if (radius_session_data->packet_tlvs[40]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[40]->val );
         return 1;
     }
@@ -283,6 +326,7 @@ int radius_acct_delay_time_extraction(const ipacket_t * ipacket, unsigned proto_
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[41]) {
+        if (radius_session_data->packet_tlvs[41]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[41]->val );
         return 1;
     }
@@ -293,6 +337,7 @@ int radius_acct_input_octets_extraction(const ipacket_t * ipacket, unsigned prot
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[42]) {
+        if (radius_session_data->packet_tlvs[42]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[42]->val );
         return 1;
     }
@@ -303,6 +348,7 @@ int radius_acct_output_octets_extraction(const ipacket_t * ipacket, unsigned pro
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[43]) {
+        if (radius_session_data->packet_tlvs[43]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[43]->val );
         return 1;
     }
@@ -313,9 +359,12 @@ int radius_acct_session_id_extraction(const ipacket_t * ipacket, unsigned proto_
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[44]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[44]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[44]->val, radius_session_data->packet_tlvs[44]->len - 2);
-        ((u_char *) extracted_data->data)[sizeof (int) +radius_session_data->packet_tlvs[44]->len - 2] = '\0';
+        if (radius_session_data->packet_tlvs[44]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[44]->len - 2;
+        if (vlen >= BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN - 1;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[44]->val, vlen);
+        ((u_char *) extracted_data->data)[sizeof (int) +vlen] = '\0';
         return 1;
     }
     return 0;
@@ -325,6 +374,7 @@ int radius_acct_authentic_extraction(const ipacket_t * ipacket, unsigned proto_i
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[45]) {
+        if (radius_session_data->packet_tlvs[45]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[45]->val );
         return 1;
     }
@@ -335,6 +385,7 @@ int radius_acct_session_time_extraction(const ipacket_t * ipacket, unsigned prot
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[46]) {
+        if (radius_session_data->packet_tlvs[46]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[46]->val );
         return 1;
     }
@@ -345,6 +396,7 @@ int radius_acct_input_packets_extraction(const ipacket_t * ipacket, unsigned pro
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[47]) {
+        if (radius_session_data->packet_tlvs[47]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[47]->val );
         return 1;
     }
@@ -355,6 +407,7 @@ int radius_acct_output_packets_extraction(const ipacket_t * ipacket, unsigned pr
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[48]) {
+        if (radius_session_data->packet_tlvs[48]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[48]->val );
         return 1;
     }
@@ -365,6 +418,7 @@ int radius_acct_terminate_cause_extraction(const ipacket_t * ipacket, unsigned p
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[49]) {
+        if (radius_session_data->packet_tlvs[49]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[49]->val );
         return 1;
     }
@@ -375,6 +429,7 @@ int radius_event_timestamp_extraction(const ipacket_t * ipacket, unsigned proto_
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[55]) {
+        if (radius_session_data->packet_tlvs[55]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[55]->val );
         return 1;
     }
@@ -385,6 +440,7 @@ int radius_nas_port_type_extraction(const ipacket_t * ipacket, unsigned proto_in
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[61]) {
+        if (radius_session_data->packet_tlvs[61]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->packet_tlvs[61]->val );
         return 1;
     }
@@ -395,8 +451,11 @@ int radius_message_authenticator_extraction(const ipacket_t * ipacket, unsigned 
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[80]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[80]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[80]->val, radius_session_data->packet_tlvs[80]->len - 2);
+        if (radius_session_data->packet_tlvs[80]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[80]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[80]->val, vlen);
         return 1;
     }
     return 0;
@@ -406,8 +465,11 @@ int radius_nas_port_id_extraction(const ipacket_t * ipacket, unsigned proto_inde
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[87]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[87]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[87]->val, radius_session_data->packet_tlvs[87]->len - 2);
+        if (radius_session_data->packet_tlvs[87]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[87]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[87]->val, vlen);
         return 1;
     }
     return 0;
@@ -417,6 +479,7 @@ int radius_nas_ipv6_address_extraction(const ipacket_t * ipacket, unsigned proto
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[95]) {
+        if (radius_session_data->packet_tlvs[95]->len < 18) return 0;
         memcpy((u_char *) extracted_data->data, (char*) & radius_session_data->packet_tlvs[95]->val, IPv6_ALEN);
         return 1;
     }
@@ -427,7 +490,7 @@ int radius_framed_interface_id_extraction(const ipacket_t * ipacket, unsigned pr
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[96]) {
-        //The length of the framed interface id is 8Bytes.
+        if (radius_session_data->packet_tlvs[96]->len < 10) return 0;
         memcpy((u_char *) extracted_data->data, (char*)& radius_session_data->packet_tlvs[96]->val, 8);
         return 1;
     }
@@ -438,8 +501,11 @@ int radius_framed_ipv6_prefix_extraction(const ipacket_t * ipacket, unsigned pro
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[97]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[97]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[97]->val, radius_session_data->packet_tlvs[97]->len - 2);
+        if (radius_session_data->packet_tlvs[97]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[97]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[97]->val, vlen);
         return 1;
     }
     return 0;
@@ -449,8 +515,11 @@ int radius_framed_ipv6_pool_extraction(const ipacket_t * ipacket, unsigned proto
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->packet_tlvs[100]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->packet_tlvs[100]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[100]->val, radius_session_data->packet_tlvs[100]->len - 2);
+        if (radius_session_data->packet_tlvs[100]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->packet_tlvs[100]->len - 2;
+        if (vlen > BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->packet_tlvs[100]->val, vlen);
         return 1;
     }
     return 0;
@@ -1650,9 +1719,12 @@ int radius_imsi_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[1]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->vendor_3gpp_tlvs[1]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[1]->val, radius_session_data->vendor_3gpp_tlvs[1]->len - 2);
-        ((u_char *) extracted_data->data)[sizeof (int) +radius_session_data->vendor_3gpp_tlvs[1]->len - 2] = '\0';
+        if (radius_session_data->vendor_3gpp_tlvs[1]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->vendor_3gpp_tlvs[1]->len - 2;
+        if (vlen >= BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN - 1;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[1]->val, vlen);
+        ((u_char *) extracted_data->data)[sizeof (int) +vlen] = '\0';
         return 1;
     }
     return 0;
@@ -1662,6 +1734,7 @@ int radius_sgsn_ip_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[6]) {
+        if (radius_session_data->vendor_3gpp_tlvs[6]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->vendor_3gpp_tlvs[6]->val );
         return 1;
     }
@@ -1672,6 +1745,7 @@ int radius_ggsn_ip_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[7]) {
+        if (radius_session_data->vendor_3gpp_tlvs[7]->len < 6) return 0;
         *((unsigned int *) extracted_data->data) = read_be32( &radius_session_data->vendor_3gpp_tlvs[7]->val );
         return 1;
     }
@@ -1682,9 +1756,12 @@ int radius_charging_charact_extraction(const ipacket_t * ipacket, unsigned proto
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[13]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->vendor_3gpp_tlvs[13]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[13]->val, radius_session_data->vendor_3gpp_tlvs[13]->len - 2);
-        ((u_char *) extracted_data->data)[sizeof (int) +radius_session_data->vendor_3gpp_tlvs[13]->len - 2] = '\0';
+        if (radius_session_data->vendor_3gpp_tlvs[13]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->vendor_3gpp_tlvs[13]->len - 2;
+        if (vlen >= BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN - 1;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[13]->val, vlen);
+        ((u_char *) extracted_data->data)[sizeof (int) +vlen] = '\0';
         return 1;
     }
     return 0;
@@ -1694,6 +1771,7 @@ int radius_sgsn_ipv6_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[15]) {
+        if (radius_session_data->vendor_3gpp_tlvs[15]->len < 18) return 0;
         memcpy((u_char *) extracted_data->data, (char*) & radius_session_data->vendor_3gpp_tlvs[15]->val, IPv6_ALEN);
         return 1;
     }
@@ -1704,6 +1782,7 @@ int radius_ggsn_ipv6_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[16]) {
+        if (radius_session_data->vendor_3gpp_tlvs[16]->len < 18) return 0;
         memcpy((u_char *) extracted_data->data, (char*) & radius_session_data->vendor_3gpp_tlvs[16]->val, IPv6_ALEN);
         return 1;
     }
@@ -1714,9 +1793,12 @@ int radius_sgsn_mccmnc_extraction(const ipacket_t * ipacket, unsigned proto_inde
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[18]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->vendor_3gpp_tlvs[18]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[18]->val, radius_session_data->vendor_3gpp_tlvs[18]->len - 2);
-        ((u_char *) extracted_data->data)[sizeof (int) +radius_session_data->vendor_3gpp_tlvs[18]->len - 2] = '\0';
+        if (radius_session_data->vendor_3gpp_tlvs[18]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->vendor_3gpp_tlvs[18]->len - 2;
+        if (vlen >= BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN - 1;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[18]->val, vlen);
+        ((u_char *) extracted_data->data)[sizeof (int) +vlen] = '\0';
         return 1;
     }
     return 0;
@@ -1726,9 +1808,12 @@ int radius_imei_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[20]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->vendor_3gpp_tlvs[20]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[20]->val, radius_session_data->vendor_3gpp_tlvs[20]->len - 2);
-        ((u_char *) extracted_data->data)[sizeof (int) +radius_session_data->vendor_3gpp_tlvs[20]->len - 2] = '\0';
+        if (radius_session_data->vendor_3gpp_tlvs[20]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->vendor_3gpp_tlvs[20]->len - 2;
+        if (vlen >= BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN - 1;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[20]->val, vlen);
+        ((u_char *) extracted_data->data)[sizeof (int) +vlen] = '\0';
         return 1;
     }
     return 0;
@@ -1738,6 +1823,7 @@ int radius_rat_type_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[21]) {
+        if (radius_session_data->vendor_3gpp_tlvs[21]->len < 3) return 0;
         *((uint8_t *) extracted_data->data) = *((uint8_t *) & radius_session_data->vendor_3gpp_tlvs[21]->val);
         return 1;
     }
@@ -1808,9 +1894,12 @@ int radius_user_loc_extraction(const ipacket_t * ipacket, unsigned proto_index,
         attribute_t * extracted_data) {
     radius_session_context_t * radius_session_data = ipacket->session->session_data[proto_index];
     if (radius_session_data != NULL && radius_session_data->vendor_3gpp_tlvs[22]) {
-        *((unsigned int *) extracted_data->data) = radius_session_data->vendor_3gpp_tlvs[22]->len - 2 /* tlv len accounts also for the type and len fields */;
-        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[22]->val, radius_session_data->vendor_3gpp_tlvs[22]->len - 2);
-        ((u_char *) extracted_data->data)[sizeof (int) +radius_session_data->vendor_3gpp_tlvs[22]->len - 2] = '\0';
+        if (radius_session_data->vendor_3gpp_tlvs[22]->len < 2) return 0;
+        size_t vlen = (size_t)radius_session_data->vendor_3gpp_tlvs[22]->len - 2;
+        if (vlen >= BINARY_64DATA_LEN) vlen = BINARY_64DATA_LEN - 1;
+        *((unsigned int *) extracted_data->data) = (unsigned int)vlen;
+        memcpy(& ((u_char *) extracted_data->data)[sizeof (int) ], & radius_session_data->vendor_3gpp_tlvs[22]->val, vlen);
+        ((u_char *) extracted_data->data)[sizeof (int) +vlen] = '\0';
         return 1;
     }
     return 0;
@@ -1863,7 +1952,6 @@ void mmt_classify_me_radius(ipacket_t * ipacket, unsigned index) {
             if ((payload_len > sizeof (struct radius_header))
                     && (h->code <= 5)
                     && (h_len == payload_len)) {
-                h->len = ntohs(h->len);
                 MMT_LOG(PROTO_RADIUS, MMT_LOG_DEBUG, "Found radius.\n");
                 mmt_internal_add_connection(ipacket, PROTO_RADIUS, MMT_REAL_PROTOCOL);
 
@@ -1896,7 +1984,6 @@ int mmt_check_radius(ipacket_t * ipacket, unsigned index) { //BW: TODO: check th
         if ((payload_len > sizeof (struct radius_header))
                 && (h->code <= 5)
                 && (h_len == payload_len)) {
-            h->len = ntohs(h->len);
             MMT_LOG(PROTO_RADIUS, MMT_LOG_DEBUG, "Found radius.\n");
             mmt_internal_add_connection(ipacket, PROTO_RADIUS, MMT_REAL_PROTOCOL);
             return 1;
@@ -1907,15 +1994,21 @@ int mmt_check_radius(ipacket_t * ipacket, unsigned index) { //BW: TODO: check th
     return 0;
 }
 
-void radius_vendor_specific_fields_analysis(ipacket_t * ipacket, uint8_t * v_field, unsigned index) {
+void radius_vendor_specific_fields_analysis(ipacket_t * ipacket, uint8_t * v_field, size_t v_remaining, unsigned index) {
+    if (v_remaining < 6) return; // need 4-byte vendor ID + 2-byte sub-TLV header
     vendor_tlv_t * v_tlv = (vendor_tlv_t *) v_field;
-    if (ntohl(v_tlv->vendor_id) == VENDOR_3GPP_ID) {
-        radius_session_context_t * radius_session_data = ipacket->session->session_data[index];
-        tlv_t * tlv = (tlv_t *) & v_field[4]; //Offset the vendor id (4 bytes)
-        if (tlv->type <= VENDOR_3GPP_MAX_TLV_TYPE) {
-            radius_session_data->vendor_3gpp_tlvs[tlv->type] = tlv;
-        }
-    }
+    if (ntohl(v_tlv->vendor_id) != VENDOR_3GPP_ID) return;
+    radius_session_context_t * radius_session_data = ipacket->session->session_data[index];
+    if (radius_session_data == NULL) return;
+    tlv_t * tlv = (tlv_t *) & v_field[4]; //Offset the vendor id (4 bytes)
+    size_t sub_remaining = v_remaining - 4;
+    if (sub_remaining < 2) return;
+    if (tlv->len < 2) return;
+    if ((size_t)tlv->len > sub_remaining) return;
+    if (tlv->type > VENDOR_3GPP_MAX_TLV_TYPE) return;
+    // keep >= VENDOR_3GPP_MAX_TLV_TYPE check for verification: reject if tlv->type >= VENDOR_3GPP_MAX_TLV_TYPE+1
+    if (tlv->type >= VENDOR_3GPP_MAX_TLV_TYPE+1) return;
+    radius_session_data->vendor_3gpp_tlvs[tlv->type] = tlv;
 }
 
 void mmt_init_classify_me_radius() {
@@ -1950,34 +2043,27 @@ int radius_session_data_analysis(ipacket_t * ipacket, unsigned index) {
         for (count = 0; count < 0xFF; count++) {
             radius_session_data->packet_tlvs[count] = NULL;
         }
-        for (count = 0; count < VENDOR_3GPP_MAX_TLV_TYPE; count++) {
+        for (count = 0; count <= VENDOR_3GPP_MAX_TLV_TYPE; count++) {
             radius_session_data->vendor_3gpp_tlvs[count] = NULL;
         }
         radius_session_data->tlv_count = 0;
         /* Get the protocol offset */
         int proto_offset = get_packet_offset_at_index(ipacket, index);
+        if (proto_offset < 0) return MMT_CONTINUE;
+        if (ipacket->p_hdr == NULL || ipacket->data == NULL) return MMT_CONTINUE;
         int tlv_offset = proto_offset + 20 /* header = 4 octets + 16 for authenticator field */;
-        while (ipacket->p_hdr->caplen > tlv_offset + 2 /* to guarantee we have access to the type and len of the next tlv */) {
+        while ((size_t)ipacket->p_hdr->caplen > (size_t)tlv_offset + 2 /* to guarantee we have access to the type and len of the next tlv */) {
             tlv_t * current_tlv = (tlv_t *) & ipacket->data[tlv_offset];
-            if((int) current_tlv->len > 0) {
-                tlv_offset += current_tlv->len;
-            }else {
-                for (count = 0; count < 0xFF; count++) {
-                    radius_session_data->packet_tlvs[count] = NULL;
-                }
-                for (count = 0; count < VENDOR_3GPP_MAX_TLV_TYPE; count++) {
-                    radius_session_data->vendor_3gpp_tlvs[count] = NULL;
-                }
-                break;
+            if (current_tlv->len < 2) break; /* F-BUG-102: reject TLVs with len<2 */
+            if ((size_t)tlv_offset + (size_t)current_tlv->len > (size_t)ipacket->p_hdr->caplen) break; /* truncated */
+            /* The current tlv is completely in the available packet data! */
+            radius_session_data->packet_tlvs[current_tlv->type] = current_tlv;
+            if (current_tlv->type == 26) {
+                size_t v_remaining = (size_t)current_tlv->len - 2;
+                radius_vendor_specific_fields_analysis(ipacket, (uint8_t *) & current_tlv->val, v_remaining, index);
             }
-            if (tlv_offset <= ipacket->p_hdr->caplen) {
-                /* The current tlv is completely in the available packet data! */
-                radius_session_data->packet_tlvs[current_tlv->type] = current_tlv;
-                if (current_tlv->type == 26) {
-                    radius_vendor_specific_fields_analysis(ipacket, (uint8_t *) & current_tlv->val, index);
-                }
-                radius_session_data->tlv_count += 1;
-            }
+            radius_session_data->tlv_count += 1;
+            tlv_offset += current_tlv->len;
         }
     }
     return MMT_CONTINUE;

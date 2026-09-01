@@ -35,8 +35,13 @@ static void hmap_dump_entry( mmt_hashmap_t *map, mmt_hent_t *he, void *arg );
 mmt_hashmap_t *hashmap_alloc()
 {
    mmt_hashmap_t *map = (mmt_hashmap_t*)mmt_malloc( sizeof( mmt_hashmap_t ));
+   if (map == NULL)
+       return NULL;
    hashmap_init( map );
-
+   if (map->slots == NULL) {
+       mmt_free(map);
+       return NULL;
+   }
    return map;
 }
 
@@ -48,8 +53,10 @@ mmt_hashmap_t *hashmap_alloc()
 
 void hashmap_free( mmt_hashmap_t *map )
 {
+   if (map == NULL) return;
    hashmap_cleanup( map );
-   mmt_free( map->slots );
+   if (map->slots)
+       mmt_free( map->slots );
    mmt_free( map );
 }
 
@@ -64,6 +71,12 @@ void hashmap_init( mmt_hashmap_t *map )
    int i;
 
    mmt_hslot_t *slots = (mmt_hslot_t*)mmt_malloc( MMT_HASHMAP_NSLOTS * sizeof( mmt_hslot_t ));
+   if (slots == NULL) {
+       map->slots  = NULL;
+       map->nslots = 0;
+       map->nkeys  = 0;
+       return;
+   }
 
    for( i = 0 ; i < MMT_HASHMAP_NSLOTS ; ++i )
       hslot_init( &slots[i] );
@@ -82,7 +95,7 @@ void hashmap_init( mmt_hashmap_t *map )
 void hashmap_cleanup( mmt_hashmap_t *map )
 {
    int i;
-
+   if (map == NULL || map->slots == NULL) return;
    for( i = 0 ; i < MMT_HASHMAP_NSLOTS ; ++i )
       hslot_free( &map->slots[i] );
 }
@@ -97,8 +110,10 @@ void hashmap_cleanup( mmt_hashmap_t *map )
 
 void hashmap_insert_kv( mmt_hashmap_t *map, mmt_key_t key, void *val )
 {
+   if (map == NULL || map->slots == NULL) return;
    mmt_hslot_t *slot = &map->slots[ key % MMT_HASHMAP_NSLOTS ];
    mmt_hent_t  *he   = hent_new();
+   if (he == NULL) return;
 
    he->key  = key;
    he->val  = val;
@@ -207,6 +222,7 @@ void hmap_dump_entry( mmt_hashmap_t *map, mmt_hent_t *he, void *arg )
 mmt_hent_t *hent_new()
 {
    mmt_hent_t *he = (mmt_hent_t*)mmt_malloc( sizeof( mmt_hent_t ));
+   if (he == NULL) return NULL;
 
    he->key = 0;
    he->val = (void*)0;
