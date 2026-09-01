@@ -280,11 +280,17 @@ int getServerNameFromServerHello(ipacket_t * ipacket, char *buffer, int buffer_l
         //printf("Offset = %u --- val at offset = %u\n", offset, (uint32_t) packet->payload[offset]);
         //The objective is not to parse the certificate, rather to get the subject CN text from the first one
         uint8_t nb_offset = 1; //This is the '30' value
+        if (offset + nb_offset >= packet->payload_packet_len) {
+            return PROTO_UNKNOWN;
+        }
         if (packet->payload[offset + nb_offset] & 0x80) {
+            if (offset + nb_offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
             nb_offset += (packet->payload[offset + nb_offset] & 0xF) + 1;
+            if (offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
         } else {
             nb_offset += 1;
         }
+        if (offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
         offset += nb_offset; // start of the signed certificate
         //printf("Offset = %u --- val at offset = %u\n", offset, (uint32_t) packet->payload[offset]);
         if (offset + 4 > packet->payload_packet_len) {
@@ -292,11 +298,17 @@ int getServerNameFromServerHello(ipacket_t * ipacket, char *buffer, int buffer_l
         }
 
         nb_offset = 1;
+        if (offset + nb_offset >= packet->payload_packet_len) {
+            return PROTO_UNKNOWN;
+        }
         if (packet->payload[offset + nb_offset] & 0x80) {
+            if (offset + nb_offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
             nb_offset += (packet->payload[offset + nb_offset] & 0xF) + 1;
+            if (offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
         } else {
             nb_offset += 1;
         }
+        if (offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
         offset += nb_offset; //len of the serial number
         //printf("Offset = %u --- val at offset = %u\n", offset, (uint32_t) packet->payload[offset]);
         if (offset + 4 > packet->payload_packet_len) {
@@ -307,24 +319,34 @@ int getServerNameFromServerHello(ipacket_t * ipacket, char *buffer, int buffer_l
             return PROTO_UNKNOWN;
         }
 
+        if (offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
         uint8_t sn_len = packet->payload[offset], items_nb = 0;
 
+        if (offset + sn_len + 1 > packet->payload_packet_len) return PROTO_UNKNOWN;
         offset += sn_len + 1; //+1 for the len field on 1 byte
         while ((offset + 4 < packet->payload_packet_len) && items_nb < 4) {
             uint32_t item_offset;
             nb_offset = 1;
             //printf("Test 1\n");
+            if (offset + nb_offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
             if (packet->payload[offset + nb_offset] & 0x80) {
+                if (offset + nb_offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
                 nb_offset += (packet->payload[offset + nb_offset] & 0xF) + 1;
+                if (offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
                 if (nb_offset == 3) {
+                    if (offset + nb_offset - 1 >= packet->payload_packet_len) return PROTO_UNKNOWN;
                     item_offset = packet->payload[offset + nb_offset - 1];
                 } else {
+                    if (offset + nb_offset < 2 || offset + nb_offset - 2 + 1 >= packet->payload_packet_len) return PROTO_UNKNOWN;
                     item_offset = ntohs(get_u16(packet->payload, offset + nb_offset - 2));
                 }
             } else {
+                if (offset + nb_offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
                 item_offset = packet->payload[offset + nb_offset];
                 nb_offset += 1;
             }
+            if (offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
+            if (item_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
             offset += nb_offset;
             items_nb += 1;
             if (items_nb == 4 /* Subject part of the certificate */ && (offset + item_offset < packet->payload_packet_len)) {
@@ -334,29 +356,44 @@ int getServerNameFromServerHello(ipacket_t * ipacket, char *buffer, int buffer_l
                 while (sub_offset < item_offset) {
                     uint16_t sub_item_offset;
                     nb_offset = 1;
-                    if (offset + nb_offset + 4 > packet->payload_packet_len) {
+                    if (current_offset + nb_offset + 4 > packet->payload_packet_len) {
                         return PROTO_UNKNOWN;
                     }
+                    if (current_offset + nb_offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
 
                     if (packet->payload[current_offset + nb_offset] & 0x80) {
+                        if (current_offset + nb_offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
                         nb_offset += (packet->payload[current_offset + nb_offset] & 0xF) + 1;
+                        if (current_offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
                         if (nb_offset == 3) {
+                            if (current_offset + nb_offset - 1 >= packet->payload_packet_len) return PROTO_UNKNOWN;
                             sub_item_offset = packet->payload[current_offset + nb_offset - 1];
                         } else {
+                            if (current_offset + nb_offset < 2 || current_offset + nb_offset - 2 + 1 >= packet->payload_packet_len) return PROTO_UNKNOWN;
                             sub_item_offset = ntohs(get_u16(packet->payload, current_offset + nb_offset - 2));
                         }
                     } else {
+                        if (current_offset + nb_offset >= packet->payload_packet_len) return PROTO_UNKNOWN;
                         sub_item_offset = packet->payload[current_offset + nb_offset];
                         nb_offset += 1;
                     }
+                    if (current_offset + nb_offset * 2 + 2 + 3 + 2 >= packet->payload_packet_len) {
+                        // not enough bytes for CN pattern check - advance safely
+                        if (sub_item_offset + nb_offset > item_offset - sub_offset) return PROTO_UNKNOWN;
+                        if (current_offset + sub_item_offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
+                        sub_offset += sub_item_offset + nb_offset;
+                        current_offset += sub_item_offset + nb_offset;
+                        continue;
+                    }
                     char subject_CN_pattern[] = {0x55, 0x04, 0x03};
                     if ((current_offset + nb_offset * 2 + 2 + 3 + 2 < packet->payload_packet_len) && mmt_memcmp(&packet->payload[current_offset + nb_offset * 2 + 2], subject_CN_pattern, 3) == 0) {
+                        if (current_offset + nb_offset * 2 + 2 + 3 + 1 >= packet->payload_packet_len) return PROTO_UNKNOWN;
                         uint8_t CN_len = packet->payload[current_offset + nb_offset * 2 + 2 + 3 + 1];
                         /* unused
                         uint8_t CN_ecoding_type = packet->payload[current_offset + nb_offset * 2 + 2 + 3];
                         uint8_t min_len = mmt_ssl_min(CN_len, buffer_len - 1);
                         */
-                        if(CN_len + current_offset + nb_offset * 2 + 2 + 3 + 2 >= packet->payload_packet_len) {
+                        if((uint32_t)CN_len + current_offset + nb_offset * 2 + 2 + 3 + 2 >= packet->payload_packet_len) {
                             return 0;
                         }
 
@@ -382,10 +419,14 @@ int getServerNameFromServerHello(ipacket_t * ipacket, char *buffer, int buffer_l
                         packet->packet_id = ipacket->packet_id;
                         return 1;
                     }
+                    if (sub_item_offset + nb_offset > item_offset - sub_offset) return PROTO_UNKNOWN;
+                    if (current_offset + sub_item_offset + nb_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
                     sub_offset += sub_item_offset + nb_offset;
                     current_offset += sub_item_offset + nb_offset;
+                    if (current_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
                 }
             }
+            if (offset + item_offset > packet->payload_packet_len) return PROTO_UNKNOWN;
             offset += item_offset;
         }
     }

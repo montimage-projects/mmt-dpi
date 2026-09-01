@@ -350,14 +350,14 @@ static attribute_metadata_t _attributes_metadata[] = {
 	def_att( QUIC_IETF_SPIN_BIT,         MMT_U8_DATA,  sizeof(uint8_t) ),
 	def_att( QUIC_IETF_VERSION,          MMT_U32_DATA, sizeof(uint32_t) ),
 	def_att( QUIC_IETF_DESTINATION_CONNECTION_ID_LENGTH, MMT_U16_DATA,            sizeof(uint16_t) ),
-	def_att( QUIC_IETF_DESTINATION_CONNECTION_ID,        MMT_STRING_DATA_POINTER, sizeof(mmt_string_data_t) ),
+	def_att( QUIC_IETF_DESTINATION_CONNECTION_ID,        MMT_STRING_LONG_DATA, sizeof(mmt_string_data_t) ),
 	def_att( QUIC_IETF_SOURCE_CONNECTION_ID_LENGTH,      MMT_U16_DATA,            sizeof(uint16_t) ),
-	def_att( QUIC_IETF_SOURCE_CONNECTION_ID,             MMT_STRING_DATA_POINTER, sizeof(mmt_string_data_t) ),
+	def_att( QUIC_IETF_SOURCE_CONNECTION_ID,             MMT_STRING_LONG_DATA, sizeof(mmt_string_data_t) ),
 	def_att( QUIC_IETF_LENGTH,               MMT_U32_DATA, sizeof(uint32_t) ),
 	def_att( QUIC_IETF_PACKET_NUMBER_LENGTH, MMT_U8_DATA,  sizeof(uint8_t) ),
 	def_att( QUIC_IETF_PACKET_NUMBER,        MMT_U32_DATA, sizeof(uint32_t) ),
 	def_att( QUIC_IETF_TOKEN_LENGTH,         MMT_U16_DATA, sizeof(uint16_t) ),
-	def_att( QUIC_IETF_TOKEN,                MMT_STRING_DATA_POINTER, sizeof(mmt_string_data_t) ),
+	def_att( QUIC_IETF_TOKEN,                MMT_STRING_LONG_DATA, sizeof(mmt_string_data_t) ),
 	def_att( QUIC_IETF_RTT,                  MMT_U64_DATA, sizeof(uint64_t) )
 };
 

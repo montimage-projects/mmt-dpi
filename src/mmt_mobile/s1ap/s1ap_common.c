@@ -172,9 +172,11 @@ static inline int _s1ap_decode_e_rabtobesetuplistctxtsureq(
 						nas_msg_t  mm;
 						memset( &mm, 0, sizeof( mm ) );
 						if( nas_decode( &mm, octet->data, octet->len) > 0 ){
-							//need to check
+							// F-BUG-202: bound UE-IP read by pdn_type-implied minimum
 							nas_pdn_address_t *pdn = &mm.plain_msg.esm.active_default_esp_bearer_context_request.pdn_address;
-							if( pdn && pdn->pdn_type_value == NAS_PDN_VALUE_TYPE_IPV4 ){
+							if( pdn && pdn->pdn_type_value == NAS_PDN_VALUE_TYPE_IPV4
+									&& pdn->pdn_address_information.data != NULL
+									&& pdn->pdn_address_information.len >= 4 ){
 								message->ue_ipv4 = *(uint32_t *) pdn->pdn_address_information.data;
 							}
 						}

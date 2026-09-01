@@ -114,7 +114,7 @@ cp tools/phase0/ci/baseline/classification.actual.txt \
    tools/phase0/ci/baseline/classification.txt
 ```
 
-The committed CI baseline must match the CI runner (`ubuntu-latest`, x86_64).
+The committed CI baseline must match the CI runner (`ubuntu-24.04`, x86_64).
 Protocol classification is expected to be architecture-independent, so the same
 fingerprint holds across hosts; if the runner ever disagrees, the gate fails on
 the first run and the uploaded artifact is the authoritative runner baseline to

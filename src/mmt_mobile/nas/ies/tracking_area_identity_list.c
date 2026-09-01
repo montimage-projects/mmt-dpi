@@ -18,6 +18,9 @@ int nas_decode_tracking_area_identity_list(nas_tracking_area_identity_list_t *ls
   ielen = *(buffer + decoded);
   decoded++;
   CHECK_LENGTH_DECODER(len - decoded, ielen);
+  // F-BUG-204: validate ielen>=6 (+IEI) for TAI lists (legal 0..5)
+  CHECK_LENGTH_DECODER(ielen, 6);
+  CHECK_LENGTH_DECODER(len - decoded, 6);
   lst->typeoflist = (*(buffer + decoded) >> 5) & 0x3;
   lst->numberofelements = *(buffer + decoded) & 0x1f;
   decoded++;

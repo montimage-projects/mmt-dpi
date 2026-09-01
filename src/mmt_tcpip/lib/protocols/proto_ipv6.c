@@ -397,12 +397,20 @@ void ipv6_parse_extension_headers(ipacket_t *ipacket, unsigned index)
     mmt_una_ipv6hdr_t *ip6h = (mmt_una_ipv6hdr_t *)&ipacket->data[offset];
     uint8_t next_hdr = ip6h->nexthdr;
     uint16_t next_offset = sizeof(struct ipv6hdr);
-    while (is_extention_header(next_hdr) && (ipacket->p_hdr->caplen >= (offset + next_offset + 2)))
+    while (is_extention_header(next_hdr) && (ipacket->p_hdr->caplen >= (offset + next_offset + 2))
+           && ipacket->ipv6_ext_headers_len < PROTO_PATH_SIZE)
     {
         ipacket->ipv6_ext_headers_path[ipacket->ipv6_ext_headers_len] = next_hdr;
         ipacket->ipv6_ext_headers_offset[ipacket->ipv6_ext_headers_len] = next_offset;
         ipacket->ipv6_ext_headers_len++;
-        next_offset += get_next_header_offset(next_hdr, &ipacket->data[offset + next_offset], &next_hdr);
+        uint32_t hdr_len = get_next_header_offset(next_hdr, &ipacket->data[offset + next_offset], &next_hdr);
+        if (hdr_len == 0) break;
+        if (next_offset + hdr_len < next_offset) break; // overflow
+        if ((unsigned)(offset + next_offset + hdr_len) > ipacket->p_hdr->caplen && is_extention_header(next_hdr)) {
+            // next extension would be truncated; stop walking but keep already recorded headers
+            // still advance to avoid infinite loop, then loop condition will exit
+        }
+        next_offset += hdr_len;
     }
 }
 
@@ -1378,6 +1386,7 @@ int proto_redundent_ext_header_extraction(const ipacket_t * ipacket, unsigned pr
                                   attribute_t * extracted_data) {
 
     if (ipacket->ipv6_ext_headers_len == 1) return 0;
+    if (ipacket->ipv6_ext_headers_len > PROTO_PATH_SIZE) return 0;
     int i = 0, j = 0;
     uint16_t ext_headers[PROTO_PATH_SIZE];
     for (i = 0; i < ipacket->ipv6_ext_headers_len; i++) {
