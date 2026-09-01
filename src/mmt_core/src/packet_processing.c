@@ -307,7 +307,12 @@ int validate_attribute_metadata(attribute_metadata_t * attribute_meta_data) {
         return false;
     // The scope should be one of SCOPE_PACKET, SCOPE_SESSION, SCOPE_SESSION_CHANGING
     if (!((attribute_meta_data->scope & SCOPE_ON_DEMAND) || (attribute_meta_data->scope & SCOPE_EVENT))) return false;
-    //TODO: validate the datalen with respect to the datatype
+    // Validate data_len against type size: inconsistent plugin metadata must not overflow generic extraction
+    {
+        uint32_t type_size = get_data_size_by_data_type(attribute_meta_data->data_type);
+        if (type_size != 0 && (uint32_t)attribute_meta_data->data_len > type_size) return false;
+        if (type_size == 0 && attribute_meta_data->data_len != 0) return false;
+    }
     return true;
 }
 
@@ -570,7 +575,8 @@ void session_timer_handler_callback(void * timeout_milestone, void * milestone_s
 void process_outofmemory_force_sessions_timeout(mmt_handler_t * mmt_handler, ipacket_t * ipacket) {
     uint32_t timeout_slot_to_free = mmt_handler->last_expiry_timeout;
     uint32_t count = 0;
-    while (count < 65000) {
+    uint32_t scanned = 0;
+    while (count < 65000 && scanned < 65000) {
         mmt_session_t * timed_out_session = get_timed_out_session_list(mmt_handler, timeout_slot_to_free);
         mmt_session_t * safe_to_delete_session;
         while (timed_out_session != NULL) {
@@ -584,11 +590,13 @@ void process_outofmemory_force_sessions_timeout(mmt_handler_t * mmt_handler, ipa
             }
 
             cleanup_timedout_sessions(safe_to_delete_session);
+            if (count >= 65000) break;
 
         }
         //remove the timeout milestone from the hash
         delete_timeout_milestone(mmt_handler, timeout_slot_to_free);
         timeout_slot_to_free++;
+        scanned++;
     }
     mmt_handler->last_expiry_timeout = timeout_slot_to_free;
 }
@@ -1282,6 +1290,12 @@ mmt_handler_t *mmt_init_handler( uint32_t stacktype, uint32_t options, char * er
     new_handler->sessions_count = 0;
     new_handler->active_sessions_count = 0;
     new_handler->ip_streams = hashmap_alloc();
+    if (new_handler->ip_streams == NULL) {
+        if ( errbuf )
+            strcpy(errbuf, "Error while initializing mmt extraction handler");
+        mmt_free(new_handler);
+        return NULL;
+    }
 
     new_handler->last_received_packet.packet_id = 0;
     new_handler->last_received_packet.packet_len = 0;
@@ -1324,6 +1338,19 @@ mmt_handler_t *mmt_init_handler( uint32_t stacktype, uint32_t options, char * er
         // Initialize the sessions context if the protocol has such context
         if (new_handler->configured_protocols[i].protocol->has_session == HAS_SESSION_CONTEXT) {
             new_handler->configured_protocols[i].sessions_map = init_session_map_space(new_handler->configured_protocols[i].protocol->session_key_compare, new_handler->configured_protocols[i].protocol->session_key_hash);
+            if (new_handler->configured_protocols[i].sessions_map == NULL) {
+                // OOM: cleanup already allocated session maps
+                for (int _j = 0; _j < i; _j++) {
+                    if (new_handler->configured_protocols[_j].sessions_map) {
+                        delete_session_map_space(new_handler->configured_protocols[_j].sessions_map);
+                    }
+                }
+                hashmap_free(new_handler->ip_streams);
+                delete_int_map_space(new_handler->timeout_milestones_map);
+                mmt_free(new_handler);
+                if (errbuf) strcpy(errbuf, "Error while initializing mmt extraction handler");
+                return NULL;
+            }
         }
 
         // Initialize the protocol context if the protocol has such context
@@ -2407,6 +2434,12 @@ int register_attribute_handler(mmt_handler_t *mmt_handler, uint32_t proto_id, ui
         if (!(attr->scope & SCOPE_EVENT)) {
             //We should add an attribute handler element as this is the first handler for the attribute
             attribute_handler_element_t * attr_handler_elem = (attribute_handler_element_t *) mmt_malloc(sizeof (attribute_handler_element_t));
+            if (attr_handler_elem == NULL) {
+                attr->attribute_handler = NULL;
+                mmt_free(new_attribute_handler);
+                if (retval) unregister_extraction_attribute(mmt_handler, proto_id, attribute_id);
+                return 0;
+            }
             attr_handler_elem->attribute = attr;
             attr_handler_elem->next = NULL;
             if (mmt_handler->proto_registered_attribute_handlers[proto_id] == NULL) {
@@ -2723,7 +2756,17 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
                 if (insert_session_timeout_milestone(mmt_handler, session->session_timeout_milestone, session) == 0) {
                     //If we get here, then there is an out of memory problem! we should deal with
                     process_outofmemory_force_sessions_timeout(ipacket->mmt_handler, ipacket);
-                    insert_session_timeout_milestone(mmt_handler, session->session_timeout_milestone, session);
+                    if (insert_session_timeout_milestone(mmt_handler, session->session_timeout_milestone, session) == 0) {
+                        // Double OOM: remain without milestone => session never time-outable (F-BUG-023).
+                        // Destroy session so we do not leak a non-time-outable flow.
+                        if (configured_protocol->sessions_map) delete_session_from_protocol_context(configured_protocol, session->session_key);
+                        if (configured_protocol->protocol->session_data_cleanup)
+                            ((generic_session_data_cleanup_function)configured_protocol->protocol->session_data_cleanup)(session, session->session_protocol_index);
+                        mmt_handler->active_sessions_count--;
+                        mmt_handler->sessions_count--;
+                        mmt_free(session);
+                        return 0;
+                    }
                 }
 
                 if (ipacket->session == NULL) {
@@ -2752,11 +2795,20 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
                 // session timeout update
                 if (ipacket->p_hdr->ts.tv_sec > session->s_last_activity_time.tv_sec) {// No need to update the timeout if we are still in the same second
                     //if(!session->force_timeout) { //Sessions with force timeout should not be updated! they need to timeout :)
-                    if (update_session_timeout_milestone(mmt_handler, session->session_timeout_delay + ipacket->p_hdr->ts.tv_sec, session->session_timeout_milestone, session) == 0) {
+                    uint32_t old_milestone = session->session_timeout_milestone;
+                    uint32_t new_milestone = session->session_timeout_delay + ipacket->p_hdr->ts.tv_sec;
+                    if (update_session_timeout_milestone(mmt_handler, new_milestone, old_milestone, session) == 0) {
                         process_outofmemory_force_sessions_timeout(ipacket->mmt_handler, ipacket);
-                        insert_session_timeout_milestone(mmt_handler, session->session_timeout_delay + ipacket->p_hdr->ts.tv_sec, session);
+                        if (insert_session_timeout_milestone(mmt_handler, new_milestone, session) == 0) {
+                            // Double OOM: keep old milestone so session stays time-outable (F-BUG-023).
+                            insert_session_timeout_milestone(mmt_handler, old_milestone, session);
+                            // do not advance milestone
+                        } else {
+                            session->session_timeout_milestone = new_milestone;
+                        }
+                    } else {
+                        session->session_timeout_milestone = new_milestone;
                     }
-                    session->session_timeout_milestone = session->session_timeout_delay + ipacket->p_hdr->ts.tv_sec;
                     //}
                 }
             }
@@ -2774,15 +2826,15 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
                 // index+1 recursion in proto_packet_process), so without freeing
                 // here every encapsulated/embedded session layer would leak the
                 // buffer allocated by the previous layer (clean_packet_with_reassembly
-                // frees only the final pointer). Free the previous buffer first, but
-                // never free the shared per-handler alias used as the initial value
-                // (&last_received_packet.proto_headers_offset, set in
-                // process_packet_with_reassembly) which is not heap-allocated.
-                if (ipacket->proto_headers_offset != &ipacket->mmt_handler->last_received_packet.proto_headers_offset) {
-                    mmt_free(ipacket->proto_headers_offset);
+                // frees only the final pointer). Keep old buffer on OOM.
+                proto_hierarchy_t *new_off = (proto_hierarchy_t*)mmt_malloc(sizeof(proto_hierarchy_t));
+                if (new_off != NULL) {
+                    if (ipacket->proto_headers_offset != &ipacket->mmt_handler->last_received_packet.proto_headers_offset) {
+                        mmt_free(ipacket->proto_headers_offset);
+                    }
+                    ipacket->proto_headers_offset = new_off;
+                    memcpy(ipacket->proto_headers_offset,&session->proto_headers_offset,sizeof(proto_hierarchy_t));
                 }
-                ipacket->proto_headers_offset      = (proto_hierarchy_t*)mmt_malloc(sizeof(proto_hierarchy_t));
-                memcpy(ipacket->proto_headers_offset,&session->proto_headers_offset,sizeof(proto_hierarchy_t));
                 // Issue #19: offset buffer replaced by a fresh per-packet copy —
                 // invalidate the memoized cumulative-offset cache.
                 ipacket->internal_cumulative_offset_valid = 0;
@@ -2840,11 +2892,12 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
 
 int set_classified_proto(ipacket_t * ipacket, unsigned index, classified_proto_t classified_proto) {
     int retval = 0;
-    if (classified_proto.proto_id == -1 || index >= PROTO_PATH_SIZE) return retval;
+    if (classified_proto.proto_id == (uint32_t)-1 || index >= PROTO_PATH_SIZE) return retval;
+    if (!_is_valid_protocol_id(classified_proto.proto_id)) return retval;
 
     if (index + 1 > ipacket->proto_hierarchy->len) {
         //Increment the length of the protocol path and protocol offsets
-        ipacket->proto_hierarchy->len += 1;
+        ipacket->proto_hierarchy->len = index + 1;
         ipacket->proto_headers_offset->len = ipacket->proto_hierarchy->len;
         ipacket->proto_classif_status->len = ipacket->proto_hierarchy->len;
 
@@ -2885,13 +2938,18 @@ int set_classified_proto(ipacket_t * ipacket, unsigned index, classified_proto_t
  */
 static inline proto_statistics_internal_t * _create_protocol_stats_instance(protocol_instance_t * proto, proto_statistics_internal_t * parent_proto_stats) {
     proto_statistics_internal_t * proto_stats = (proto_statistics_internal_t *) mmt_malloc(sizeof (proto_statistics_internal_t));
-    //until here, proto_stats is always not NULL
+    if (proto_stats == NULL) return NULL;
     memset(proto_stats, '\0', sizeof (proto_statistics_internal_t));
     proto_stats->parent_proto_stats = parent_proto_stats;
     proto_stats->proto = proto;
     proto_stats->next  = proto->proto_stats;
     proto->proto_stats = proto_stats;
     proto_stats->encap_proto_stats = init_int_map_space(attribute_ids_comparison_fct);
+    if (proto_stats->encap_proto_stats == NULL) {
+        proto->proto_stats = proto_stats->next;
+        mmt_free(proto_stats);
+        return NULL;
+    }
     if (parent_proto_stats) {
    	 insert_int_key_value(parent_proto_stats->encap_proto_stats, proto->protocol->proto_id, (void *) proto_stats);
     }
@@ -3564,9 +3622,12 @@ int process_packet_with_reassembly(mmt_handler_t *mmt, struct pkthdr *header, co
     classified_proto.proto_id = PROTO_META;
     classified_proto.offset = 0;
     classified_proto.status = Classified;
+    if (header->caplen > 65535) return 0;
     ipacket_t *ipacket;
     ipacket = mmt_malloc(sizeof(ipacket_t));
+    if (ipacket == NULL) return 0;
     ipacket->data = mmt_malloc(header->caplen);
+    if (ipacket->data == NULL) { mmt_free(ipacket); return 0; }
     memcpy((void *)ipacket->data, (void *)packet, header->caplen);
     ipacket->original_data = ipacket->data;
     // ipacket->proto_hierarchy = (proto_hierarchy_t*)malloc(sizeof(proto_hierarchy_t));
@@ -3724,7 +3785,7 @@ int packet_process(mmt_handler_t *mmt, struct pkthdr *header, const u_char * pac
 
     //Testing packet header and data integrity
     if (likely(header && packet)){
-        if (likely(header->caplen > 0  && header->len > 0 && header->len >= header->caplen)){
+        if (likely(header->caplen > 0  && header->len > 0 && header->len >= header->caplen && header->caplen <= 65535)){
             mmt->process_packet(mmt,header,packet);
             return 1;
         }
