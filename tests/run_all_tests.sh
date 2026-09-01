@@ -149,6 +149,7 @@ DEFAULT_SUITES=(
     http_header_case
     s1ap_ngap_decode
     rule_engine
+    radius_hardening
     nas_ies_tail
 )
 
