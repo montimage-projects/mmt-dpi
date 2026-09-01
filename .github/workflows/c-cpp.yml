@@ -19,7 +19,7 @@ jobs:
     # built with -fsigned-char so signed/unsigned-char portability bugs (plain
     # `char` is signed on x86, unsigned on ARM) are caught in CI rather than
     # only on the developer's machine.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -43,7 +43,7 @@ jobs:
     # (BUILD=asan / BUILD=tsan in rules/common.mk); the runner translates
     # them into per-suite instrumentation via SANITIZE=asan|tsan, and suites
     # that build the SDK internally inherit the matching BUILD= profile.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -65,7 +65,7 @@ jobs:
     # Measure unit-suite coverage (gcov): run every suite instrumented with
     # --coverage, emit tests/coverage/coverage.info (lcov tracefile) and print
     # the overall line percentage; publish the report as a CI artifact.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
     - name: Install dependencies
@@ -83,7 +83,7 @@ jobs:
     # every tracked shell script; cppcheck runs warnings-only as an advisory
     # baseline and publishes its findings as a report artifact. The generated
     # ASN.1 tree (src/mmt_mobile/asn1c) is excluded from the scan.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
     - name: Install lint tools
@@ -114,7 +114,7 @@ jobs:
 
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v4
@@ -129,7 +129,7 @@ jobs:
     # The rule-engine suite (tests/rule_engine) builds the SDK with
     # ENABLESEC=1 internally, but this job is the CI gate that proves the
     # engines compile in the shipped configuration and that the suite runs.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
     - name: Install dependencies
