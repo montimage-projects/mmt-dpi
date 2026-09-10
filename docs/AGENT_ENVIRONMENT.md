@@ -19,10 +19,9 @@ Only **Linux** is supported (macOS/Windows are not).
 This is the **single source** for the toolchain install line: other documents
 link here instead of repeating it. Two kinds of apt line elsewhere in the
 repository are deliberately not copies of it — executable package lists, which
-have to be runnable (`install.sh`, `dist/ZIP/mmt-install-common.sh`,
-`tools/ci/build-package.sh`, the CI workflows), and package sets for a different
-job (the CubieBoard/ARM notes, the QoE demo, the prebuilt ZIP, the Debian
-packaging checklist).
+have to be runnable (`install.sh`, `tools/ci/build-package.sh`, the CI
+workflows), and package sets for a different job (the CubieBoard/ARM notes,
+the QoE demo, the prebuilt ZIP, the Debian packaging checklist).
 
 ```bash
 sudo apt-get update
