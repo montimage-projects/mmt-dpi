@@ -1,12 +1,10 @@
-# MMT-DPI Agent & Subagent Guide
+# MMT-DPI Agent & Role Guide
 
 Etiquette and focused role briefs for autonomous work in this repo.
 Project context and commands: @CLAUDE.md · Environment: @docs/AGENT_ENVIRONMENT.md
 
-This guide states no build, test or install command of its own. Every command
-lives in [CLAUDE.md](CLAUDE.md) (*Critical commands*) and in
-[docs/AGENT_ENVIRONMENT.md](docs/AGENT_ENVIRONMENT.md); quote them from there,
-never from here.
+This guide states no build, test or install command of its own — every one of
+them lives in the two documents above. Quote them from there, never from here.
 
 ## Etiquette for all agents
 
