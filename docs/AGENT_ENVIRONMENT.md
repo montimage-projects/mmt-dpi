@@ -126,9 +126,8 @@ bash tests/run_all_tests.sh hashmap memory   # subset
 - `SANITIZE=asan bash tests/run_all_tests.sh` — compiles every suite with
   ASan + UBSan (same flag set as the SDK's `BUILD=asan`,
   `rules/common.mk:120-127`) and sets `ASAN_OPTIONS=detect_leaks=0`
-  (leak detection stays with Valgrind). Suites that build the SDK internally
-  (`citrix_ica_detection`, `http_header_case`) inherit `BUILD=asan` for their
-  internal SDK build.
+  (leak detection stays with Valgrind). The five SDK-building suites named
+  above inherit `BUILD=asan` for their internal SDK build.
 - `SANITIZE=tsan bash tests/run_all_tests.sh` — same with TSan
   (`rules/common.mk:150-157`). On kernels with high-entropy ASLR the runner
   re-execs itself once under `setarch -R`
