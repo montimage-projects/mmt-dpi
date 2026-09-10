@@ -11,10 +11,13 @@
 #   1. Citations — every `path:line` / `path:start-end` citation in the doc is
 #      registered in the CITATIONS table below, every registered citation is
 #      still cited by the doc, the cited file exists, the range lies inside it,
-#      and the range's *boundaries* still land on the lines the citation is for.
-#      Pinning both ends is what catches drift: a range checked only for "the
-#      anchor appears somewhere inside" stays green after the code it cites has
-#      slid by several lines, which is exactly the failure this doc suffered.
+#      the range's *boundaries* still land on the lines the citation is for, and
+#      — where the claim is about a value rather than a location — the range
+#      still contains that value. Position and content are checked separately on
+#      purpose: a range checked only for "the anchor appears somewhere inside"
+#      stays green after the code it cites has slid by several lines (the
+#      failure this doc suffered), while one checked only at its boundaries
+#      stays green after the value inside it changed.
 #   2. Contract — the doc names the build and test commands of record, and its
 #      suite count, suite list and runtime band agree with the actual runner.
 #   3. Single source of truth — the toolchain install line, the `MMT_BASE`
@@ -95,15 +98,17 @@ doc_citations="$(
 
 # Registered anchors, tab-separated:
 #
-#   <path>:<start>[-<end>]  <head-regex>  <tail-regex>  <claim the doc makes>
+#   <path>:<start>[-<end>]  <head-regex>  <tail-regex>  <claim>  [<body-regex>]
 #
 # <head-regex> must match the range's FIRST line and <tail-regex> its LAST line,
 # so both ends are pinned. Use "-" as <tail-regex> for a single-line citation.
+# <body-regex> is optional and must match SOMEWHERE inside the range; give it
+# whenever the doc's claim is about a value the range must still contain.
 registered=""
-while IFS=$'\t' read -r cite head tail claim; do
+while IFS=$'\t' read -r cite head tail claim body; do
     case "$cite" in ''|'#'*) continue ;; esac
     if [ -z "$head" ] || [ -z "$tail" ] || [ -z "$claim" ]; then
-        fail "$cite — malformed CITATIONS row (expected four tab-separated fields)"
+        fail "$cite — malformed CITATIONS row (expected at least four tab-separated fields)"
         continue
     fi
 
@@ -133,45 +138,50 @@ while IFS=$'\t' read -r cite head tail claim; do
         fail "$cite — stale: line $end does not match /$tail/ (cited for: $claim)"
         continue
     fi
+    if [ -n "$body" ] && [ "$body" != "-" ] \
+       && ! sed -n "${start},${end}p" "$ROOT/$file" | grep -Eq -- "$body"; then
+        fail "$cite — stale: nothing in that range matches /$body/ (cited for: $claim)"
+        continue
+    fi
     ok "$cite — $claim"
 done <<'CITATIONS'
 rules/common-linux.mk:47	^# -flto=auto is GCC-only	-	LTO is enabled for GCC only
-rules/common-linux.mk:6-12	^ifdef ENABLESEC	^endif	ENABLESEC objects get -fPIC and the libxml2 include path
-rules/common-linux.mk:51-103	^MMT_RELEASE_BUILD := 1	^endif +# release builds only	release hardening, disabled for sanitizer profiles
+rules/common-linux.mk:6-12	^ifdef ENABLESEC	^endif	ENABLESEC objects get -fPIC and the libxml2 include path	LIBXML2_CFLAGS
+rules/common-linux.mk:51-103	^MMT_RELEASE_BUILD := 1	^endif +# release builds only	release hardening, disabled for sanitizer profiles	MMT_HARDEN_CFLAGS
 rules/common-linux.mk:89-97	^# TUNE=native \(opt-in, NEVER the default	^endif	TUNE=native is opt-in, never the default
 rules/common-linux.mk:126-138	^# -Wl,-z,defs	^endif	the self-containedness guard, skipped for sanitizers
-rules/common-linux.mk:139-142	^ifdef ENABLESEC	^endif	the ENABLESEC engines link against libxml2
-rules/common-linux.mk:150-154	^ifdef ENABLESEC	^endif	ENABLESEC adds both engines to the libraries target
+rules/common-linux.mk:139-142	^ifdef ENABLESEC	^endif	the ENABLESEC engines link against libxml2	LIBXML2_LIBS
+rules/common-linux.mk:150-154	^ifdef ENABLESEC	^endif	ENABLESEC adds both engines to the libraries target	LIBSECURITY
 rules/common-linux.mk:161	\$\(CXX\) .*-shared .*\$\(LIBCORE\)\.so	-	shared libraries are linked with $(CXX)
-rules/common-linux.mk:187-203	^ifdef ENABLESEC	^endif	the engine link rules are ENABLESEC-gated
+rules/common-linux.mk:187-203	^ifdef ENABLESEC	^endif	the engine link rules are ENABLESEC-gated	LIBSECURITY
 rules/common.mk:3	^MMT_BASE \?=/opt/mmt	-	MMT_BASE defaults to /opt/mmt
 rules/common.mk:21-24	^ifndef VERBOSE	^endif	VERBOSE=1 prints full compile commands
 rules/common.mk:30	^CFLAGS .*-DPLUGINS_REPOSITORY_OPT=	-	the plugin repository path is baked into the objects
 rules/common.mk:38-43	^ifdef NDEBUG	^endif	NDEBUG=1 keeps assert()/debug() active
-rules/common.mk:56-74	^# nghttp2: prefer pkg-config	^endif	libnghttp2 is auto-detected and optional
-rules/common.mk:76-84	^# libxml2 \(only the ENABLESEC	^endif	libxml2 is resolved for the ENABLESEC engines
+rules/common.mk:56-74	^# nghttp2: prefer pkg-config	^endif	libnghttp2 is auto-detected and optional	libnghttp2
+rules/common.mk:76-84	^# libxml2 \(only the ENABLESEC	^endif	libxml2 is resolved for the ENABLESEC engines	libxml-2\.0
 rules/common.mk:87-93	^ifdef DEBUG	^endif	DEBUG=1 swaps -O3 for -g
 rules/common.mk:94-98	^# VALGRIND = 1	^endif	VALGRIND=1 adds Valgrind-friendly instrumentation
-rules/common.mk:100-127	^# BUILD=asan to compile with AddressSanitizer	^endif	the BUILD=asan profile is defined here
-rules/common.mk:120-127	^ifeq \(\$\(BUILD\),asan\)	^endif	the ASan+UBSan flag set the suites mirror
-rules/common.mk:129-157	^# BUILD=tsan to compile with ThreadSanitizer	^endif	the BUILD=tsan profile is defined here
-rules/common.mk:150-157	^ifeq \(\$\(BUILD\),tsan\)	^endif	the TSan flag set the suites mirror
+rules/common.mk:100-127	^# BUILD=asan to compile with AddressSanitizer	^endif	the BUILD=asan profile is defined here	\-fsanitize=address,undefined
+rules/common.mk:120-127	^ifeq \(\$\(BUILD\),asan\)	^endif	the ASan+UBSan flag set the suites mirror	\-fsanitize=address,undefined
+rules/common.mk:129-157	^# BUILD=tsan to compile with ThreadSanitizer	^endif	the BUILD=tsan profile is defined here	\-fsanitize=thread
+rules/common.mk:150-157	^ifeq \(\$\(BUILD\),tsan\)	^endif	the TSan flag set the suites mirror	\-fsanitize=thread
 rules/common.mk:159-166	^# SHOWLOG = 1	^endif	SHOWLOG=1 enables MMT_LOG() output
-rules/common.mk:189-191	^ifdef ENABLESEC	^endif	ENABLESEC selects the fuzz include directory
-rules/common.mk:213-216	^ifdef ENABLESEC	^endif	ENABLESEC names the two optional libraries
-rules/common.mk:239-253	^# Extra diagnostic warnings	^MMT_WARN_FLAGS \?=	extra diagnostics are deliberately not -Werror
-rules/common.mk:279-288	^ifdef ENABLESEC	^endif	ENABLESEC selects the engine objects
+rules/common.mk:189-191	^ifdef ENABLESEC	^endif	ENABLESEC selects the fuzz include directory	SDKINC_FUZZ
+rules/common.mk:213-216	^ifdef ENABLESEC	^endif	ENABLESEC names the two optional libraries	LIBSECURITY
+rules/common.mk:239-253	^# Extra diagnostic warnings	^MMT_WARN_FLAGS \?=	extra diagnostics are deliberately not -Werror	NOT -Werror
+rules/common.mk:279-288	^ifdef ENABLESEC	^endif	ENABLESEC selects the engine objects	SECURITY_OBJECTS
 rules/common.mk:426-428	^%\.o: %\.c	\$\(CC\) \$\(CFLAGS\)	object rules depend on source timestamps only
-sdk/Makefile:8-13	^ifdef MMT_BASE	^endif	an unset MMT_BASE targets /opt/mmt and needs root
+sdk/Makefile:8-13	^ifdef MMT_BASE	^endif	an unset MMT_BASE targets /opt/mmt and needs root	NEED_ROOT_PERMISSION
 sdk/Makefile:28-29	^--refresh-plugin-engine:	plugins_engine\.o	changing MMT_BASE forces plugins_engine.o to recompile
-sdk/Makefile:45-51	ln -sf .*libmmt_core\.so	ln -sf .*LIBDICOM	make install creates the unversioned .so symlinks
+sdk/Makefile:45-51	ln -sf .*libmmt_core\.so	ln -sf .*LIBDICOM	make install creates the unversioned .so symlinks	LIBMOBILE
 sdk/Makefile:46-47	ln -sf .*libmmt_fuzz\.so	ln -sf .*libmmt_security\.so	install symlinks both ENABLESEC engines
 sdk/Makefile:109-110	ln -s .*libmmt_fuzz\.so	ln -s .*libmmt_security\.so	the dist tree symlinks both ENABLESEC engines
-sdk/Makefile:248-251	^test:	\./proto_attributes_iterator	the make test target builds from the installed prefix
-tests/run_all_tests.sh:8-87	^# Modes:	^esac	the runner has two opt-in sanitizer modes
+sdk/Makefile:248-251	^test:	\./proto_attributes_iterator	the make test target builds from the installed prefix	\$\(MMT_EXAMS\)/proto_attributes_iterator\.c
+tests/run_all_tests.sh:8-87	^# Modes:	^esac	the runner has two opt-in sanitizer modes	\-fsanitize=thread
 tests/run_all_tests.sh:75-78	command -v setarch	^ *fi$	TSan re-execs once with ASLR disabled
-tests/run_all_tests.sh:141-154	^DEFAULT_SUITES=\(	^\)$	the default suite list lives in DEFAULT_SUITES
-tests/run_all_tests.sh:167-260	^# --- coverage report	^fi$	--coverage writes an lcov tracefile and a line rate
+tests/run_all_tests.sh:141-154	^DEFAULT_SUITES=\(	^\)$	the default suite list lives in DEFAULT_SUITES	nas_ies_tail
+tests/run_all_tests.sh:167-260	^# --- coverage report	^fi$	--coverage writes an lcov tracefile and a line rate	coverage\.info
 CITATIONS
 
 registered="$(printf '%s' "$registered" | grep -v '^$' | sort -u)"
@@ -274,11 +284,13 @@ md_files() {
 
 # True when one single line of the file matches every pattern given, in any
 # order — so a duplicate cannot slip through by reordering or re-indenting.
+# Backslash continuations are folded first, so the multi-line layout `install.sh`
+# uses for its package list counts as the one line it logically is.
 line_matches_all() {
     local file="$1"
     shift
     local out
-    out="$(cat "$file")"
+    out="$(sed -e :a -e '/\\$/N; s/\\\n//; ta' "$file")"
     local p
     for p in "$@"; do
         out="$(printf '%s\n' "$out" | grep -E -- "$p" || true)"
