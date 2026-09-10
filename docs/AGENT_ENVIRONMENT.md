@@ -107,10 +107,13 @@ sequentially. The suite list lives in `DEFAULT_SUITES`
 `citrix_ica_detection`, `http_header_case`, `s1ap_ngap_decode`, `rule_engine`,
 `radius_hardening`, `nas_ies_tail`.
 
-Key property for agents: these suites are **standalone**. Each suite's
-`run_tests.sh` compiles its test directly against sources under `src/` with
-plain `gcc` — no prior build, no install, no `sudo` needed. You can run one
-suite by passing its directory name:
+Key property for agents: these suites are **standalone** — no prior build, no
+install, no `sudo` needed. Most suites' `run_tests.sh` compiles the test
+directly against sources under `src/` with plain `gcc`; the five that need the
+built SDK (`citrix_ica_detection`, `http_header_case`, `s1ap_ngap_decode`,
+`rule_engine`, `nas_ies_tail`) run `make -C sdk clean` and build it themselves
+into a throwaway prefix, so running them discards an existing `sdk/` build. You
+can run one suite by passing its directory name:
 
 ```bash
 bash tests/run_all_tests.sh hashmap memory   # subset
