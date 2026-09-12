@@ -116,8 +116,8 @@ if [ "$COVERAGE" -eq 1 ]; then
             exit 2
         fi
     done
-    rm -rf "$COVERAGE_DIR"
-    mkdir -p "$COVERAGE_DIR"
+    # Keep the committed floor (issue #185): wipe reports, not the baseline.
+    mkdir -p "$COVERAGE_DIR" && find "$COVERAGE_DIR" -mindepth 1 ! -name floor.json -delete
     # Drop stale gcov data from previous runs/profiles so the report only
     # reflects this invocation's binaries.
     find "$SCRIPT_DIR" \( -name '*.gcda' -o -name '*.gcno' \) -delete
