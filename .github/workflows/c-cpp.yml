@@ -72,6 +72,12 @@ jobs:
       run: sudo apt-get update -y && sudo apt-get install -y libxml2-dev libpcap-dev jq
     - name: Run unit test suites with coverage
       run: bash tests/run_all_tests.sh --coverage
+    - name: Report contiguous uncovered runs
+      # Issue #190 helper wiring (consumed by #243): lists contiguous runs of
+      # uncovered lines from the lcov tracefile. Report-only today — the gate
+      # (--max-run) is flipped on by the task that closes the gaps. A missing
+      # tracefile still fails the step (exit 2): a broken helper must fail CI.
+      run: bash tools/ci/report-uncovered-runs.sh --report-only
     - name: Upload coverage report
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
@@ -111,6 +117,63 @@ jobs:
         name: cppcheck-findings-report
         path: cppcheck-report.xml
         if-no-files-found: error
+
+  verify-helpers:
+    # Verification-helper machinery gate (issue #190). Every tools/ci/*.sh and
+    # scripts/validate-*.sh helper the modernization plan's Verify lines name
+    # is exercised here, so a missing file, a lost executable bit or a
+    # crashing script fails CI instead of rotting unrun.
+    #
+    # Exit-code contract shared by every helper: 0 = condition holds,
+    # 1 = condition violated, >=2 = helper broken. Helpers whose gate
+    # condition is still open — tracked by their owning tasks — run in the
+    # advisory loop: exit 1 surfaces as a warning annotation while exit >= 2,
+    # a missing file or a non-executable bit fails the job. Helpers whose
+    # condition already holds run as ordinary blocking steps.
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Ratchet counters (blocking — a rise above baseline fails)
+      run: |
+        bash tools/ci/count-init-wrappers.sh
+        bash tools/ci/count-weak-types.sh
+        bash tools/ci/lint-markers.sh
+    - name: Documentation checks (blocking)
+      run: |
+        bash scripts/validate-agent-environment.sh
+        bash tools/ci/check-site-links.sh docs
+    - name: Advisory helpers (gate condition still open — owning task flips it)
+      run: |
+        fail=0
+        helpers=(
+          tools/ci/check-hardening-flags.sh
+          tools/ci/check-image-digests.sh
+          tools/ci/check-package-deps.sh
+          tools/ci/check-protocol-count.sh
+          tools/ci/check-public-decls.sh
+          tools/ci/lint-commented-code.sh
+          tools/ci/lint-packet-path-io.sh
+          "tools/ci/report-function-shape.sh src/mmt_tcpip/lib/protocols/proto_irc.c"
+          scripts/validate-install-origin.sh
+        )
+        for spec in "${helpers[@]}"; do
+          read -ra argv <<< "$spec"
+          if [ ! -x "${argv[0]}" ]; then
+            echo "::error title=helper::${argv[0]} is missing or not executable"
+            fail=1
+            continue
+          fi
+          set +e
+          bash "${argv[@]}"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo "  ok   $spec" ;;
+            1) echo "::warning title=advisory::$spec — gate condition still open (exit 1)" ;;
+            *) echo "::error title=helper::$spec crashed (exit $rc)"; fail=1 ;;
+          esac
+        done
+        exit "$fail"
 
   build:
 
