@@ -132,8 +132,11 @@ run_test_suite() {
 
     TOTAL=$((TOTAL + 1))
 
+    # A listed suite whose script is absent is a failure, not a skip (issue
+    # #186, F-TEST-019): silently passing hides a renamed/deleted suite.
     if [ ! -f "$test_script" ]; then
-        echo "  [SKIP] $suite_name: run_tests.sh not found"
+        echo "  ✗ $suite_name: FAILED (run_tests.sh not found)"
+        FAIL=$((FAIL + 1))
         return
     fi
 
