@@ -33,7 +33,10 @@ mmt_attr_get_proto_id_typed
 
 fail=0
 for accessor in $ACCESSORS; do
-    count="$(grep -rn --include='*.c' -e "\b${accessor}\b" src/ | wc -l)"
+    # `|| true`: grep exits 1 on zero matches; without it `set -e`/`pipefail`
+    # would kill the script here before the diagnostic below can print (same
+    # zero-match bug fixed in count-weak-types.sh).
+    count="$(grep -rn --include='*.c' -e "\b${accessor}\b" src/ | wc -l || true)"
     if [ "$count" -eq 0 ]; then
         echo "✗ ${accessor}: zero internal call sites — adopt it or drop it (F-DEAD-009)" >&2
         fail=1
