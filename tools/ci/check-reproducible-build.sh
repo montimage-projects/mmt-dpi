@@ -59,8 +59,8 @@ git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
 # Without git history there is nothing deterministic to pin them to: fail
 # here rather than produce a "reproducible" artifact stamped with the wall
 # clock (rules/common.mk independently hard-errors on this under CI).
-GIT_VERSION="$(git log --format='%h' -n 1 2>/dev/null || true)"
-SOURCE_DATE_EPOCH="$(git log -1 --format=%ct 2>/dev/null || true)"
+GIT_VERSION="${GIT_VERSION:-$(git log --format='%h' -n 1 2>/dev/null || true)}"
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || true)}"
 if [ -z "$GIT_VERSION" ] || [ -z "$SOURCE_DATE_EPOCH" ]; then
   echo "✗ no git history — cannot derive GIT_VERSION / SOURCE_DATE_EPOCH;" >&2
   echo "  reproducibility is unprovable without a commit to pin them to" >&2
