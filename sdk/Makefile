@@ -244,12 +244,13 @@ rpm: sdk $(SDKLIB) $(SDKINC) $(SDKXAM) --private-prepare-build-dir
 	" > ./mmt-dpi.spec
 
 	# Reproducibility (issue #220, F-CI-011): clamp the staged mtimes to
-	# SOURCE_DATE_EPOCH before rpmbuild copies the tree (rpmbuild itself
-	# also honours the exported SOURCE_DATE_EPOCH for the header build time
-	# and payload mtimes), and pin %_buildhost — the hostname otherwise
-	# leaks into RPMTAG_BUILDHOST and the build cookie.
+	# SOURCE_DATE_EPOCH before rpmbuild copies the tree, pin %_buildhost —
+	# the hostname otherwise leaks into RPMTAG_BUILDHOST and the build
+	# cookie — and opt in to rpm's SDE handling: %_buildhost alone leaves
+	# RPMTAG_BUILDTIME at the wall clock (rpm needs the two explicit
+	# macros; merely exporting the variable is not enough on rpm 4.16).
 	$(QUIET) find $(BUILD_DIR) -exec touch -h -d "@$(SOURCE_DATE_EPOCH)" {} +
-	rpmbuild --quiet --rmspec --define "_topdir `pwd`/rpmbuild" --define "_rpmfilename ../../$(BUILD_DIR).rpm" --define "_buildhost mmt-dpi" -bb ./mmt-dpi.spec
+	rpmbuild --quiet --rmspec --define "_topdir `pwd`/rpmbuild" --define "_rpmfilename ../../$(BUILD_DIR).rpm" --define "_buildhost mmt-dpi" --define "use_source_date_epoch_as_buildtime 1" --define "clamp_mtime_to_source_date_epoch 1" -bb ./mmt-dpi.spec
 
 	$(QUIET) $(RM) $(BUILD_DIR) rpmbuild mmt-dpi.spec
 
