@@ -209,7 +209,7 @@ documents link here.
 
 ### The `make test` trap
 
-`sdk/Makefile`'s `test` target (`sdk/Makefile:311-316`) compiles the
+`sdk/Makefile`'s `test` target (`sdk/Makefile:312-317`) compiles the
 `proto_attributes_iterator` example **from the installed prefix**:
 
 ```
