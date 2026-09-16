@@ -214,8 +214,8 @@ done < "$VENDOR_LIST"
     || ERRORS=$((ERRORS + 1))
 
 for s in tools/ci/report-function-shape.sh tools/ci/lint-markers.sh \
-         tools/ci/lint-commented-code.sh tools/ci/count-init-wrappers.sh \
-         tools/ci/run-cppcheck.sh; do
+         tools/ci/lint-commented-code.sh tools/ci/lint-packet-path-io.sh \
+         tools/ci/count-init-wrappers.sh tools/ci/run-cppcheck.sh; do
     check "$s excludes vendored sources via $VENDOR_LIST" \
           "grep -q 'vendor-paths.txt' $s"
 done
