@@ -13,8 +13,9 @@ To run these examples, `mmt-dpi` must be installed first (see [Compilation and I
 
 All example source code is in `src/examples/` (root of the repo). This page
 walks through five of the seven examples there; `MAC_extraction.c` and
-`mmt_export_info.c` (advertised in the [README](https://github.com/montimage-projects/mmt-dpi/blob/main/README.md)) are not covered
-by the walkthroughs below.
+`mmt_export_info.c` — the latter advertised in the
+[README](https://github.com/montimage-projects/mmt-dpi/blob/main/README.md) —
+are not covered by the walkthroughs below.
 
 ## Attributes Listing ##
 This example is intended to provide the list of available protocols and for each protocol, the list of its attributes.
