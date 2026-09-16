@@ -212,6 +212,7 @@ jobs:
     - name: Set up Ruby for the docs-site build
       uses: ruby/setup-ruby@984c0c890880bbf811283d6f09c4607c62d210a4 # v1.323.0
       with:
+        ruby-version: "3.3"
         working-directory: docs
         bundler-cache: true
     - name: Documentation checks (blocking)
