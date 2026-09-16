@@ -253,7 +253,7 @@ $(LIBDICOM_OBJECTS): CFLAGS +=  -Wno-unused-variable -fPIC
 # deliberately NOT -Werror: they only emit warnings, so the build still exits 0
 # (golden/ASan gates stay green). Scoped to MMT's own core + tcpip sources to
 # keep the output actionable rather than flooding it with diagnostics from the
-# vendored/generated third-party code (http_parser, asn1c, ...).
+# vendored/generated third-party code (llhttp, asn1c, ...).
 #
 # The default set is the high-signal, zero-noise subset: format-string, NULL-deref
 # and VLA checks (the safety classes B5 targets) currently emit no warnings on
