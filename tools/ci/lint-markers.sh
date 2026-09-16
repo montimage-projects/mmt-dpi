@@ -63,7 +63,8 @@ if [ "$STRICT" -eq 1 ]; then
         exit 1
     fi
     echo "✓ every marker carries an issue reference"
-    exit 0
+    # Fall through: --strict additionally enforces the baseline ratchet
+    # below — the count must not rise even when every marker is referenced.
 fi
 
 if [ ! -f "$BASELINE_FILE" ]; then
