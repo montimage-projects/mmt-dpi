@@ -1697,7 +1697,7 @@ bool init_extraction()
     /////////////////////////////////////////////
 
     // B5: propagate a package_dependent_init() / plugin init failure to the
-    // caller (init_extraction() returns int; callers such as
+    // caller (init_extraction() returns bool; callers such as
     // simple_traffic_reporting already check it) rather than continuing blindly.
     if (!package_dependent_init()) {
         mmt_stderr_log( "Error during package-dependent initialization\n");
