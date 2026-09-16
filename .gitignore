@@ -148,3 +148,4 @@ _site/
 .jekyll-metadata
 Gemfile.lock
 .bundle/
+vendor/bundle/

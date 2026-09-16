@@ -51,10 +51,13 @@ import sys
 
 root = sys.argv[1]
 pages = sorted(glob.glob(os.path.join(root, "**", "*.html"), recursive=True))
-# never scan a nested jekyll output dir (source-tree runs after a local
-# `jekyll build` would otherwise check generated pages as if they were source)
+# never scan nested jekyll output, bundled gems (setup-ruby's bundler-cache
+# installs under docs/vendor/bundle on CI), caches or VCS dirs — those are
+# build artifacts, not site source
+SKIP_DIRS = {"_site", "vendor", ".jekyll-cache", ".bundle", ".git"}
 pages = [p for p in pages
-         if "_site" not in os.path.relpath(p, root).split(os.sep)]
+         if not SKIP_DIRS.intersection(
+             os.path.relpath(p, root).split(os.sep))]
 if not pages:
     print(f"✗ no *.html files under {root}", file=sys.stderr)
     sys.exit(2)
