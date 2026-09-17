@@ -24,10 +24,12 @@ ${CC:-gcc} "${extra_cflags[@]}" -Wall -Wextra -std=c11 \
 # Run tests
 echo "Running memory tests..."
 # Issue #255: with the size prefix gone, mmt_malloc(SIZE_MAX) reaches the real
-# allocator. Under ASan that request is an allocation-size-too-big hard abort
-# unless allocator_may_return_null=1 — set it so the oversized-request probes
-# exercise the NULL-return contract they assert. No-op for unsanitized runs.
+# allocator. Under ASan/TSan that request is an allocation-size-too-big hard
+# abort unless allocator_may_return_null=1 — set it (a shared sanitizer-common
+# flag) so the oversized-request probes exercise the NULL-return contract they
+# assert. No-ops for unsanitized runs.
 if ASAN_OPTIONS="allocator_may_return_null=1${ASAN_OPTIONS:+:${ASAN_OPTIONS}}" \
+    TSAN_OPTIONS="allocator_may_return_null=1${TSAN_OPTIONS:+:${TSAN_OPTIONS}}" \
     "$SCRIPT_DIR/test_memory"; then
     echo "Memory tests: PASSED"
 else
