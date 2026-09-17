@@ -1,6 +1,41 @@
 RELEASE NOTES
 ---
 
+Unreleased
+---
+
+Changes on `main` since the v1.8.0 tag, grouped by theme; parenthetical
+numbers are the tracking issues. Keep this section current — the PR template
+checklist requires a line here for every user-visible change.
+
+### Documentation
+- publish the Jekyll guides on the docs site, fix landing navigation and the trunk link check (#247)
+- close the remaining documentation drift (#249)
+- reconcile the version, protocol-count and changelog claims: one canonical feature list, quick-start and first example shared between README and the site, and a CI gate that the quoted counts match the built SDK (#248)
+
+### Build, CI and packaging
+- reproducible, tag-verified package builds (#220)
+- pin the asn1c generator and gate the regenerated tree weekly (#223)
+- add CodeQL SAST and a bounded mutation-fuzz gate (#224)
+- repin the centos-stream9 base image after an upstream digest GC (#310)
+
+### Core and protocols
+- integrate the modernization sweep: NAS/NAS5G IE decoders, SCTP-carried mobile protocols, shared HTTP/1+2 and RFC2822 fixes, TLS/QUIC/DTLS/DNS extractors, extraction-callback caplen prologues, classifier tables/AVL/log fixes, fuzz-engine DICOM and business-app coverage, crafted-input and fault-injection suites, build-hardening and assertion policy (#177)
+- migrate the HTTP parser from vendored http_parser to llhttp v9.4.3 (#222)
+- split the packet-processing pipeline and registry (#239)
+- replace weak types on the public API with typedefs and bool (#231); adopt typed accessors and proto-id typedefs (#230)
+- remove the dead non-Linux portability layer (#228); delete uncalled `mmt_classify_me_*` clones (#225); fold identical init wrappers into a generic helper (#226)
+- flatten and deduplicate IRC classification (#237); repair the business-app header install and strip the decoy API surface (#229)
+- security engine: thread `verify()`'s invariant arguments through a context struct (#233) and split `verify()` into one handler per node type (#234)
+
+### Performance
+- remove unconditional packet-path writes to stdout/stderr (#246)
+- separate library RSS from harness RSS in the phase0 benchmark (#251)
+
+### Tests and hygiene
+- core-engine unit suite part 1 — session lifecycle and arena allocator (#241)
+- delete commented-out code and triage the marker backlog, enforced by lint gates (#232)
+
 Version 2.0.0 (unreleased — scheduled removals)
 - remove the four deprecated public symbols recorded under issues #149 and #237 (issue #232):
   `setDataLinkType` (obsolete; no replacement),
