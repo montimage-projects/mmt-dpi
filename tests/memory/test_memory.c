@@ -63,9 +63,10 @@ static void test_malloc_basic(void) {
 /* ---- Test: mmt_malloc zero size ---- */
 static void test_malloc_zero(void) {
     fprintf(stderr, "  test: mmt_malloc zero size\n");
-    /* mmt_malloc(0) allocates sizeof(size_t) bytes (the header) */
+    /* mmt_malloc(0) is normalized to a 1-byte request (malloc(0) may return
+       NULL legitimately); no size prefix since issue #255. */
     void *p = mmt_malloc(0);
-    CHECK(p != NULL, "mmt_malloc(0) should allocate header-only block");
+    CHECK(p != NULL, "mmt_malloc(0) should still return a usable pointer");
     if (p) mmt_free(p);
 }
 
