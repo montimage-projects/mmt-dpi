@@ -155,11 +155,12 @@ attribute available on every packet:
 ```c
 #include "mmt_core.h"
 
-void packet_handler(const ipacket_t *ipacket, void *user_args) {
+int packet_handler(const ipacket_t *ipacket, void *user_args) {
     uint32_t *p_len = (uint32_t *)get_attribute_extracted_data_by_name(
         ipacket, "META", "PACKET_LEN");
     if (p_len)
         printf("Packet size: %u\n", *p_len);
+    return 0; // the callback contract is int-returning; 1 ends the packet early
 }
 
 int main() {
