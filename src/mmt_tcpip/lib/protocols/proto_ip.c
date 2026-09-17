@@ -962,16 +962,14 @@ int ip_pre_classification_function(ipacket_t * ipacket, unsigned index) {
 
 int ip_post_classification_function(ipacket_t * ipacket, unsigned index) {
     mmt_session_t * session = ipacket->session;
-    if (ipacket->mmt_handler->has_reassembly == 1) {
-        int s = sizeof(mmt_tcpip_internal_packet_t);
-        ipacket->internal_packet = mmt_malloc (s);
-        memset(ipacket->internal_packet, 0, s);
-        ipacket->internal_packet->udp = NULL;
-        ipacket->internal_packet->tcp = NULL;
-        ipacket->internal_packet->packet_id = ipacket->packet_id;
-    } else {
-        ipacket->internal_packet = &((internal_ip_proto_context_t *) ((protocol_instance_t *) session->protocol_container_context)->args)->packet;
-    }
+    /* Issue #245 (F-PERF-003): reuse the shared per-protocol context packet
+     * in reassembly mode too — the ~6.7 KB mmt_tcpip_internal_packet_t was
+     * allocated + zeroed for every packet. The three scratch fields below are
+     * rewritten here so no stale per-packet value survives reuse. */
+    ipacket->internal_packet = &((internal_ip_proto_context_t *) ((protocol_instance_t *) session->protocol_container_context)->args)->packet;
+    ipacket->internal_packet->udp = NULL;
+    ipacket->internal_packet->tcp = NULL;
+    ipacket->internal_packet->packet_id = ipacket->packet_id;
     mmt_tcpip_internal_packet_t * packet = ipacket->internal_packet;
 
     int ip_offset = get_packet_offset_at_index(ipacket, index);
