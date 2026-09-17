@@ -1788,6 +1788,8 @@ void mmt_http_init_detection_bitmask() {
         PROTO_VIDEO_HOSTING,
     };
     for (size_t i = 0; i < sizeof(http_detected_protocols) / sizeof(http_detected_protocols[0]); i++) {
+        /* every HTTP-based id joins detection_bitmask — a multi-hundred add
+         * the single-add generic helpers cannot express */
         MMT_ADD_PROTOCOL_TO_BITMASK(detection_bitmask, http_detected_protocols[i]);
     }
 }
