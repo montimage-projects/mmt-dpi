@@ -769,8 +769,7 @@ int ipv6_post_classification_function(ipacket_t * ipacket, unsigned index) {
     /* Issue #245 (F-PERF-003): reuse the shared per-protocol context packet
      * in reassembly mode too — see ip_post_classification_function(). */
     ipacket->internal_packet = &((internal_ip_proto_context_t *) ((protocol_instance_t *) session->protocol_container_context)->args)->packet;
-    ipacket->internal_packet->udp = NULL;
-    ipacket->internal_packet->tcp = NULL;
+    mmt_reset_internal_packet_scalars(ipacket->internal_packet);
     ipacket->internal_packet->packet_id = ipacket->packet_id;
     mmt_tcpip_internal_packet_t * packet = ipacket->internal_packet;
 

@@ -964,11 +964,12 @@ int ip_post_classification_function(ipacket_t * ipacket, unsigned index) {
     mmt_session_t * session = ipacket->session;
     /* Issue #245 (F-PERF-003): reuse the shared per-protocol context packet
      * in reassembly mode too — the ~6.7 KB mmt_tcpip_internal_packet_t was
-     * allocated + zeroed for every packet. The three scratch fields below are
-     * rewritten here so no stale per-packet value survives reuse. */
+     * allocated + zeroed for every packet. The scalar scratch fields are
+     * reset here so no stale per-packet value survives reuse — including on
+     * the early-return paths below (fragmented datagrams, malformed ihl),
+     * where the old memset-0 packet reported zeroed fields instead. */
     ipacket->internal_packet = &((internal_ip_proto_context_t *) ((protocol_instance_t *) session->protocol_container_context)->args)->packet;
-    ipacket->internal_packet->udp = NULL;
-    ipacket->internal_packet->tcp = NULL;
+    mmt_reset_internal_packet_scalars(ipacket->internal_packet);
     ipacket->internal_packet->packet_id = ipacket->packet_id;
     mmt_tcpip_internal_packet_t * packet = ipacket->internal_packet;
 

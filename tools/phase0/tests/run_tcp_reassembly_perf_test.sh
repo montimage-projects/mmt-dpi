@@ -15,9 +15,10 @@
 #      exactly-once byte flattening, duplicate/overlap handling, 32-bit
 #      sequence wraparound, the per-flow ceiling, and a clean teardown.
 #
-# The build stays non-sanitized so the ns/packet timing is meaningful; the
-# same source additionally builds under the sanitizer profiles via the
-# shared-prefix aggregate runner (MMT_SDK_PREBUILT=1).
+# The build stays non-sanitized so the ns/packet timing is meaningful (the
+# aggregate runner groups this script with the default profile). For ASan
+# coverage compile the same source with -fsanitize=address against a
+# BUILD=asan SDK prefix (MMT_SDK_PREBUILT=1 + MMT_REASM_PREFIX).
 #
 # Usage: tools/phase0/tests/run_tcp_reassembly_perf_test.sh
 set -euo pipefail

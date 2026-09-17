@@ -391,6 +391,10 @@ int main(void) {
     }
 
     mmt_close_handler(h);
+    /* init_extraction() dlopen()s every plugin .so — without
+     * close_extraction() the plugin copy of libmmt_tcpip is never dlclosed,
+     * so LeakSanitizer reports its constructor-time avltrees as leaked. */
+    close_extraction();
 
     if (g_failures == 0) {
         printf("tcp-reassembly-perf: PASS (%llu handler callbacks)\n",

@@ -68,14 +68,17 @@ static uint32_t tcp_reasm_image_append(mmt_session_t *session, mmt_tcp_reasm_t *
     if (len == 0) return 0;
     uint32_t need = r->image_len[dir] + len;
     if (need > r->image_cap[dir]) {
-        uint32_t ncap = (r->image_cap[dir] != 0) ? r->image_cap[dir] : (16u * 1024u);
+        /* ncap must be 64-bit: a x4 step past 1 GiB wraps a uint32_t to 0 and
+         * the while loop would never terminate (reviewer lane, run r3). */
+        uint64_t ncap = (r->image_cap[dir] != 0) ? r->image_cap[dir] : (16u * 1024u);
         while (ncap < need) ncap *= 4;
         if (ncap > limit) ncap = limit;
-        /* need <= limit by construction (len <= room), so ncap >= need. */
-        uint8_t *nb = (uint8_t *) realloc(r->image[dir], ncap);
+        /* need <= limit by construction (len <= room), so ncap >= need and
+         * ncap <= limit <= UINT32_MAX — the cast back to uint32_t is safe. */
+        uint8_t *nb = (uint8_t *) realloc(r->image[dir], (size_t) ncap);
         if (nb == NULL) return 0;   /* OOM — leave the segment pending */
         r->image[dir] = nb;
-        r->image_cap[dir] = ncap;
+        r->image_cap[dir] = (uint32_t) ncap;
     }
     memcpy(r->image[dir] + r->image_len[dir], data, len);
     r->image_len[dir] += len;
@@ -106,20 +109,21 @@ static void tcp_reasm_drain(mmt_session_t *session, int dir) {
             mmt_tcp_reasm_stat_drop(seg->len);
         } else {
             uint32_t n = tcp_reasm_image_append(session, r, dir, seg->data, seg->len);
-            if (n < seg->len) {
-                r->dropped += seg->len - n;
-                mmt_tcp_reasm_stat_drop(seg->len - n);
-            }
             if (n == 0 && r->image_len[dir] + seg->len <= session->mmt_handler->tcp_reassembly_limit
                       && r->image_cap[dir] < r->image_len[dir] + seg->len) {
                 /* OOM growing the image — re-link at head and stop: the
-                 * pending list keeps the segment for the next read. */
+                 * pending list keeps the segment for the next read. The
+                 * bytes are NOT counted dropped — the segment survives. */
                 seg->next = (tcp_seg_t *) r->seg_head[dir];
                 seg->prev = NULL;
                 if (r->seg_head[dir] != NULL) ((tcp_seg_t *) r->seg_head[dir])->prev = seg;
                 else r->seg_tail[dir] = seg;
                 r->seg_head[dir] = seg;
                 return;
+            }
+            if (n < seg->len) {
+                r->dropped += seg->len - n;
+                mmt_tcp_reasm_stat_drop(seg->len - n);
             }
             r->consumed_seq[dir] = (uint32_t) seg->next_seq;
             r->consumed_valid[dir] = 1;
