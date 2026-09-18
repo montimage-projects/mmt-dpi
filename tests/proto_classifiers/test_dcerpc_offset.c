@@ -101,7 +101,9 @@ static void free_pkt(struct test_pkt *t) {
  * [2] that is NOT < 16 — so the pre-fix payload[2] check rejects it. */
 static int run_dcerpc(uint8_t pkt_type, uint8_t frag_attr, unsigned pl_len,
 		uint16_t dport) {
-	uint8_t pl[64];
+	/* pl must cover the largest pl_len passed below (128): memcpy into the
+	 * fixture reads pl_len bytes — a smaller source is a stack over-read. */
+	uint8_t pl[128];
 	memset(pl, 0, sizeof(pl));
 	pl[0] = 0x05;        /* RPC version 5 */
 	pl[1] = pkt_type;    /* pkt_type at offset 1 (the fix) */
