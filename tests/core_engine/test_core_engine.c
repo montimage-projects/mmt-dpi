@@ -1532,7 +1532,8 @@ static void test_reasm_stats(void) {
      * balance reports 0, never wraps. */
     mmt_tcp_reasm_stat_live(-(int64_t) (r0 + 150) - 10);
     CHECK(mmt_tcp_reasm_resident_bytes() == 0, "negative resident clamps to 0");
-    mmt_tcp_reasm_stat_live((int64_t) r0); /* restore the prior balance */
+    /* the gauge sits at -10 here; restoring the prior balance takes r0+10 */
+    mmt_tcp_reasm_stat_live((int64_t) r0 + 10);
 }
 
 /* ================================ main ==================================== */
