@@ -582,8 +582,11 @@ int set_classified_proto(ipacket_t * ipacket, unsigned index, classified_proto_t
          * below) are untouched, and the default bound
          * (PROTO_PATH_SIZE - 1) makes this check a no-op on the bundled
          * configuration. Out-of-band writers (sessionizers, analyse and
-         * extraction paths) respect the same cap as the classify walk. */
-        if (index > ipacket->mmt_handler->classification_max_depth) {
+         * extraction paths) respect the same cap as the classify walk.
+         * A NULL handler (crafted-input harnesses driving dissectors on a
+         * fabricated ipacket) carries no bound — the historical behaviour. */
+        if (ipacket->mmt_handler != NULL
+                && index > ipacket->mmt_handler->classification_max_depth) {
             return retval;
         }
         //Increment the length of the protocol path and protocol offsets
@@ -681,7 +684,8 @@ int proto_packet_classify_next(ipacket_t * ipacket, protocol_instance_t * config
          * ran, so the current layer's header parse (packet->tcp/udp),
          * sessionization and attribute extraction are unaffected. */
         if (configured_protocol->protocol->classify_next.classify_protos && classif_status != MMT_CLASSIFY_SKIP
-                && (index + 1) <= ipacket->mmt_handler->classification_max_depth) { // Classify next proto only when such a function exists!
+                && (ipacket->mmt_handler == NULL
+                    || (index + 1) <= ipacket->mmt_handler->classification_max_depth)) { // Classify next proto only when such a function exists!
             /* Issue #252 (F-PERF-002): when the hierarchy already carries a
              * converged (non-UNKNOWN) protocol at index + 1, the packet rides
              * an already-classified flow — the protocol path is session-backed

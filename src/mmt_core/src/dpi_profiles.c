@@ -222,7 +222,10 @@ void mmt_dpi_profile_apply_env(mmt_handler_t *mmt_handler) {
      * variables are no-ops — the default path stays byte-identical. */
     const char *profiles_path = getenv("MMT_DPI_PROFILES_FILE");
     if (profiles_path != NULL && profiles_path[0] != '\0') {
-        int n = mmt_load_dpi_profiles_file(profiles_path);
+        /* The env var IS the feature — an operator-supplied config path,
+         * the same deliberate contract as MMT_DPI_IP_RANGES_FILE /
+         * MMT_DPI_PORT_MAP_FILE (open alerts #26/#27 on main). */
+        int n = mmt_load_dpi_profiles_file(profiles_path); // codeql[cpp/path-injection]
         if (n > 0) {
             mmt_stderr_log("[mmt-dpi][profiles] loaded %d custom profile(s) from %s\n",
                     n, profiles_path);
