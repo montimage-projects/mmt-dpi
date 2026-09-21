@@ -163,7 +163,11 @@ uint64_t mmt_classify_direct_call_count(void) {
 void mmt_classify_stats_reset(void) {
 #if MMT_CLASSIFY_STATS
     __atomic_store_n(&mmt_classify_checker_calls, 0, __ATOMIC_RELAXED);
-    memset(mmt_classify_checker_calls_by_proto, 0, sizeof(mmt_classify_checker_calls_by_proto));
+    /* Atomic stores — a plain memset would race with in-flight relaxed
+     * increments on the TSan profile. */
+    for (uint32_t i = 0; i < PROTO_MAX_IDENTIFIER; i++) {
+        __atomic_store_n(&mmt_classify_checker_calls_by_proto[i], 0, __ATOMIC_RELAXED);
+    }
     __atomic_store_n(&mmt_classify_walk_skips, 0, __ATOMIC_RELAXED);
     __atomic_store_n(&mmt_classify_direct_calls, 0, __ATOMIC_RELAXED);
 #endif
@@ -582,6 +586,17 @@ int set_classified_proto(ipacket_t * ipacket, unsigned index, classified_proto_t
         ipacket->proto_headers_offset->proto_path[index] = classified_proto.offset;
         ipacket->proto_classif_status->proto_path[index] = PROTO_CLASSIFICATION_DETECTION;
 
+        /* Issue #252 (F-PERF-002): slots at or beyond the old tip belong to
+         * a previously truncated path (or were never recorded) — they cannot
+         * own this freshly appended layer. Clear them; a classify_next()
+         * walk observing the change re-records, an out-of-band append falls
+         * back to the historical full walk. */
+        if (ipacket->session != NULL) {
+            for (unsigned s = index; s < PROTO_PATH_SIZE; s++) {
+                ipacket->session->proto_checkers[s] = NULL;
+            }
+        }
+
         retval = PROTO_CLASSIFICATION_DETECTION;
     } else if (ipacket->proto_hierarchy->proto_path[index] == classified_proto.proto_id) {
         //The protocol is already set! just update its offset
@@ -594,6 +609,22 @@ int set_classified_proto(ipacket_t * ipacket, unsigned index, classified_proto_t
         ipacket->proto_hierarchy->proto_path[index] = classified_proto.proto_id;
         ipacket->proto_headers_offset->proto_path[index] = classified_proto.offset;
         ipacket->proto_classif_status->proto_path[index] = PROTO_RECLASSIFICATION;
+
+        /* Issue #252 (F-PERF-002): this entry and every deeper layer's
+         * recorded winning checkers were earned under the protocol being
+         * replaced — a stale slot would dispatch an engine that no longer
+         * owns the layer. Drop them; affected layers re-walk the full chain
+         * and re-record. When the write happens inside a classify_next()
+         * walk, the slot for `index` is re-recorded at post-classify time
+         * in the same round; for out-of-band writes (sessionizers, analyse
+         * or extraction paths) the cleared slot conservatively restores the
+         * historical full walk instead of permanently dispatching the old
+         * layer's engine. */
+        if (ipacket->session != NULL) {
+            for (unsigned s = index; s < PROTO_PATH_SIZE; s++) {
+                ipacket->session->proto_checkers[s] = NULL;
+            }
+        }
 
         retval = PROTO_RECLASSIFICATION;
     }
@@ -650,7 +681,11 @@ int proto_packet_classify_next(ipacket_t * ipacket, protocol_instance_t * config
             mmt_classify_proto_t *direct = NULL;
             mmt_classify_proto_t *winner = NULL;
             int expected_proto = PROTO_UNKNOWN;
+            /* proto_checkers is PROTO_PATH_SIZE entries like the path itself —
+             * the index+1 bound keeps a corrupt len (e.g. the SCTP/S1AP direct
+             * len writes) from reading past the table. */
             if (ipacket->session != NULL &&
+                    index + 1 < PROTO_PATH_SIZE &&
                     ipacket->proto_hierarchy->len > (index + 1) &&
                     ipacket->proto_hierarchy->proto_path[index + 1] != PROTO_UNKNOWN) {
                 expected_proto = ipacket->proto_hierarchy->proto_path[index + 1];
@@ -691,6 +726,7 @@ int proto_packet_classify_next(ipacket_t * ipacket, protocol_instance_t * config
             if (configured_protocol->protocol->classify_next.post_classify) {
                 int post_ret = configured_protocol->protocol->classify_next.post_classify(ipacket, index);
                 if (ipacket->session != NULL &&
+                        index + 1 < PROTO_PATH_SIZE &&
                         ipacket->proto_hierarchy->len > (index + 1) &&
                         ipacket->proto_hierarchy->proto_path[index + 1] != expected_proto) {
                     /* The layer's path entry changed this round (first
@@ -769,12 +805,13 @@ void proto_process_attribute_handlers(ipacket_t * ipacket, unsigned index) {
         return;
     }
     /* Issue #252 (F-PERF-017): contiguous frozen array — indexed walk, no
-     * ->next chasing through separately allocated nodes. */
+     * ->next chasing through separately allocated nodes. Base and length are
+     * re-read every iteration because a handler_fct callback may
+     * register/unregister attribute handlers, relocating or shifting the
+     * array (same contract as process_packet_handler()). */
     uint32_t proto = ipacket->proto_hierarchy->proto_path[index];
-    attribute_handler_element_t * attribute_handlers = mmt_handler->proto_registered_attribute_handlers[proto];
-    uint32_t nelems = mmt_handler->proto_registered_attribute_handlers_len[proto];
-    for (uint32_t e = 0; e < nelems; e++) {
-        attribute_internal_t * attribute = attribute_handlers[e].attribute;
+    for (uint32_t e = 0; e < mmt_handler->proto_registered_attribute_handlers_len[proto]; e++) {
+        attribute_internal_t * attribute = mmt_handler->proto_registered_attribute_handlers[proto][e].attribute;
         internal_extract_attribute(ipacket, attribute, index);
         if (attribute->status == ATTRIBUTE_SET) {
             for (int h = 0; h < attribute->handlers_count; h++) {
@@ -1094,6 +1131,10 @@ int process_packet(mmt_handler_t *mmt, struct pkthdr *header, const u_char * pac
     mmt->current_ipacket.mmt_handler = mmt;
     mmt->current_ipacket.internal_packet = NULL;
     mmt->current_ipacket.last_callback_fct_id = 0;
+    /* Issue #252 (F-PERF-002): the classifier claim channel is per-packet —
+     * reset it alongside the rest of the per-packet state. */
+    mmt->current_ipacket.mmt_current_classifier = NULL;
+    mmt->current_ipacket.mmt_classifier_claim = NULL;
     // IPV6
     mmt->current_ipacket.ipv6_ext_headers_len = 0;
     reset_ipacket_path_arrays(&mmt->current_ipacket);
@@ -1175,6 +1216,12 @@ int process_packet_with_reassembly(mmt_handler_t *mmt, struct pkthdr *header, co
     ipacket->mmt_handler = mmt;
     ipacket->internal_packet = NULL;
     ipacket->last_callback_fct_id = 0;
+    /* Issue #252 (F-PERF-002): reset the classifier claim channel — the slot
+     * is mmt_malloc'd (never zeroed) and recycled between packets, so the
+     * fields must be rearmed here or the first set_classified_proto() below
+     * reads uninitialised memory (Valgrind memcheck on the leak gate). */
+    ipacket->mmt_current_classifier = NULL;
+    ipacket->mmt_classifier_claim = NULL;
     // ipv6
     ipacket->ipv6_ext_headers_len = 0;
     reset_ipacket_path_arrays(ipacket);
@@ -1319,12 +1366,12 @@ void generic_data_extraction(unsigned protocol_index, ipacket_t * ipacket) {
 
     if (!is_registered_protocol(proto_id)) return;
     /* Issue #252 (F-PERF-017): contiguous frozen array of attribute pointers —
-     * the per-packet extraction walk indexes it instead of chasing ->next. */
-    struct attribute_internal_struct ** attrs = mmt_handler->proto_registered_attributes[proto_id];
-    uint32_t nattrs = mmt_handler->proto_registered_attributes_len[proto_id];
-
-    for (uint32_t a = 0; a < nattrs; a++) {
-        struct attribute_internal_struct * tmp_attr_ref = attrs[a];
+     * the per-packet extraction walk indexes it instead of chasing ->next.
+     * Base and length are re-read every iteration because an extraction
+     * callback may register/unregister attributes, relocating or shifting
+     * the array (same contract as process_packet_handler()). */
+    for (uint32_t a = 0; a < mmt_handler->proto_registered_attributes_len[proto_id]; a++) {
+        struct attribute_internal_struct * tmp_attr_ref = mmt_handler->proto_registered_attributes[proto_id][a];
         if (tmp_attr_ref->extraction_function(ipacket, protocol_index, (attribute_t *) tmp_attr_ref) > 0) {
             //We set the status of the protocol
             tmp_attr_ref->status = ATTRIBUTE_SET;

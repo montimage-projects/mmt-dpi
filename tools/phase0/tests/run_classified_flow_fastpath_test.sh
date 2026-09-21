@@ -25,8 +25,15 @@ set -euo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${TEST_DIR}/../../.." && pwd)"
-DATASETS="${MMT_TEST_DATASETS:-${REPO_ROOT}/../mmt-test/data-sets}"
-PCAP="${1:-${DATASETS}/ftp/ftp_multiple_session.pcap}"
+# Default to the vendored golden pcap subset (tools/phase0/ci/pcaps/) — the
+# harness CI job checks out only this repo, so the mmt-test data-sets tree is
+# not reachable there; MMT_TEST_DATASETS or a positional arg overrides it.
+DATASETS="${MMT_TEST_DATASETS:-${REPO_ROOT}/tools/phase0/ci/pcaps}"
+PCAP="${1:-${DATASETS}/ftp_multiple_session.pcap}"
+if [ ! -f "${PCAP}" ] && [ -f "${DATASETS}/ftp/ftp_multiple_session.pcap" ]; then
+    # mmt-test data-sets keeps pcaps under a per-protocol subdirectory
+    PCAP="${DATASETS}/ftp/ftp_multiple_session.pcap"
+fi
 PREFIX="${MMT_ASAN_PREFIX:-$(mktemp -d "${TMPDIR:-/tmp}/asan.XXXXXX")}"
 BIN="$(mktemp -d)/classified_flow_fastpath_test"
 trap 'rm -rf "$(dirname "${BIN}")"; [ -n "${MMT_ASAN_PREFIX:-}" ] || rm -rf "${PREFIX}"' EXIT
