@@ -623,6 +623,7 @@ typedef struct _hn_node {
 static _hn_node_t * _host_name_by_tree = NULL;
 static pthread_mutex_t _host_name_trie_lock = PTHREAD_MUTEX_INITIALIZER;
 static int _host_name_trie_init_failed = 0;
+static int _host_name_trie_destroyed = 0; /* latched by _free_tree (destructor) */
 static uint64_t _host_name_trie_bytes = 0; /* accounted node+edge bytes */
 
 /* Accounted resident bytes of the lazily-built hostname trie (issue #253):
@@ -758,9 +759,15 @@ static void _free_tree_node( _hn_node_t *node_ptr ){
 
 static void _free_tree(void){
 	pthread_mutex_lock(&_host_name_trie_lock);
+	/* Latch the destroyed state BEFORE dropping the root: a lookup arriving
+	 * after the destructor must degrade to "no match" (the dense-trie
+	 * behaviour) instead of rebuilding a ~0.5 MB tree nothing will free. */
+	__atomic_store_n(&_host_name_trie_destroyed, 1, __ATOMIC_RELEASE);
 	if( _host_name_by_tree != NULL ){
 		_free_tree_node( _host_name_by_tree );
-		_host_name_by_tree = NULL;
+		/* Publish NULL atomically — the lock-free read path in _ensure_tree
+		 * must never observe a mixed plain/atomic access to this word. */
+		__atomic_store_n(&_host_name_by_tree, NULL, __ATOMIC_RELEASE);
 	}
 	_host_name_trie_bytes = 0;
 	pthread_mutex_unlock(&_host_name_trie_lock);
@@ -769,22 +776,26 @@ static void _free_tree(void){
 /* Lazily publish the trie root. The acquire load is the entire per-packet
  * cost once the tree exists; construction is serialised on
  * _host_name_trie_lock and only ever runs once (a latched failure keeps the
- * old permanent-disable behaviour). */
+ * old permanent-disable behaviour, and a latched destruction keeps a
+ * post-destructor lookup from resurrecting — and leaking — the tree). */
 static inline _hn_node_t * _ensure_tree(void){
 	_hn_node_t *root = __atomic_load_n(&_host_name_by_tree, __ATOMIC_ACQUIRE);
 	if( likely( root != NULL ))
 		return root;
 	if( __atomic_load_n(&_host_name_trie_init_failed, __ATOMIC_ACQUIRE))
 		return NULL;
+	if( __atomic_load_n(&_host_name_trie_destroyed, __ATOMIC_ACQUIRE))
+		return NULL;
 
 	pthread_mutex_lock(&_host_name_trie_lock);
-	if( _host_name_by_tree == NULL && !_host_name_trie_init_failed ){
+	if( _host_name_by_tree == NULL && !_host_name_trie_init_failed
+			&& !_host_name_trie_destroyed ){
 		if( !_init_tree() ){
 			__atomic_store_n(&_host_name_trie_init_failed, 1, __ATOMIC_RELEASE);
 			mmt_stderr_log( "[mmt-dpi] hostname trie init failed (out of memory) - hostname classification disabled\n");
 		}
 	}
-	root = _host_name_by_tree;
+	root = __atomic_load_n(&_host_name_by_tree, __ATOMIC_RELAXED);
 	pthread_mutex_unlock(&_host_name_trie_lock);
 	return root;
 }
