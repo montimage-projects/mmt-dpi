@@ -186,7 +186,6 @@ tests/run_all_tests.sh:300-316	^# --- phase0 harnesses	^fi$	--with-harnesses del
 sdk/Makefile:1	^ARCH +\?= linux	-	default architecture is Linux
 rules/arch-linux.mk:2-3	^CXX := g\+\+	^CC  := gcc	Linux uses GCC and G++
 .github/workflows/c-cpp.yml:213-218	Set up Ruby	bundler-cache: true	docs CI uses Ruby 3.3	ruby-version: "3.3"
-docs/Gemfile.lock:112-113	^BUNDLED WITH	^   2\.6\.9	locked Bundler version
 docs/Gemfile:6-11	^source	^gem "jekyll-seo-tag"	documentation gems	jekyll
 .github/workflows/c-cpp.yml:225	cd docs && bundle exec jekyll build	-	CI builds Jekyll
 rules/common.mk:3-8	^MMT_BASE	^MMT_EXAMS	Make install configuration

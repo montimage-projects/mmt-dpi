@@ -418,3 +418,7 @@ Append-only log of ambiguities resolved during doc-manager runs.
   Source: `tests/run_all_tests.sh:213-217`, `tests/run_all_tests.sh:273-287`, `tests/coverage/floor.json:2-10`, `.github/workflows/c-cpp.yml:213-225`, `docs/Gemfile.lock:112-113`, `sdk/Makefile:8-18`, `rules/common.mk:3-8`.
 
   Audit provenance: the original untracked `MODERNIZATION_REPORT.md`, preserved read-only in stash object `e546dd45^3`, records the audited commit `2ab7b73516113009622cb3d32194d20121457010` at line 3 and the 82.9% (5,660/6,831 lines), 30-file measurement at line 28; finding F-TEST-004 at line 107 explicitly identifies the subset denominator. No audit artifact was restored or changed.
+
+- Q: Issue #367 review — is the local Bundler lock part of the clean-checkout toolchain, and is the decision log a built page?
+  A: No Bundler lockfile or version pin is tracked; CI uses Ruby 3.3 and enables ruby/setup-ruby bundler-cache. The guide now documents Bundler without a version pin and no longer validates an ignored local lockfile. The decision log has no Jekyll front matter, so the guide links to its GitHub source instead of a raw Markdown site target. This supersedes the locked-Bundler claim above.
+  Source: `.github/workflows/c-cpp.yml:213-218`, `.github/workflows/c-cpp.yml:225`, `docs/Gemfile:6-11`, `docs/DECISIONS.md:1`.

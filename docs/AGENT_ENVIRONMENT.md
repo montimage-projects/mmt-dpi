@@ -91,12 +91,13 @@ Notes:
 ### Documentation-site toolchain
 
 The C SDK does not require Ruby. For the documentation site, use Ruby **3.3**
-as in CI (`.github/workflows/c-cpp.yml:213-218`) and Bundler **2.6.9**
-from `docs/Gemfile.lock:112-113`. With Ruby 3.3 available:
+as in CI (`.github/workflows/c-cpp.yml:213-218`), with Bundler to install
+the gems and run Jekyll. CI enables `bundler-cache` through `ruby/setup-ruby`;
+no Bundler version or lockfile is committed. With Ruby 3.3 available:
 
 ```bash
-gem install bundler -v 2.6.9
-(cd docs && bundle _2.6.9_ install && bundle _2.6.9_ exec jekyll build)
+gem install bundler
+(cd docs && bundle install && bundle exec jekyll build)
 ```
 
 `docs/Gemfile:6-11` defines Jekyll and its plugins; CI's corresponding build
@@ -227,7 +228,7 @@ The modernization task's **30-file coverage scope** refers to an audit-time
 instrumented subset, not all library sources and not a fixed runner limit.
 The 2026-09-22 audit at commit `2ab7b73516113009622cb3d32194d20121457010`
 reported 82.9% (5,660/6,831 lines) over those 30 files; this is historical
-evidence, not a new measurement (provenance recorded in [DECISIONS.md](DECISIONS.md)).
+evidence, not a new measurement (provenance recorded in [DECISIONS.md](https://github.com/montimage-projects/mmt-dpi/blob/main/docs/DECISIONS.md)).
 Coverage includes only the `src/` files represented in emitted gcov data
 (`tests/run_all_tests.sh:213-217`); its percentage uses the lines in that
 subset, so it must not be reported as whole-library coverage. The current
