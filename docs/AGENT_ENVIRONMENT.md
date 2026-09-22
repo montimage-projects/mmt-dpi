@@ -218,7 +218,7 @@ skipped — the runner exits non-zero (issue #186).
   (`src/`) sources only** to `tests/coverage/coverage.info` plus the library
   line percentage, instrumented-file count/list and
   `tests/coverage/summary.json` in stdout
-  (`tests/run_all_tests.sh:190-299`). Requires `gcov` (shipped with
+  (`tests/run_all_tests.sh:191-300`). Requires `gcov` (shipped with
   gcc) and `jq`; no lcov install needed. The coverage CI job enforces the
   committed floor `tests/coverage/floor.json` — both counters plus the
   required sources it names — via `tools/ci/check-coverage-floor.sh`.
@@ -226,7 +226,7 @@ skipped — the runner exits non-zero (issue #186).
   every phase0 harness (`tools/phase0/tests/run_*.sh`) via the aggregate
   runner `tools/phase0/run_all_harnesses.sh`, which builds the SDK once per
   required profile (asan / tsan / default) into a shared prefix and replays
-  all harnesses against it (`tests/run_all_tests.sh:301-317`). The arm counts
+  all harnesses against it (`tests/run_all_tests.sh:302-318`). The arm counts
   as one extra entry in the result table; any harness failure fails the
   invocation. Runtime is minutes, not seconds — the suites build nothing for
   it, the runner's shared builds dominate.
@@ -237,10 +237,10 @@ The 2026-09-22 audit at commit `2ab7b73516113009622cb3d32194d20121457010`
 reported 82.9% (5,660/6,831 lines) over those 30 files; this is historical
 evidence, not a new measurement (provenance recorded in [DECISIONS.md](https://github.com/montimage-projects/mmt-dpi/blob/main/docs/DECISIONS.md)).
 Coverage includes only the `src/` files represented in emitted gcov data
-(`tests/run_all_tests.sh:214-218`); its percentage uses the lines in that
+(`tests/run_all_tests.sh:215-219`); its percentage uses the lines in that
 subset, so it must not be reported as whole-library coverage. The current
 run's exact scope is `instrumented_sources` and `instrumented_files` in
-`summary.json` (`tests/run_all_tests.sh:274-288`). The committed minimum is
+`summary.json` (`tests/run_all_tests.sh:275-289`). The committed minimum is
 **29 instrumented files**, alongside an **80.0%** line floor and required
 source names (`tests/coverage/floor.json:2-10`); a 30-file measurement does
 not change that floor. Consult a fresh summary for the current count.
