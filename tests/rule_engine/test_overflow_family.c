@@ -983,6 +983,35 @@ static void test_countout_window(void)
           "counter 4 beyond max=3 closes the window (COUNTOUT)");
 }
 
+static void test_path_xc_membership(void)
+{
+    compare_value v1, v2;
+    int path[5] = { 3, 17, 42, 8, 90 };
+    char needle_last[] = "90";
+    char needle_first[] = "3";
+    char absent[] = "4";
+
+    memset(&v1, 0, sizeof v1);
+    memset(&v2, 0, sizeof v2);
+    /* the operand carries the byte size of the int element array —
+     * count*sizeof(int) — so XC can scan every element */
+    v1.type = MMT_DATA_PATH;
+    v1.found = FOUND;
+    v1.size = (int)sizeof path;
+    v1.data = path;
+    v2 = v1;
+
+    v2.data = needle_last;
+    CHECK(compare_values(v1, v2, XC) == VALID,
+          "path XC finds the needle at the last element");
+    v2.data = needle_first;
+    CHECK(compare_values(v1, v2, XC) == VALID,
+          "path XC finds the needle at element 0");
+    v2.data = absent;
+    CHECK(compare_values(v1, v2, XC) == NOT_VALID,
+          "path XC returns NOT_VALID for an absent needle");
+}
+
 int main(void)
 {
     test_compute_zero_divisor();
@@ -1004,6 +1033,7 @@ int main(void)
     test_compute_float();
     test_get_xdata_filled_branches();
     test_countout_window();
+    test_path_xc_membership();
 
     if (failures) {
         printf("%d check(s) failed\n", failures);

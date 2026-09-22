@@ -337,7 +337,10 @@ char * get_value( const ipacket_t *pkt, char *input, short *jump, short *size, t
                     && temp_tuple2->event_id == event_id && temp_tuple2->data_size > 0 && temp_tuple2->data != NULL) {
                 long type = temp_tuple2->data_type_id;
                 *size = temp_tuple2->data_size;
-                void *data = temp_tuple2->data;
+                /* pointer-typed tuples store the char* — unwrap it so `data`
+                 * is the string itself, matching the packet-side convention */
+                void *data = (type == MMT_STRING_DATA_POINTER)
+                        ? *(void **)temp_tuple2->data : temp_tuple2->data;
                 if (type == MMT_STRING_DATA || type == MMT_STRING_LONG_DATA || type == MMT_BINARY_DATA || type == MMT_BINARY_VAR_DATA ) {
                     /* declared byte count from the record prefix — clamp it
                      * to the record's payload so a forged prefix cannot make
@@ -756,15 +759,16 @@ int compare_values(compare_value v1, compare_value v2, enum_operation ope)
                 return VALID;
             break;
         case MMT_DATA_PATH:
-            /* v1.size is the element count produced by clamp_path_count and
-             * data1 the int element array just past the record prefix — the
-             * search must scan every element (XC/XCE = "path contains
-             * needle"); other operators have no defined meaning on paths. */
+            /* v1.size is the byte size of the int element array produced by
+             * clamp_path_count (count*sizeof(int)) and data1 the array just
+             * past the record prefix — the search must scan every element
+             * (XC/XCE = "path contains needle"); other operators have no
+             * defined meaning on paths. */
             if (ope == XC || ope == XCE) {
               needle = atoi(data2);
-              if(size>0 && size < 20){
-                for(idx=0; idx < size; idx++){
-                  if(needle == *(int*) (data1 + idx*sizeof (int))) return VALID;
+              if(size>0 && size < 20 * (int)sizeof (int)){
+                for(idx=0; idx + (int)sizeof (int) <= size; idx += (int)sizeof (int)){
+                  if(needle == *(int*) (data1 + idx)) return VALID;
                 }
                 return NOT_VALID;
               }
@@ -1116,7 +1120,9 @@ int get_data_from_pcap( verify_ctx_t *ctx, enum_operation action, void** result_
         void *data = r1->t.data;
         if (v1.type == MMT_STRING_DATA || v1.type == MMT_STRING_LONG_DATA || v1.type == MMT_BINARY_DATA || v1.type == MMT_BINARY_VAR_DATA || v1.type == MMT_DATA_PATH) {
             if (v1.type == MMT_DATA_PATH)
-                v1.size = clamp_path_count(*(int*) (data), r1->t.data_size);
+                /* operand size is the element array's byte size — the
+                 * record is [int count][count ints] */
+                v1.size = clamp_path_count(*(int*) (data), r1->t.data_size) * (int)sizeof (int);
             else
                 v1.size = clamp_prefixed_size(*(int*) (data), r1->t.data_size);
             data = r1->t.data + sizeof (int);
@@ -1145,7 +1151,7 @@ int get_data_from_pcap( verify_ctx_t *ctx, enum_operation action, void** result_
                     void *data = temp_tuple2->data;
                     if (v1.type == MMT_STRING_DATA || v1.type == MMT_STRING_LONG_DATA || v1.type == MMT_BINARY_DATA || v1.type == MMT_BINARY_VAR_DATA || v1.type == MMT_DATA_PATH) {
                         if (v1.type == MMT_DATA_PATH)
-                            v1.size = clamp_path_count(*(int*) (data), temp_tuple2->data_size);
+                            v1.size = clamp_path_count(*(int*) (data), temp_tuple2->data_size) * (int)sizeof (int);
                         else
                             v1.size = clamp_prefixed_size(*(int*) (data), temp_tuple2->data_size);
                         data = temp_tuple2->data + sizeof (int);
@@ -1174,7 +1180,7 @@ int get_data_from_pcap( verify_ctx_t *ctx, enum_operation action, void** result_
         void *data = r2->t.data;
         if (v2.type == MMT_STRING_DATA || v2.type == MMT_STRING_LONG_DATA || v2.type == MMT_BINARY_DATA || v2.type == MMT_BINARY_VAR_DATA || v2.type == MMT_DATA_PATH) {
             if (v2.type == MMT_DATA_PATH)
-                v2.size = clamp_path_count(*(int*) (data), r2->t.data_size);
+                v2.size = clamp_path_count(*(int*) (data), r2->t.data_size) * (int)sizeof (int);
             else
                 v2.size = clamp_prefixed_size(*(int*) (data), r2->t.data_size);
             data = r2->t.data + sizeof (int);
@@ -1208,7 +1214,7 @@ int get_data_from_pcap( verify_ctx_t *ctx, enum_operation action, void** result_
                                         void *data = temp_tuple2->data;
                                         if (v2.type == MMT_STRING_DATA || v2.type == MMT_STRING_LONG_DATA || v2.type == MMT_BINARY_DATA || v2.type == MMT_BINARY_VAR_DATA || v2.type == MMT_DATA_PATH) {
                                             if (v2.type == MMT_DATA_PATH)
-                                                v2.size = clamp_path_count(*(int*) (data), temp_tuple2->data_size);
+                                                v2.size = clamp_path_count(*(int*) (data), temp_tuple2->data_size) * (int)sizeof (int);
                                             else
                                                 v2.size = clamp_prefixed_size(*(int*) (data), temp_tuple2->data_size);
                                             data = temp_tuple2->data + sizeof (int);
@@ -1276,7 +1282,7 @@ int get_data_from_pcap( verify_ctx_t *ctx, enum_operation action, void** result_
                  * packet-controlled — a forged value must not drive a giant
                  * xcalloc or an over-reading memcpy (F-BUG-091/093, #209) */
                 if (tmp_v->type == MMT_DATA_PATH)
-                    tmp_v->size = clamp_path_count(*(int*) (data), tmp_v->size);
+                    tmp_v->size = clamp_path_count(*(int*) (data), tmp_v->size) * (int)sizeof (int);
                 else
                     tmp_v->size = clamp_prefixed_size(*(int*) (data), tmp_v->size);
                 data = data + sizeof (int);
@@ -1293,7 +1299,12 @@ int get_data_from_pcap( verify_ctx_t *ctx, enum_operation action, void** result_
                  * pointer once the prefix was skipped) */
                 return 0;
             }
-            if (data != NULL && tmp_v->size > 0) memcpy(tmp_v->data, data, tmp_v->size);
+            if (data != NULL && tmp_v->size > 0) {
+                /* a pointer-typed attribute's datum is the pointer itself —
+                 * store the pointer value, not `size` bytes of pointee */
+                if (tmp_v->type == MMT_STRING_DATA_POINTER) memcpy(tmp_v->data, &data, tmp_v->size);
+                else memcpy(tmp_v->data, data, tmp_v->size);
+            }
         }
     }
     if (v2.found == NOT_FOUND) {
@@ -1307,7 +1318,7 @@ int get_data_from_pcap( verify_ctx_t *ctx, enum_operation action, void** result_
             if (tmp_v->type == MMT_STRING_DATA || tmp_v->type == MMT_STRING_LONG_DATA || tmp_v->type == MMT_BINARY_DATA || tmp_v->type == MMT_BINARY_VAR_DATA || tmp_v->type == MMT_DATA_PATH) {
                 /* same clamps as the scalar/tuple paths (F-BUG-091/093, #209) */
                 if (tmp_v->type == MMT_DATA_PATH)
-                    tmp_v->size = clamp_path_count(*(int*) (data), tmp_v->size);
+                    tmp_v->size = clamp_path_count(*(int*) (data), tmp_v->size) * (int)sizeof (int);
                 else
                     tmp_v->size = clamp_prefixed_size(*(int*) (data), tmp_v->size);
                 data = data + sizeof (int);
@@ -1323,7 +1334,10 @@ int get_data_from_pcap( verify_ctx_t *ctx, enum_operation action, void** result_
                 xfree(v2.data);
                 return NOT_VALID;
             }
-            if (data != NULL && tmp_v->size > 0) memcpy(tmp_v->data, data, tmp_v->size);
+            if (data != NULL && tmp_v->size > 0) {
+                if (tmp_v->type == MMT_STRING_DATA_POINTER) memcpy(tmp_v->data, &data, tmp_v->size);
+                else memcpy(tmp_v->data, data, tmp_v->size);
+            }
         }
     }
 

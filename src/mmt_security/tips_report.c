@@ -583,7 +583,13 @@ void store_tuples( verify_ctx_t *ctx, enum_operation_type context, rule *curr_ru
             if (temp_tuple->data == NULL) {
                 return;
             }
-            memcpy(temp_tuple->data, data, temp_tuple->data_size);
+            /* a pointer-typed attribute's datum is the pointer itself —
+             * store the pointer value so references can compare the
+             * pointed-to string (#326) */
+            if (temp_tuple->data_type_id == MMT_STRING_DATA_POINTER)
+                memcpy(temp_tuple->data, &data, temp_tuple->data_size);
+            else
+                memcpy(temp_tuple->data, data, temp_tuple->data_size);
         }
         temp_tuple = temp_tuple->next;
     }
