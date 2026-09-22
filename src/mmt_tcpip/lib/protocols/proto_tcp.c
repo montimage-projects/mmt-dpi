@@ -45,6 +45,11 @@
 /* where owed[d] is the image growth still needed to flatten the       */
 /* direction's pending bytes — so the drain can always absorb what was */
 /* admitted, and image growth is clamped to what the budget leaves.   */
+/* Speculative growth (the x4 step beyond the bytes being flattened)   */
+/* takes at most half of the budget still free, and an offer that the  */
+/* invariant would refuse first trims both images' idle capacity back  */
+/* to their content + pending bytes — so one direction's headroom can  */
+/* never starve the other while content is below the limit.           */
 /* Exhaustion policy: offers that would break the budget are dropped   */
 /* and counted in r->dropped / mmt_tcp_reasm_bytes_dropped(). Duplicate */
 /* sequence numbers are rejected before any storage is carved (the     */
@@ -78,14 +83,40 @@ static uint64_t tcp_reasm_owed(const mmt_tcp_reasm_t *r, int dir) {
     return (want > r->image_cap[dir]) ? want - r->image_cap[dir] : 0;
 }
 
+/* Issue #380 (F-PERF-002): give back image capacity neither direction
+ * needs — anything beyond image_len + pending_len (16-B rounded) — and
+ * credit r->reserved. Called only when an offer would otherwise be
+ * refused, i.e. at packet arrival: attribute readers hold an image pointer
+ * only within the current packet callback, the same contract the growth
+ * realloc in tcp_reasm_image_append() already relies on. A failed shrink
+ * keeps the old buffer and the accounting unchanged. */
+static void tcp_reasm_trim(mmt_tcp_reasm_t *r) {
+    for (int d = 0; d < 2; d++) {
+        uint64_t want = MMT_SEGBLK_ALIGN_UP((uint64_t) r->image_len[d] + r->pending_len[d]);
+        if (want >= r->image_cap[d]) continue;
+        if (want == 0) {
+            free(r->image[d]);
+            r->image[d] = NULL;
+        } else {
+            uint8_t *nb = (uint8_t *) realloc(r->image[d], (size_t) want);
+            if (nb == NULL) continue;
+            r->image[d] = nb;
+        }
+        r->reserved -= r->image_cap[d] - want;
+        r->image_cap[d] = (uint32_t) want;
+    }
+}
+
 /* Append bytes to the direction's image buffer, growing it geometrically
  * (x4 from a 16 KiB floor) but never past the per-flow ceiling. Returns the
  * number of bytes appended; the caller's segment is only released for what
  * was appended or intentionally dropped. Issue #380 (F-PERF-002): growth is
  * also clamped to what the reserved-storage budget leaves once the other
  * reservations and the other direction's owed growth are counted; bytes
- * that do not fit are the caller's to drop. *oom is set (and 0 returned)
- * only when realloc() fails — a budget clamp is never reported as OOM. */
+ * that do not fit are the caller's to drop. The speculative part of a step
+ * (beyond the direction's image + pending bytes) takes at most half of the
+ * budget still free. *oom is set (and 0 returned) only when realloc()
+ * fails — a budget clamp is never reported as OOM. */
 static uint32_t tcp_reasm_image_append(mmt_session_t *session, mmt_tcp_reasm_t *r,
                                        int dir, const uint8_t *data, uint32_t len,
                                        int *oom) {
@@ -104,6 +135,16 @@ static uint32_t tcp_reasm_image_append(mmt_session_t *session, mmt_tcp_reasm_t *
              * and the while loop would never terminate (reviewer lane, run r3). */
             uint64_t ncap = (r->image_cap[dir] != 0) ? r->image_cap[dir] : (16u * 1024u);
             while (ncap < need) ncap *= 4;
+            /* Issue #380 review: size for every pending byte (pending_len
+             * still counts this segment), then let the speculative rest
+             * use at most half of the budget left free. */
+            uint64_t base = (uint64_t) r->image_len[dir] + r->pending_len[dir];
+            if (base < need) base = need;
+            if (base > cap_max) base = cap_max;
+            if (ncap > base) {
+                uint64_t spec = (cap_max - base) / 2;
+                if (ncap - base > spec) ncap = base + spec;
+            }
             if (ncap > cap_max) ncap = cap_max;
             /* cap_max <= limit <= UINT32_MAX — the cast back is safe. */
             uint8_t *nb = (uint8_t *) realloc(r->image[dir], (size_t) ncap);
@@ -221,6 +262,11 @@ static void tcp_reasm_offer(mmt_session_t *session, int dir, uint64_t packet_id,
     uint64_t want = (uint64_t) r->image_len[dir] + r->pending_len[dir] + len;
     uint64_t owed = tcp_reasm_owed(r, !dir)
                   + ((want > r->image_cap[dir]) ? want - r->image_cap[dir] : 0);
+    if (r->reserved + owed + MMT_SEGBLK_HDR + carve > limit) {
+        /* Issue #380 review: reclaim idle image capacity before refusing
+         * (trimming never changes owed: caps stay >= image + pending). */
+        tcp_reasm_trim(r);
+    }
     if (r->reserved + owed > limit) goto drop;
     mmt_segblk_t *blk = NULL;
     uint8_t *p = mmt_segblk_carve(&r->blocks, carve, &blk, &r->reserved,

@@ -515,7 +515,9 @@ MMTAPI bool MMTCALL set_default_session_timed_out(
  * growth still needed to flatten every pending byte fit; otherwise it is
  * dropped and counted by mmt_tcp_reasm_bytes_dropped(). Duplicate sequence
  * numbers are rejected before any storage is allocated (the first segment
- * wins). Lowering the ceiling mid-flow refuses new reservations until usage
+ * wins). Speculative image growth takes at most half of the free budget,
+ * and idle image capacity is reclaimed before a segment is refused, so one
+ * direction cannot starve the other. Lowering the ceiling mid-flow refuses new reservations until usage
  * falls below it; the next flatten keeps what fits and drops (counts) the
  * rest. Transient realloc() copies and the small per-flow state record are
  * metadata outside the budget. Session teardown releases all of it.

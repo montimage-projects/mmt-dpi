@@ -19,6 +19,10 @@
  *   C. Teardown — clean_session_payload() returns every allocation.
  *   D. OOM — a failed first block drops the segment; a failed image
  *      realloc leaves the segment pending; neither leaks.
+ *   E. Fairness (review follow-up) — after one direction's image grows
+ *      past 1 MiB (keep-alive) or stops (idle peer), the other direction
+ *      is still admitted until content nears the budget; a single stream
+ *      filled to the budget reallocates its image a bounded number of times.
  *
  * proto_tcp.c and tcp_segment.c are included directly so the static
  * reassembly helpers run unmodified (tests/parser_boundaries/
@@ -464,6 +468,95 @@ static void test_lowered_limit(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* E — cross-direction fairness (#380 review): one direction's image   */
+/* capacity must not starve the other while content is far below the  */
+/* budget, and growth stays amortized.                                 */
+/* ------------------------------------------------------------------ */
+
+/* Slack for block headers, the recycled head block and 16-B rounding. */
+#define FAIR_MARGIN (256u * 1024u)
+
+static uint64_t g_fair_off[2];
+static uint32_t g_fair_refused, g_fair_growths;
+
+/* Offer the next `len` stream bytes of `dir` and drain it (an extraction
+ * per packet). An offer must be admitted while the flow's content plus
+ * this carve and FAIR_MARGIN still fits the budget. */
+static void fair_step(int dir, uint32_t len) {
+	const mmt_tcp_reasm_t *r = g_session.tcp_reasm;
+	uint32_t carve = MMT_SEGBLK_ALIGN_UP(sizeof(tcp_seg_t)) + MMT_SEGBLK_ALIGN_UP(len);
+	uint64_t live = (r != NULL) ? r->live : 0;
+	uint32_t cap = (r != NULL) ? r->image_cap[dir] : 0;
+	int must = live + carve + FAIR_MARGIN <= BUDGET;
+	uint64_t off = g_fair_off[dir];
+	if (offer(dir, 11 + (uint32_t) off, off, len)) g_fair_off[dir] += len;
+	else if (must && g_fair_refused++ < 5)
+		fprintf(stderr, "  dir %d refused %u B at content %llu B (caps %u/%u, reserved %llu)\n",
+		        dir, len, (unsigned long long) live, g_session.tcp_reasm->image_cap[0],
+		        g_session.tcp_reasm->image_cap[1],
+		        (unsigned long long) g_session.tcp_reasm->reserved);
+	else if (must) g_fair_refused++;
+	drain(dir);
+	if (g_session.tcp_reasm->image_cap[dir] != cap) g_fair_growths++;
+}
+
+static void fair_open(void) {
+	g_fair_off[0] = g_fair_off[1] = 0;
+	g_fair_refused = g_fair_growths = 0;
+	session_open(BUDGET);
+}
+
+static void fair_close(const char *name, int64_t o0) {
+	const mmt_tcp_reasm_t *r = g_session.tcp_reasm;
+	for (int d = 0; d < 2; d++) {
+		uint32_t n = (uint32_t) g_fair_off[d];
+		int ok = r->image_len[d] == g_fair_off[d];
+		for (uint32_t i = 0; ok && i < n; i++) ok = r->image[d][i] == pattern(d, i);
+		CHECK(ok, "%s: dir %d image is not the admitted stream", name, d);
+	}
+	CHECK(g_fair_refused == 0, "%s: %u offers refused below the budget", name, g_fair_refused);
+	printf("  %s: images %u+%u B (caps %u+%u), reserved %llu B, refused %u,"
+	       " image growths %u\n", name, r->image_len[0], r->image_len[1],
+	       r->image_cap[0], r->image_cap[1], (unsigned long long) r->reserved,
+	       g_fair_refused, g_fair_growths);
+	teardown(o0, name);
+}
+
+static void test_fairness(void) {
+	/* Keep-alive: a 40 KB request, a 1.46 MB response, then more requests. */
+	int64_t o0 = tcm_outstanding;
+	fair_open();
+	for (uint32_t i = 0; i < 100; i++) fair_step(0, 400);
+	for (uint32_t i = 0; i < 1000; i++) fair_step(1, 1460);
+	for (uint32_t i = 0; i < 200; i++) fair_step(0, 400);
+	/* ...and both directions keep going until the budget is near. */
+	for (uint32_t i = 0; i < 2000; i++) { fair_step(0, 400); fair_step(1, 1460); }
+	CHECK(g_session.tcp_reasm->image_len[0] + g_session.tcp_reasm->image_len[1]
+	      + FAIR_MARGIN >= BUDGET, "keep-alive: flow stopped at %u+%u B",
+	      g_session.tcp_reasm->image_len[0], g_session.tcp_reasm->image_len[1]);
+	fair_close("keep-alive fairness", o0);
+
+	/* One direction sends 1.08 MB and stops; the other must still reach
+	 * the budget instead of stopping at its own 1 MiB capacity step. */
+	o0 = tcm_outstanding;
+	fair_open();
+	for (uint32_t i = 0; i < 740; i++) fair_step(0, 1460);
+	for (uint32_t i = 0; i < 3000; i++) fair_step(1, 1460);
+	CHECK(g_session.tcp_reasm->image_len[1] + g_session.tcp_reasm->image_len[0]
+	      + FAIR_MARGIN >= BUDGET, "idle-peer: dir 1 stopped at %u B",
+	      g_session.tcp_reasm->image_len[1]);
+	fair_close("idle-peer fairness", o0);
+
+	/* Amortized growth: a single in-order stream filled to the budget
+	 * reallocates its image a logarithmic number of times. */
+	o0 = tcm_outstanding;
+	fair_open();
+	for (uint32_t i = 0; i < 3000; i++) fair_step(0, 1460);
+	CHECK(g_fair_growths <= 24, "single stream: %u image reallocations", g_fair_growths);
+	fair_close("single-stream growth", o0);
+}
+
+/* ------------------------------------------------------------------ */
 /* D — allocation failures                                             */
 /* ------------------------------------------------------------------ */
 
@@ -501,6 +594,7 @@ int main(void) {
 	run_stream("two-direction", 2, 1460, 3000, 32);
 	run_stream("image+pending", 1, 1460, 6000, 1000);
 	test_lowered_limit();
+	test_fairness();
 	test_oom();
 	printf("  checks: %d, failures: %d\n", checks, failures);
 	return failures ? 1 : 0;
