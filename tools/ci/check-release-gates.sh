@@ -100,8 +100,8 @@ if [ "${#SHA}" -ne 40 ]; then
     if [ "${#resolved}" -eq 40 ]; then
         SHA="$resolved"
     else
-        echo "✗ candidate '$SHA' is an abbreviated SHA that does not resolve" >&2
-        echo "  in this clone — pass the full 40-char commit SHA" >&2
+        echo "✗ candidate '$SHA' is not a full 40-char commit SHA and does" >&2
+        echo "  not resolve in this clone — pass the full commit id" >&2
         exit 2
     fi
 fi
