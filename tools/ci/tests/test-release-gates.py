@@ -184,6 +184,22 @@ expect("classification via bare job id also satisfies the group", 0,
        [r if r["name"] != "Golden classification fingerprint unchanged" else
         run("classification-gate") for r in GREEN_RUNS])
 
+# An abbreviated candidate resolves through the local clone: check runs
+# always record the full 40-char head_sha, so a literal compare would
+# condemn every run as wrong-SHA (the gate normalizes via git rev-parse).
+full_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT,
+                           capture_output=True, text=True).stdout.strip()
+short_head = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                            cwd=REPO_ROOT,
+                            capture_output=True, text=True).stdout.strip()
+if len(full_head) == 40 and 0 < len(short_head) < 40:
+    expect("abbreviated candidate SHA resolves via local clone -> eligible",
+           0, [dict(r, head_sha=full_head) for r in GREEN_RUNS],
+           sha=short_head)
+else:
+    check("abbreviated candidate SHA resolves via local clone -> eligible",
+          False, "git HEAD unavailable in this clone")
+
 # --- negatives: same-run prerequisite results ----------------------------------
 expect("same-run build=failure -> not eligible", 1, GREEN_RUNS,
        env={**GREEN_ENV, "NEEDS_RESULT_BUILD": "failure"},

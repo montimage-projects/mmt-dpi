@@ -72,7 +72,7 @@ EVIDENCE_FILE=""
 SKIP_SAME_RUN=0
 SHA=""
 
-usage() { sed -n '39,57p' "$0"; }
+usage() { sed -n '39,63p' "$0"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -90,6 +90,21 @@ case "$SHA" in
     ''|*[!0-9a-fA-F]*) echo "✗ candidate SHA missing or not hex: '$SHA'" >&2
                        exit 2 ;;
 esac
+
+# Abbreviated candidates resolve through the local clone: check runs record
+# the full 40-char head_sha, so comparing an abbreviated candidate literally
+# would condemn every run as wrong-SHA (fail-closed, but misleading). The
+# release-gates job always passes a full SHA (`git rev-parse HEAD^{commit}`).
+if [ "${#SHA}" -ne 40 ]; then
+    resolved="$(git rev-parse --verify --quiet "${SHA}^{commit}" 2>/dev/null || true)"
+    if [ "${#resolved}" -eq 40 ]; then
+        SHA="$resolved"
+    else
+        echo "✗ candidate '$SHA' is an abbreviated SHA that does not resolve" >&2
+        echo "  in this clone — pass the full 40-char commit SHA" >&2
+        exit 2
+    fi
+fi
 
 command -v python3 >/dev/null 2>&1 || { echo "✗ python3 is required" >&2; exit 2; }
 
