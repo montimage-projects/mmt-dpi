@@ -42,6 +42,20 @@ done
 
 CC="${CC:-gcc}"
 CXX="${CXX:-g++}"
+
+# Honor a direct SANITIZE=asan|tsan invocation (the issue's verify command)
+# by composing the same flag set tests/run_all_tests.sh derives; when the
+# suite runs under the master runner, EXTRA_CFLAGS is already set and wins.
+if [ -z "${EXTRA_CFLAGS:-}" ]; then
+    case "${SANITIZE:-}" in
+        asan) EXTRA_CFLAGS="-g -O1 -fno-omit-frame-pointer -fno-common -fsanitize=address,undefined -fno-sanitize-recover=all"
+              export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}" ;;
+        tsan) EXTRA_CFLAGS="-g -O1 -fno-omit-frame-pointer -fno-common -fsanitize=thread -fno-sanitize-recover=all" ;;
+        "") ;;
+        *) echo "✗ invalid SANITIZE value '${SANITIZE}' (expected: asan|tsan)" >&2
+           exit 2 ;;
+    esac
+fi
 read -r -a extra_cflags <<< "${EXTRA_CFLAGS:-}"
 
 INCS=(
