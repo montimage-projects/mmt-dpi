@@ -263,9 +263,12 @@ static void tcp_reasm_offer(mmt_session_t *session, int dir, uint64_t packet_id,
     uint64_t owed = tcp_reasm_owed(r, !dir)
                   + ((want > r->image_cap[dir]) ? want - r->image_cap[dir] : 0);
     if (r->reserved + owed + MMT_SEGBLK_HDR + carve > limit) {
-        /* Issue #380 review: reclaim idle image capacity before refusing
-         * (trimming never changes owed: caps stay >= image + pending). */
+        /* Issue #380 review: reclaim idle image capacity before refusing.
+         * The trim sizes caps to image + pending WITHOUT this segment, so
+         * owed[dir] can grow — recompute it before the re-check. */
         tcp_reasm_trim(r);
+        owed = tcp_reasm_owed(r, !dir)
+             + ((want > r->image_cap[dir]) ? want - r->image_cap[dir] : 0);
     }
     if (r->reserved + owed > limit) goto drop;
     mmt_segblk_t *blk = NULL;

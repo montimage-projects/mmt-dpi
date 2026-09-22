@@ -22,7 +22,9 @@
  *   E. Fairness (review follow-up) — after one direction's image grows
  *      past 1 MiB (keep-alive) or stops (idle peer), the other direction
  *      is still admitted until content nears the budget; a single stream
- *      filled to the budget reallocates its image a bounded number of times.
+ *      filled to the budget reallocates its image a bounded number of times;
+ *      randomized two-direction offers/drains at 64 KiB keep
+ *      reserved + owed[0] + owed[1] <= limit after every offer.
  *
  * proto_tcp.c and tcp_segment.c are included directly so the static
  * reassembly helpers run unmodified (tests/parser_boundaries/
@@ -195,6 +197,21 @@ static int offer(int dir, uint32_t seq, uint64_t off, uint32_t len) {
 	uint64_t d0 = g_dropped;
 	tcp_reasm_offer(&g_session, dir, 1, seq, 0, g_seg_buf, len);
 	check_budget("offer");
+	/* Admission invariant: the drain can always absorb what was admitted. */
+	const mmt_tcp_reasm_t *r = g_session.tcp_reasm;
+	if (r != NULL) {
+		uint64_t tot = r->reserved + tcp_reasm_owed(r, 0) + tcp_reasm_owed(r, 1);
+		checks++;
+		if (tot > g_handler.tcp_reassembly_limit) {
+			failures++;
+			if (g_budget_fail_reports++ < 5)
+				fprintf(stderr, "FAIL admission: reserved %llu + owed %llu/%llu > limit %u\n",
+				        (unsigned long long) r->reserved,
+				        (unsigned long long) tcp_reasm_owed(r, 0),
+				        (unsigned long long) tcp_reasm_owed(r, 1),
+				        g_handler.tcp_reassembly_limit);
+		}
+	}
 	return g_dropped == d0;
 }
 
@@ -556,6 +573,50 @@ static void test_fairness(void) {
 	fair_close("single-stream growth", o0);
 }
 
+/* Randomized two-direction offer/drain at a small limit: trimming at
+ * admission must not let reserved + owed[0] + owed[1] pass the limit, and
+ * every admitted byte must still flatten in order without a gap. */
+static void test_random_small_limit(void) {
+	const uint32_t LIMIT = 64u * 1024u, FLOWS = 300, OFFERS = 120;
+	uint32_t rng = 0x380380u, nadm = 0;
+	uint64_t drain_drops = 0, bytes = 0;
+	int bad = 0;
+	for (uint32_t f = 0; f < FLOWS; f++) {
+		int64_t o0 = tcm_outstanding;
+		uint64_t off[2] = {0, 0};
+		session_open(LIMIT);
+		for (uint32_t i = 0; i < OFFERS; i++) {
+			rng = rng * 1103515245u + 12345u;
+			int dir = (int) ((rng >> 16) & 1u);
+			uint32_t len = 1 + ((rng >> 17) % 1460u);
+			if (offer(dir, 3 + (uint32_t) off[dir], off[dir], len)) { off[dir] += len; nadm++; }
+			if (((rng >> 28) & 3u) == 0) {
+				uint64_t dd = g_dropped;
+				drain(dir);
+				drain_drops += g_dropped - dd;
+			}
+		}
+		for (int d = 0; d < 2; d++) {
+			uint64_t dd = g_dropped;
+			drain(d);
+			drain_drops += g_dropped - dd;
+		}
+		const mmt_tcp_reasm_t *r = g_session.tcp_reasm;
+		for (int d = 0; d < 2; d++) {
+			int ok = r->image_len[d] == off[d];
+			for (uint32_t i = 0; ok && i < r->image_len[d]; i++) ok = r->image[d][i] == pattern(d, i);
+			if (!ok) bad++;
+			bytes += r->image_len[d];
+		}
+		teardown(o0, "random small limit");
+	}
+	CHECK(drain_drops == 0, "random: drain dropped %llu admitted bytes",
+	      (unsigned long long) drain_drops);
+	CHECK(bad == 0, "random: %d images are not the admitted stream", bad);
+	printf("  random 64 KiB: %u flows, %u of %u offers admitted, %llu B flattened\n",
+	       FLOWS, nadm, FLOWS * OFFERS, (unsigned long long) bytes);
+}
+
 /* ------------------------------------------------------------------ */
 /* D — allocation failures                                             */
 /* ------------------------------------------------------------------ */
@@ -595,6 +656,7 @@ int main(void) {
 	run_stream("image+pending", 1, 1460, 6000, 1000);
 	test_lowered_limit();
 	test_fairness();
+	test_random_small_limit();
 	test_oom();
 	printf("  checks: %d, failures: %d\n", checks, failures);
 	return failures ? 1 : 0;
