@@ -71,7 +71,11 @@ def parse_raw(path):
     except OSError as e:
         raise InputError("%s: cannot read: %s" % (path, e))
     with fh:
-        for lineno, line in enumerate(fh, 1):
+        try:
+            lines = list(fh)
+        except UnicodeDecodeError as e:
+            raise InputError("%s: not UTF-8 text: %s" % (path, e))
+        for lineno, line in enumerate(lines, 1):
             line = line.rstrip("\n")
             if not line.strip():
                 continue

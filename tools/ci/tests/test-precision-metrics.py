@@ -64,6 +64,8 @@ def check(name, cond, detail=""):
 
 
 def cls(payload, name):
+    if not payload:
+        return None
     for c in payload["classes"]:
         if c["name"] == name:
             return c
@@ -113,7 +115,8 @@ check("all-abstain: ftp fn=5 fp=0 (abstention is FN, never FP)",
 check("all-abstain: ftp recall=0, precision n/a (0/0 denominator)",
       c and close(c["recall"], 0.0) and c["precision"] is None, c)
 check("all-abstain: confusion records the <abstain> pseudo-column",
-      p["confusion"].get("ftp", {}).get("<abstain>") == 5, p["confusion"])
+      p and p["confusion"].get("ftp", {}).get("<abstain>") == 5,
+      p and p["confusion"])
 
 # --- 4. mixed matrix: exact cross-class TP/FP/FN ------------------------------
 rc, p, err = run_render(
@@ -132,12 +135,13 @@ check("mixed: http tp=9 fp=2 fn=1 support=10",
       and c["support"] == 10, c)
 check("mixed: http precision=9/11 recall=9/10",
       c and close(c["precision"], 9 / 11) and close(c["recall"], 0.9), c)
-o = p["overall"]
+o = p and p["overall"]
 check("mixed: overall tp=17 fp=3 fn=3 total=20",
-      o["tp"] == 17 and o["fp"] == 3 and o["fn"] == 3 and o["total"] == 20, o)
+      o and o["tp"] == 17 and o["fp"] == 3 and o["fn"] == 3
+      and o["total"] == 20, o)
 check("mixed: micro precision=17/20 recall=17/20 accuracy=17/20",
-      close(o["micro_precision"], 0.85) and close(o["micro_recall"], 0.85)
-      and close(o["accuracy"], 0.85), o)
+      o and close(o["micro_precision"], 0.85)
+      and close(o["micro_recall"], 0.85) and close(o["accuracy"], 0.85), o)
 
 # --- 5. multi-class: three-way confusion stays exact --------------------------
 rc, p, err = run_render(
