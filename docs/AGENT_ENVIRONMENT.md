@@ -15,7 +15,7 @@ repository itself; the authoritative sources are:
 | `rules/common.mk` | Compiler flags, `MMT_BASE`, `BUILD=asan`/`tsan`, `ENABLESEC`, debug/valgrind toggles |
 | `rules/common-linux.mk` | Linux link rules, release hardening, `ENABLESEC` engines |
 | `sdk/Makefile` | Build entry point, `install`/`test` targets, default `MMT_BASE` |
-| `tests/run_all_tests.sh` | Master test runner and the 21 standalone suites |
+| `tests/run_all_tests.sh` | Master test runner and the 22 standalone suites |
 
 ## 1. Toolchain Requirements
 
@@ -162,23 +162,25 @@ here for the expected result.
 bash tests/run_all_tests.sh
 ```
 
-Expected result: **21/21 suites pass**, total runtime roughly **60–100 s** on
+Expected result: **22/22 suites pass**, total runtime roughly **60–100 s** on
 a typical development machine (measured: 97 s for the full run); the suites
 compile their own sources, so the
 wall clock is dominated by `gcc`, not by the assertions; `fault_injection`
 also builds+installs the SDK once for its engine leg). Exit code `0` on
-success, `1` on any failure. The runner has no `-j` option: the 21 suites run
+success, `1` on any failure. The runner has no `-j` option: the 22 suites run
 sequentially. The suite list lives in `DEFAULT_SUITES`
-(`tests/run_all_tests.sh:155-177`)
+(`tests/run_all_tests.sh:155-178`)
 (`tests/run_all_tests.sh`):
 `hashmap`, `memory`, `fault_injection`, `core_engine`, `hexdump`, `mmt_utils`,
 `mmt_inet_ntop`,
 `avltree`, `citrix_ica_detection`, `http_header_case`, `s1ap_ngap_decode`,
 `rule_engine`, `radius_hardening`, `nas_ies_tail`, `installer`,
 `dicom_dissector`, `ndn_dissector`, `business_app`, `proto_classifiers`,
-`dpi_profiles`, `fuzz_verdicts`. The last entry is the shell self-test for
-the CI fuzz gate's verdict handling (`tools/ci/tests/test-fuzz-verdicts.sh`,
-issue #370) — it builds nothing.
+`dpi_profiles`, `fuzz_verdicts`, `precision_metrics`. The last two entries are
+delegate suites for CI self-tests living under `tools/ci/tests/` — the fuzz
+gate's verdict handling (`test-fuzz-verdicts.sh`, issue #370) and the
+precision-gate metric accounting (`test-precision-metrics.py`, issue #373);
+both build nothing.
 
 Key property for agents: these suites are **standalone** — no prior build, no
 install, no `sudo` needed. Most suites' `run_tests.sh` compiles the test
@@ -388,7 +390,7 @@ Run this after setting up a fresh environment; all four commands must succeed:
 
 ```bash
 make -C sdk -j$(nproc)          # exit 0, green build (seconds to ~2 min depending on machine)
-bash tests/run_all_tests.sh     # 21/21 suites PASSED, exit 0 (60–100 s)
+bash tests/run_all_tests.sh     # 22/22 suites PASSED, exit 0 (60–100 s)
 make -C sdk ENABLESEC=1 -j$(nproc)   # exit 0 (optional engines build)
 make -C sdk clean && make -C sdk BUILD=asan -j$(nproc)   # exit 0 (sanitizer profile)
 ```
