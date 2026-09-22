@@ -31,8 +31,8 @@
 # #370, F-TEST-001). Ordinary refusals (rc 1/2 — libpcap or libxml2 cleanly
 # rejecting the mutant) carry no sanitizer banner, are not findings and are
 # counted separately so a refusal never reads as a crash. An exit code of
-# 126/127 means the driver itself could not be executed — harness breakage,
-# never a finding. On a finding the
+# 125/126/127 means the driver (or timeout itself) could not be executed —
+# harness breakage, never a finding. On a finding the
 # reproducer file and the driver's stderr are copied into the artifacts
 # directory and the run continues so one CI failure can carry several
 # distinct reproducers (capped); the script exits 1 at the end when any
@@ -253,10 +253,10 @@ while [ "$(date +%s)" -lt "${deadline}" ] && [ "${findings}" -lt "${MAX_FINDINGS
     run_driver "${bin}" "${mutant}" "${log}" && rc=0 || rc=$?
     runs=$((runs + 1))
 
-    # The driver failing to execute at all (timeout reports 126/127 when the
-    # command cannot be run) is the harness breaking, never a finding on
-    # hostile input — a missing binary must not masquerade as a crash.
-    if [ "${rc}" -eq 126 ] || [ "${rc}" -eq 127 ]; then
+    # The driver failing to execute at all — or timeout itself failing —
+    # (timeout reports 125/126/127) is the harness breaking, never a finding
+    # on hostile input: a missing binary must not masquerade as a crash.
+    if [ "${rc}" -eq 125 ] || [ "${rc}" -eq 126 ] || [ "${rc}" -eq 127 ]; then
         echo "✗ fuzz driver could not be executed: ${bin} (rc=${rc})" >&2
         cat "${log}" >&2 || true
         exit 2
@@ -266,15 +266,18 @@ while [ "$(date +%s)" -lt "${deadline}" ] && [ "${findings}" -lt "${MAX_FINDINGS
     # timeout/hang, >= 128 = signal/crash). Below that band the run is
     # normally an expected parser refusal — except when the log carries a
     # sanitizer banner, which is a real memory/UB finding the exit code
-    # alone would have passed (issue #370, F-TEST-001).
+    # alone would have passed (issue #370, F-TEST-001). rc 0 is a tested-
+    # clean run, counted via `runs`, never a refusal.
     if [ "${rc}" -ge 124 ]; then
         if [ "${rc}" -eq 124 ]; then kind="hang/timeout"; else kind="signal/crash"; fi
     elif grep -qE "${SANITIZER_MARKERS}" "${log}"; then
         kind="sanitizer-error"
-    else
+    elif [ "${rc}" -gt 0 ]; then
         # Expected parser refusal — counted so it stays separately
         # identifiable from both a tested-clean run and a finding.
         refusals=$((refusals + 1))
+        continue
+    else
         continue
     fi
 

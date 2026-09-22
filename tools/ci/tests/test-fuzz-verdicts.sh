@@ -22,7 +22,7 @@
 #   ASan report at rc 1                   -> 1 (sanitizer finding)
 #   timeout (rc 124)                      -> 1 (finding: hang/timeout)
 #   killed child (rc >= 128)              -> 1 (finding: signal/crash)
-#   driver not executable/missing (127)   -> 2 (harness breakage)
+#   driver not executable/missing (125-127) -> 2 (harness breakage)
 #   infrastructure failure (mutate dies)  -> 2 (harness breakage)
 #
 # Usage: bash tools/ci/tests/test-fuzz-verdicts.sh
@@ -180,11 +180,12 @@ echo ""
 set_control 0
 expect_rc "exit 0 (clean run) -> gate PASS" 0
 expect_grep "PASS banner" "fuzz gate PASS"
+expect_grep "clean run is not a refusal" "0 parser refusal"
 
 # --- expected parser rejection: rc 1, refusal text, no sanitizer banner ------
 set_control 1 'pcap_open: truncated dump file; tried to read 4-byte header'
 expect_rc "exit 1 parser rejection -> gate PASS (benign refusal)" 0
-expect_grep "refusal separately identifiable" "parser refusal"
+expect_grep "refusal separately identifiable" "[1-9] parser refusal"
 
 # --- UBSan report at rc 1: the F-TEST-001 reproducer --------------------------
 set_control 1 'src/mmt_core/x.c:12:7: runtime error: signed integer overflow
@@ -195,6 +196,11 @@ expect_grep "classified sanitizer-error" "sanitizer-error"
 # --- ASan report at rc 1 ------------------------------------------------------
 set_control 1 '==4242==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000010'
 expect_rc "ASan report at exit 1 -> gate FAIL" 1
+expect_grep "classified sanitizer-error" "sanitizer-error"
+
+# --- sanitizer banner even at rc 0 (halt_on_error=0 style) --------------------
+set_control 0 '==4242==ERROR: AddressSanitizer: heap-use-after-free on address 0x604000000020'
+expect_rc "ASan report at exit 0 -> gate FAIL" 1
 expect_grep "classified sanitizer-error" "sanitizer-error"
 
 # --- timeout: driver burned the per-input budget ------------------------------
