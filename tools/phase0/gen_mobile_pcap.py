@@ -443,7 +443,8 @@ def gen_sctp_pcap(path):
 # MACs are locally administered and every identity is a 3GPP test value
 # (PLMN 001/01, IMSI/SUCI MSIN 0123456789), so no real subscriber appears.
 # Unlike the harness captures above, the SCTP checksum is a real CRC32c
-# (RFC 9260 Appendix A) so the frames are wire-valid for an external dissector.
+# (RFC 9260 Appendix A); the IPv4 header checksum is left 0, as in every
+# other phase0 capture (the SDK does not verify it).
 # Regenerate with:
 #   tools/phase0/gen_mobile_pcap.py --out-dir tools/phase0/ci/accuracy --accuracy
 #
@@ -672,6 +673,13 @@ def gen_acc_malformed_s1ap_pcap(path):
                40420, PORT_S1AP)
 
 
+def gen_acc_malformed_ngap_ppid60_pcap(path):
+    """PPID 60 carrying only the first 2 bytes of an NGAP PDU."""
+    _acc_write(path, "truncated NGAP on PPID 60",
+               [("ran", ACC_NGAP_UE_CONTEXT_RELEASE_COMPLETE[:2], PPID_NGAP)],
+               40421, PORT_NGAP)
+
+
 ACC_GENS = {
     "acc_s1ap_positive": gen_acc_s1ap_positive_pcap,
     "acc_s1ap_ambiguous": gen_acc_s1ap_ambiguous_pcap,
@@ -682,6 +690,7 @@ ACC_GENS = {
     "acc_nas_eps_ambiguous": gen_acc_nas_eps_ambiguous_pcap,
     "acc_malformed_ngap": gen_acc_malformed_ngap_pcap,
     "acc_malformed_s1ap": gen_acc_malformed_s1ap_pcap,
+    "acc_malformed_ngap_ppid60": gen_acc_malformed_ngap_ppid60_pcap,
 }
 
 

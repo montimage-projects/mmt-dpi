@@ -145,8 +145,9 @@ What each gate asserts:
   reviewed expectation. The `unknown` family is the abstention family: its
   cases (opaque TCP/UDP, malformed S1AP/NGAP) state explicitly how many packets
   get no application verdict and which are still attributed —
-  `acc_malformed_s1ap` records a known false accept (S1AP is trusted on SCTP
-  PPID 18 alone), so fixing it means updating that expectation. Its report
+  `acc_malformed_s1ap` and `acc_malformed_ngap_ppid60` record known false
+  accepts (S1AP and NGAP are trusted on SCTP PPID 18 / 60 alone), so fixing
+  them means updating those expectations. Its report
   gives per-family support, wire-protocol hits, abstentions and false accepts,
   an unknown/malformed abstention table, and lists heuristic application
   attribution (e.g. `ssl.google` derived from a TLS SNI) **separately** —

@@ -75,6 +75,7 @@ GOOD_FP = {
     "acc_nas_eps_ambiguous.pcap": "1\tmeta.ethernet.ip.sctp.sctp_data.s1ap\n",
     "acc_malformed_ngap.pcap": "2\tmeta.ethernet.ip.sctp.sctp_data\n",
     "acc_malformed_s1ap.pcap": "1\tmeta.ethernet.ip.sctp.sctp_data.s1ap\n",
+    "acc_malformed_ngap_ppid60.pcap": "1\tmeta.ethernet.ip.sctp.sctp_data.ngap\n",
     "acc_unknown_udp.pcap": "2\tmeta.ethernet.ip.udp.unknown\n",
     "acc_unknown_tcp.pcap": "5\tmeta.ethernet.ip.tcp.unknown\n",
 }
@@ -256,6 +257,17 @@ with Scratch() as s:
     rc, out = s.offline()
     check("unknown family that is not the abstention family fails",
           rc == 1 and "abstention family" in out, out)
+
+with Scratch() as s:
+    man = s.manifest()
+    man["families"]["s1ap"] = {"wire_labels": [], "abstention": True}
+    for c in man["cases"]:
+        if c["family"] == "s1ap":
+            c["case"] = "unknown"
+    s.save(man)
+    rc, out = s.offline()
+    check("required protocol family turned abstention family fails",
+          rc == 1 and "cannot be an abstention family" in out, out)
 
 with Scratch() as s:
     s.write_fp("acc_unknown_udp.pcap", "2\tmeta.ethernet.ip.udp.dns\n")

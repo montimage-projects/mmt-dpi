@@ -614,6 +614,38 @@
       }
     },
     {
+      "pcap": "acc_malformed_ngap_ppid60.pcap",
+      "family": "unknown",
+      "case": "unknown",
+      "description": "SCTP PPID 60 carrying only the first 2 bytes of an NGAP PDU.",
+      "sha256": "b5f2200fa05bc255bb40eea6838d16dda22f62a2fff5207fc153c24a2ccf06ca",
+      "expected": {
+        "packets": 1,
+        "wire": 0,
+        "abstain": 0,
+        "other": {
+          "ngap": 1
+        },
+        "attribution": {}
+      },
+      "provenance": {
+        "origin": "synthetic",
+        "generator": {
+          "script": "tools/phase0/gen_mobile_pcap.py",
+          "pcap": "acc_malformed_ngap_ppid60"
+        },
+        "redistribution": "Synthetic: every byte is produced by the generator from constants in the source tree (RFC 5737 documentation addresses, locally administered MACs, 3GPP test PLMN 001/01 and test IMSI/SUCI MSIN 0123456789); no captured traffic, no third-party data, no real subscriber. Redistributable under the repository licence."
+      },
+      "review": {
+        "reviewed_in": "issue #390",
+        "date": "2026-09-23",
+        "checks": [
+          "2-byte payload cannot hold an NGAP-PDU (the SDK's own NGAP decoder rejects it)",
+          "expected handling is NOT abstention: proto_ngap.c labels any PPID 60 payload ngap without decoding it (only the PPID 0 fallback decodes); recorded as a known false accept, not endorsed -- a classifier fix must update this expectation in a reviewed change"
+        ]
+      }
+    },
+    {
       "pcap": "acc_unknown_udp.pcap",
       "family": "unknown",
       "case": "unknown",

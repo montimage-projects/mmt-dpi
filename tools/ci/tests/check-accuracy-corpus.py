@@ -154,6 +154,10 @@ def load_manifest(corpus_dir):
         elif not labels or not all(isinstance(x, str) and x for x in labels):
             raise CorpusError("family %s: wire_labels must be non-empty names"
                               % fam)
+    for fam in REQUIRED_FAMILIES:
+        if fam != "unknown" and families[fam].get("abstention"):
+            raise CorpusError("family %s: a required protocol family cannot "
+                              "be an abstention family" % fam)
     cases = _need(man, "cases", list, "manifest")
     if not cases:
         raise CorpusError("manifest: no cases listed")
@@ -424,12 +428,22 @@ def summarize(man, results):
     fams = {}
     attribution = []
     for c, obs in results:
+        other = sum(obs["other"].values())
+        if c["case"] == "unknown":
+            # abstention family: its own keys, never negative-case ones
+            f = fams.setdefault(c["family"], {
+                "unknown_cases": 0, "packets": 0, "abstain": 0,
+                "accepted": 0})
+            f["unknown_cases"] += 1
+            f["packets"] += obs["packets"]
+            f["abstain"] += obs["abstain"]
+            f["accepted"] += other
+            continue
         f = fams.setdefault(c["family"], {
             "positive_cases": 0, "support": 0, "wire": 0, "abstain": 0,
             "misattributed": 0, "negative_cases": 0, "ambiguous_cases": 0,
             "neg_packets": 0, "false_accept": 0, "neg_abstain": 0,
-            "neg_other": 0, "unknown_cases": 0})
-        other = sum(obs["other"].values())
+            "neg_other": 0})
         if c["case"] == "positive":
             f["positive_cases"] += 1
             f["support"] += obs["packets"]
@@ -449,7 +463,7 @@ def summarize(man, results):
 
 
 def _is_unknown(f):
-    return f["unknown_cases"] > 0
+    return "unknown_cases" in f
 
 
 def render(results, fams, attribution):
@@ -480,13 +494,13 @@ def render(results, fams, attribution):
                       f["neg_other"]))
     out += ["", "# unknown / malformed inputs -- explicit abstention "
             "expectations (accepted = still given an application verdict)",
-            "%-24s %-7s %-7s %s" % ("capture", "packets", "abstain",
+            "%-30s %-7s %-7s %s" % ("capture", "packets", "abstain",
                                     "accepted")]
     for c, obs in results:
         if c["case"] == "unknown":
             accepted = ",".join("%s:%d" % (k, obs["other"][k])
                                 for k in sorted(obs["other"])) or "-"
-            out.append("%-24s %-7d %-7d %s" % (c["pcap"], obs["packets"],
+            out.append("%-30s %-7d %-7d %s" % (c["pcap"], obs["packets"],
                                                obs["abstain"], accepted))
     out += ["", "# heuristic application attribution (beneath the wire label;"
             " not wire-protocol accuracy)"]
