@@ -162,14 +162,19 @@ def _osv_query(package, ecosystem, version):
 
 
 _OSV_CACHE = {}
+# Alias lookups that failed for a reason other than "no such record": their
+# ratings are missing, so the severity may be understated (fail closed).
+ALIAS_FAILURES = []
 
 
 def osv_vuln(vid):
     if vid not in _OSV_CACHE:
         try:
             _OSV_CACHE[vid] = http("GET", f"{OSV_API}/v1/vulns/{urllib.parse.quote(vid)}")[1]
-        except ScannerError:
+        except ScannerError as exc:
             _OSV_CACHE[vid] = None
+            if not (isinstance(exc.__cause__, urllib.error.HTTPError) and exc.__cause__.code == 404):
+                ALIAS_FAILURES.append(f"OSV alias lookup did not run: {exc}")
     return _OSV_CACHE[vid]
 
 
@@ -661,6 +666,8 @@ def measure(only):
             rep["scanners"].append({"surface": "native", "scanner": f"OSV {OSV_API}/v1/query ({eco})",
                                     "database_date": date, "queried": now_utc()})
 
+    for msg in ALIAS_FAILURES:
+        fail("severity", msg)
     rep["finished"] = now_utc()
     blocking = [a for a in rep["advisories"] if a["severity"] in BLOCKING]
     unrated = [a for a in rep["advisories"] if a["severity"] is None]
@@ -783,6 +790,14 @@ def self_test():
           [("actions/checkout", "7.0.1"), ("github/codeql-action", "4.38.0"), ("some/action", None)])
     check("distro map", distro_of("debian:12@sha256:ab") == ("Debian:12", "deb")
           and distro_of("quay.io/centos/centos:stream9@sha256:cd") == (None, "rpm"))
+    # Fail closed: an alias whose ratings could not be fetched is a failure,
+    # not a silently weaker severity.
+    saved_api, globals()["OSV_API"] = OSV_API, "http://127.0.0.1:9"
+    resolve_osv_rating({"id": "UBUNTU-CVE-0000-0", "upstream": ["CVE-0000-0"]})
+    globals()["OSV_API"] = saved_api
+    check("alias lookup fails closed", len(ALIAS_FAILURES) == 1)
+    ALIAS_FAILURES.clear()
+    _OSV_CACHE.clear()
     # Fail closed: an unreachable scanner must yield exit 2, never a PASS.
     env = dict(os.environ, OSV_API="http://127.0.0.1:9", GHSA_API="http://127.0.0.1:9",
                OSV_DB_URL="http://127.0.0.1:9")
@@ -825,5 +840,9 @@ def main():
     return rep["exit"]
 
 
-sys.exit(main())
+try:
+    sys.exit(main())
+except Exception as exc:  # an unexpected crash is incomplete, never exit 1 (confirmed)
+    print(f"✗ assessment aborted: {exc!r}", file=sys.stderr)
+    sys.exit(2)
 PYEOF
