@@ -51,8 +51,7 @@ bash tools/ci/check-site-links.sh docs
 
 (
   cd docs
-  bundle check >/dev/null 2>&1 || bundle install
-  bundle exec jekyll build
+  { bundle check >/dev/null 2>&1 || bundle install; } && bundle exec jekyll build
 ) || exit 1
 
 git diff --exit-code -- docs/Gemfile.lock || {
