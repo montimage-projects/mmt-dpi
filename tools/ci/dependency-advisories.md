@@ -1,7 +1,7 @@
 # Dependency advisory status
 
-- Commit: `8034bf818e654435097dc61969f5b95eef997321`
-- Measured: 2026-09-23T03:40:57Z → 2026-09-23T03:42:11Z (UTC)
+- Commit: `69e4b707416780a191ed3e91ac84d8176e8e8992`
+- Measured: 2026-09-23T03:42:44Z → 2026-09-23T03:43:55Z (UTC)
 - Command: `bash tools/ci/check-dependency-advisories.sh`
 - **Verdict: FAIL — confirmed unresolved High/Critical advisory (blocks M1); assessment also incomplete** (exit 1)
 
@@ -9,13 +9,13 @@
 
 | Surface | Scanner | Database date | Queried (UTC) |
 |---|---|---|---|
-| gems | OSV https://api.osv.dev/v1/query (RubyGems) | Tue, 22 Sep 2026 23:48:33 GMT | 2026-09-23T03:41:07Z |
-| gems | GitHub Advisory Database https://api.github.com/advisories (rubygems, reviewed) | live (HTTP Date Wed, 23 Sep 2026 03:41:18 GMT) | 2026-09-23T03:41:18Z |
-| actions | GitHub Advisory Database https://api.github.com/advisories (actions, reviewed) | live (HTTP Date Wed, 23 Sep 2026 03:41:22 GMT) | 2026-09-23T03:41:22Z |
-| native | OSV https://api.osv.dev/v1/query (Debian:12) | Wed, 23 Sep 2026 01:04:40 GMT | 2026-09-23T03:42:11Z |
-| native | OSV https://api.osv.dev/v1/query (Rocky Linux:9) | Tue, 22 Sep 2026 18:49:00 GMT | 2026-09-23T03:42:11Z |
-| native | OSV https://api.osv.dev/v1/query (Ubuntu:22.04:LTS) | Wed, 23 Sep 2026 02:25:09 GMT | 2026-09-23T03:42:11Z |
-| native | OSV https://api.osv.dev/v1/query (Ubuntu:24.04:LTS) | Wed, 23 Sep 2026 02:25:09 GMT | 2026-09-23T03:42:11Z |
+| gems | OSV https://api.osv.dev/v1/query (RubyGems) | Tue, 22 Sep 2026 23:48:33 GMT | 2026-09-23T03:42:54Z |
+| gems | GitHub Advisory Database https://api.github.com/advisories (rubygems, reviewed) | live (HTTP Date Wed, 23 Sep 2026 03:43:05 GMT) | 2026-09-23T03:43:05Z |
+| actions | GitHub Advisory Database https://api.github.com/advisories (actions, reviewed) | live (HTTP Date Wed, 23 Sep 2026 03:43:09 GMT) | 2026-09-23T03:43:09Z |
+| native | OSV https://api.osv.dev/v1/query (Debian:12) | Wed, 23 Sep 2026 01:04:40 GMT | 2026-09-23T03:43:55Z |
+| native | OSV https://api.osv.dev/v1/query (Rocky Linux:9) | Tue, 22 Sep 2026 18:49:00 GMT | 2026-09-23T03:43:55Z |
+| native | OSV https://api.osv.dev/v1/query (Ubuntu:22.04:LTS) | Wed, 23 Sep 2026 02:25:09 GMT | 2026-09-23T03:43:55Z |
+| native | OSV https://api.osv.dev/v1/query (Ubuntu:24.04:LTS) | Wed, 23 Sep 2026 02:25:09 GMT | 2026-09-23T03:43:55Z |
 
 ## Not Assessed
 
@@ -40,7 +40,7 @@ Severity is the highest of every available rating (advisory label, distro priori
 | HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-5435 | CVE-2026-5435 | HIGH (CVSS 7.3) | unfixed | — |
 | HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-5928 | CVE-2026-5928 | HIGH (CVSS 7.5); HIGH (CVSS 7.5 via CVE-2026-5928) | unfixed | — |
 | HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-11979 | CVE-2026-11979 | HIGH (CVSS 7.8) | unfixed | — |
-| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-74860 | CVE-2026-74860 | HIGH (CVSS 8.6) | unfixed | — |
+| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-74860 | CVE-2026-74860 | HIGH (CVSS 8.5) | unfixed | — |
 | HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86138 | CVE-2026-86138 | HIGH (CVSS 7.8); MEDIUM (CVSS 6.9 via CVE-2026-86138) | unfixed | — |
 | HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86139 | CVE-2026-86139 | HIGH (CVSS 7.8); MEDIUM (CVSS 6.9 via CVE-2026-86139) | unfixed | — |
 | HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86140 | CVE-2026-86140 | HIGH (CVSS 7.8); HIGH (CVSS 8.0 via CVE-2026-86140) | unfixed | — |
