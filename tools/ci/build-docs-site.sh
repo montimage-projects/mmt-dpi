@@ -13,7 +13,8 @@
 # Steps, in order:
 #   1. source-tree link check        (tools/ci/check-site-links.sh docs)
 #   2. frozen install + build        (BUNDLE_FROZEN=true, JEKYLL_ENV=production,
-#                                     bundle exec jekyll build in docs/)
+#                                     bundle exec jekyll build in docs/, with
+#                                     site.github.build_revision = HEAD)
 #   3. lock unchanged                (git diff --exit-code docs/Gemfile.lock)
 #   4. built-site link check         (tools/ci/check-site-links.sh docs/_site)
 #   5. renderer guard + manifest     (docs/_site/build-manifest.json)
@@ -49,9 +50,20 @@ export JEKYLL_ENV=production
 
 bash tools/ci/check-site-links.sh docs
 
+commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+
+# site.github.build_revision was injected by the github-pages metadata plugin;
+# the cayman layout appends it to the stylesheet URL as a cache-buster, so
+# supply the source commit through an overlay config (deep-merged into the
+# github: block of _config.yml).
+overlay="$(mktemp --suffix=.yml)"  # Jekyll only reads .yml/.toml configs
+trap 'rm -f -- "$overlay"' EXIT
+printf 'github:\n  build_revision: "%s"\n' "$commit" > "$overlay"
+
 (
   cd docs
-  { bundle check >/dev/null 2>&1 || bundle install; } && bundle exec jekyll build
+  { bundle check >/dev/null 2>&1 || bundle install; } &&
+    bundle exec jekyll build --config "_config.yml,$overlay"
 ) || exit 1
 
 git diff --exit-code -- docs/Gemfile.lock || {
@@ -60,8 +72,6 @@ git diff --exit-code -- docs/Gemfile.lock || {
 }
 
 bash tools/ci/check-site-links.sh docs/_site
-
-commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 
 (
   cd docs
