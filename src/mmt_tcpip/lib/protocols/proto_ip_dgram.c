@@ -441,8 +441,9 @@ int ip_dgram_update_holes( ip_dgram_t *dg, const uint8_t *x, unsigned off, unsig
 
 /* Issue #201 (F-BUG-020): shared ip_streams fragment-map maintenance.
  *
- * The map holds both ip_dgram_t and ipv6_dgram_t values; both structs share
- * the same leading {ip_version, last_activity, x, len} layout, so the walkers
+ * The maps (ip_streams, ip6_streams) hold ip_dgram_t / ipv6_dgram_t values;
+ * both structs share the same leading {ip_version, last_activity, lru, x, len}
+ * layout, so the walkers
  * below can read the metadata and pick the right deallocator through an
  * ip_dgram_t view. Removal inside hashmap_walk() is safe: the walk caches the
  * successor before invoking the callback (hashmap.c). */
