@@ -74,7 +74,7 @@ harvest() {
             *) usage ;;
         esac
     done
-    [ -n "$gcda_root" ] && [ -n "$gcno_root" ] && [ -n "$repo_root" ] && [ -n "$out" ] || usage
+    if [ -z "$gcda_root" ] || [ -z "$gcno_root" ] || [ -z "$repo_root" ] || [ -z "$out" ]; then usage; fi
     need gcov jq
     local d
     for d in "$gcda_root" "$gcno_root" "$repo_root"; do
@@ -217,7 +217,7 @@ report() {
             *) usage ;;
         esac
     done
-    [ -n "$unit_tsv" ] && [ -n "$harvest_dir" ] && [ -n "$repo_root" ] && [ -n "$summary" ] || usage
+    if [ -z "$unit_tsv" ] || [ -z "$harvest_dir" ] || [ -z "$repo_root" ] || [ -z "$summary" ]; then usage; fi
     need jq
     [ -f "$unit_tsv" ] || { echo "✗ sdk-coverage.sh: missing unit TSV $unit_tsv" >&2; exit 2; }
     [ -d "$harvest_dir" ] || { echo "✗ sdk-coverage.sh: missing harvest dir $harvest_dir" >&2; exit 2; }
