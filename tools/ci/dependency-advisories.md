@@ -1,7 +1,7 @@
 # Dependency advisory status
 
-- Commit: `4d1b5d6bc40e27ccb81d73d4ba4dd1520a27bd28`
-- Measured: 2026-09-23T03:15:37Z → 2026-09-23T03:16:28Z (UTC)
+- Commit: `ccc9b0e026f9bc6c835e24ff539cef5ff8f23144`
+- Measured: 2026-09-23T03:20:27Z → 2026-09-23T03:21:39Z (UTC)
 - Command: `bash tools/ci/check-dependency-advisories.sh`
 - **Verdict: FAIL — confirmed unresolved High/Critical advisory (blocks M1); assessment also incomplete** (exit 1)
 
@@ -9,13 +9,13 @@
 
 | Surface | Scanner | Database date | Queried (UTC) |
 |---|---|---|---|
-| gems | OSV https://api.osv.dev/v1/query (RubyGems) | Tue, 22 Sep 2026 23:48:33 GMT | 2026-09-23T03:15:46Z |
-| gems | GitHub Advisory Database https://api.github.com/advisories (rubygems) | live (HTTP Date Wed, 23 Sep 2026 03:15:46 GMT) | 2026-09-23T03:15:46Z |
-| actions | GitHub Advisory Database https://api.github.com/advisories (actions) | live (HTTP Date Wed, 23 Sep 2026 03:15:47 GMT) | 2026-09-23T03:15:47Z |
-| native | OSV https://api.osv.dev/v1/query (Debian:12) | Wed, 23 Sep 2026 01:04:40 GMT | 2026-09-23T03:16:28Z |
-| native | OSV https://api.osv.dev/v1/query (Rocky Linux:9) | Tue, 22 Sep 2026 18:49:00 GMT | 2026-09-23T03:16:28Z |
-| native | OSV https://api.osv.dev/v1/query (Ubuntu:22.04:LTS) | Wed, 23 Sep 2026 02:25:09 GMT | 2026-09-23T03:16:28Z |
-| native | OSV https://api.osv.dev/v1/query (Ubuntu:24.04:LTS) | Wed, 23 Sep 2026 02:25:09 GMT | 2026-09-23T03:16:28Z |
+| gems | OSV https://api.osv.dev/v1/query (RubyGems) | Tue, 22 Sep 2026 23:48:33 GMT | 2026-09-23T03:20:36Z |
+| gems | GitHub Advisory Database https://api.github.com/advisories (rubygems, reviewed) | live (HTTP Date Wed, 23 Sep 2026 03:20:48 GMT) | 2026-09-23T03:20:48Z |
+| actions | GitHub Advisory Database https://api.github.com/advisories (actions, reviewed) | live (HTTP Date Wed, 23 Sep 2026 03:20:52 GMT) | 2026-09-23T03:20:52Z |
+| native | OSV https://api.osv.dev/v1/query (Debian:12) | Wed, 23 Sep 2026 01:04:40 GMT | 2026-09-23T03:21:39Z |
+| native | OSV https://api.osv.dev/v1/query (Rocky Linux:9) | Tue, 22 Sep 2026 18:49:00 GMT | 2026-09-23T03:21:39Z |
+| native | OSV https://api.osv.dev/v1/query (Ubuntu:22.04:LTS) | Wed, 23 Sep 2026 02:25:09 GMT | 2026-09-23T03:21:39Z |
+| native | OSV https://api.osv.dev/v1/query (Ubuntu:24.04:LTS) | Wed, 23 Sep 2026 02:25:09 GMT | 2026-09-23T03:21:39Z |
 
 ## Not Assessed
 
@@ -30,90 +30,90 @@ Severity is the highest of every available rating (advisory label, distro priori
 | NOT ASSESSED | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2010-4756 | CVE-2010-4756 | none | unfixed | — |
 | NOT ASSESSED | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-6368 | CVE-2026-6368 | none | unfixed | — |
 | NOT ASSESSED | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-6791 | CVE-2026-6791 | none | unfixed | — |
-| CRITICAL | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-1010022 | CVE-2019-1010022 | CRITICAL (CVSS 9.8) | unfixed | — |
-| CRITICAL | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-5450 | CVE-2026-5450 | CRITICAL (CVSS 9.8) | unfixed | — |
+| CRITICAL | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-1010022 | CVE-2019-1010022 | CRITICAL (CVSS 9.8); CRITICAL (CVSS 9.8 via CVE-2019-1010022) | unfixed | — |
+| CRITICAL | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-5450 | CVE-2026-5450 | CRITICAL (CVSS 9.8); CRITICAL (CVSS 9.8 via CVE-2026-5450) | unfixed | — |
 | CRITICAL | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-6653 | CVE-2026-6653 | CRITICAL (CVSS 9.8) | unfixed | — |
-| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2018-20796 | CVE-2018-20796 | HIGH (CVSS 7.5) | unfixed | — |
-| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-1010023 | CVE-2019-1010023 | HIGH (CVSS 8.8) | unfixed | — |
-| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-9192 | CVE-2019-9192 | HIGH (CVSS 7.5) | unfixed | — |
-| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-19499 | CVE-2026-19499 | HIGH (CVSS 7.7) | unfixed | — |
+| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2018-20796 | CVE-2018-20796 | HIGH (CVSS 7.5); HIGH (CVSS 7.5 via CVE-2018-20796) | unfixed | — |
+| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-1010023 | CVE-2019-1010023 | HIGH (CVSS 8.8); HIGH (CVSS 8.8 via CVE-2019-1010023) | unfixed | — |
+| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-9192 | CVE-2019-9192 | HIGH (CVSS 7.5); HIGH (CVSS 7.5 via CVE-2019-9192) | unfixed | — |
+| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-19499 | CVE-2026-19499 | HIGH (CVSS 7.7); HIGH (CVSS 7.7 via CVE-2026-19499) | unfixed | — |
 | HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-5435 | CVE-2026-5435 | HIGH (CVSS 7.3) | unfixed | — |
-| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-5928 | CVE-2026-5928 | HIGH (CVSS 7.5) | unfixed | — |
+| HIGH | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-5928 | CVE-2026-5928 | HIGH (CVSS 7.5); HIGH (CVSS 7.5 via CVE-2026-5928) | unfixed | — |
 | HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-11979 | CVE-2026-11979 | HIGH (CVSS 7.8) | unfixed | — |
 | HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-74860 | CVE-2026-74860 | HIGH (CVSS 8.5) | unfixed | — |
-| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86138 | CVE-2026-86138 | HIGH (CVSS 7.8) | unfixed | — |
-| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86139 | CVE-2026-86139 | HIGH (CVSS 7.8) | unfixed | — |
-| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86140 | CVE-2026-86140 | HIGH (CVSS 7.8) | unfixed | — |
-| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86142 | CVE-2026-86142 | HIGH (CVSS 7.8) | unfixed | — |
-| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86143 | CVE-2026-86143 | HIGH (CVSS 7.3) | unfixed | — |
-| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86144 | CVE-2026-86144 | HIGH (CVSS 7.8) | unfixed | — |
+| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86138 | CVE-2026-86138 | HIGH (CVSS 7.8); MEDIUM (CVSS 6.9 via CVE-2026-86138) | unfixed | — |
+| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86139 | CVE-2026-86139 | HIGH (CVSS 7.8); MEDIUM (CVSS 6.9 via CVE-2026-86139) | unfixed | — |
+| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86140 | CVE-2026-86140 | HIGH (CVSS 7.8); HIGH (CVSS 8.0 via CVE-2026-86140) | unfixed | — |
+| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86142 | CVE-2026-86142 | HIGH (CVSS 7.8); MEDIUM (CVSS 6.9 via CVE-2026-86142) | unfixed | — |
+| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86143 | CVE-2026-86143 | HIGH (CVSS 7.3); MEDIUM (CVSS 6.9 via CVE-2026-86143) | unfixed | — |
+| HIGH | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86144 | CVE-2026-86144 | HIGH (CVSS 7.8); MEDIUM (CVSS 5.6 via CVE-2026-86144) | unfixed | — |
 | HIGH | native | ubuntu:22.04 | glibc @ 2.35-0ubuntu3.15 | UBUNTU-CVE-2016-20013 | CVE-2016-20013 | HIGH (CVSS 7.5); LOW (Ubuntu priority) | unfixed | — |
 | HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-11979 | CVE-2026-11979 | HIGH (CVSS 7.8); LOW (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86138 | CVE-2026-86138 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86139 | CVE-2026-86139 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86142 | CVE-2026-86142 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86143 | CVE-2026-86143 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.3); MEDIUM (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86144 | CVE-2026-86144 | MEDIUM (CVSS 5.6); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority) | unfixed | — |
+| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86138 | CVE-2026-86138 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority); MEDIUM (CVSS 6.9 via CVE-2026-86138) | unfixed | — |
+| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86139 | CVE-2026-86139 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority); MEDIUM (CVSS 6.9 via CVE-2026-86139) | unfixed | — |
+| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86142 | CVE-2026-86142 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority); MEDIUM (CVSS 6.9 via CVE-2026-86142) | unfixed | — |
+| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86143 | CVE-2026-86143 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.3); MEDIUM (Ubuntu priority); MEDIUM (CVSS 6.9 via CVE-2026-86143) | unfixed | — |
+| HIGH | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86144 | CVE-2026-86144 | MEDIUM (CVSS 5.6); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority); MEDIUM (CVSS 5.6 via CVE-2026-86144) | unfixed | — |
 | HIGH | native | ubuntu:24.04 | glibc @ 2.39-0ubuntu8.9 | UBUNTU-CVE-2016-20013 | CVE-2016-20013 | HIGH (CVSS 7.5); LOW (Ubuntu priority) | unfixed | — |
 | HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-11979 | CVE-2026-11979 | HIGH (CVSS 7.8); LOW (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86138 | CVE-2026-86138 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86139 | CVE-2026-86139 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86142 | CVE-2026-86142 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86143 | CVE-2026-86143 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.3); MEDIUM (Ubuntu priority) | unfixed | — |
-| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86144 | CVE-2026-86144 | MEDIUM (CVSS 5.6); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority) | unfixed | — |
+| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86138 | CVE-2026-86138 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority); MEDIUM (CVSS 6.9 via CVE-2026-86138) | unfixed | — |
+| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86139 | CVE-2026-86139 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority); MEDIUM (CVSS 6.9 via CVE-2026-86139) | unfixed | — |
+| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86142 | CVE-2026-86142 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority); MEDIUM (CVSS 6.9 via CVE-2026-86142) | unfixed | — |
+| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86143 | CVE-2026-86143 | MEDIUM (CVSS 6.9); HIGH (CVSS 7.3); MEDIUM (Ubuntu priority); MEDIUM (CVSS 6.9 via CVE-2026-86143) | unfixed | — |
+| HIGH | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86144 | CVE-2026-86144 | MEDIUM (CVSS 5.6); HIGH (CVSS 7.8); MEDIUM (Ubuntu priority); MEDIUM (CVSS 5.6 via CVE-2026-86144) | unfixed | — |
 | MEDIUM | native | debian:12 | gcc-12 @ 12.2.0-14+deb12u1 | DEBIAN-CVE-2022-27943 | CVE-2022-27943 | MEDIUM (CVSS 5.5) | unfixed | — |
-| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-1010024 | CVE-2019-1010024 | MEDIUM (CVSS 5.3) | unfixed | — |
-| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-1010025 | CVE-2019-1010025 | MEDIUM (CVSS 5.3) | unfixed | — |
+| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-1010024 | CVE-2019-1010024 | MEDIUM (CVSS 5.3); MEDIUM (CVSS 5.3 via CVE-2019-1010024) | unfixed | — |
+| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2019-1010025 | CVE-2019-1010025 | MEDIUM (CVSS 5.3); MEDIUM (CVSS 5.3 via CVE-2019-1010025) | unfixed | — |
 | MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-18374 | CVE-2026-18374 | MEDIUM (CVSS 4.9) | unfixed | — |
-| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-19542 | CVE-2026-19542 | MEDIUM (CVSS 5.6) | unfixed | — |
+| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-19542 | CVE-2026-19542 | MEDIUM (CVSS 5.6); MEDIUM (CVSS 5.6 via CVE-2026-19542) | unfixed | — |
 | MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-6238 | CVE-2026-6238 | MEDIUM (CVSS 6.5) | unfixed | — |
-| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-77117 | CVE-2026-77117 | MEDIUM (CVSS 5.9) | unfixed | — |
-| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-80489 | CVE-2026-80489 | MEDIUM (CVSS 5.9) | unfixed | — |
-| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-8674 | CVE-2026-8674 | MEDIUM (CVSS 5.3) | unfixed | — |
+| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-77117 | CVE-2026-77117 | MEDIUM (CVSS 5.9); MEDIUM (CVSS 5.9 via CVE-2026-77117) | unfixed | — |
+| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-80489 | CVE-2026-80489 | MEDIUM (CVSS 5.9); MEDIUM (CVSS 5.9 via CVE-2026-80489) | unfixed | — |
+| MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-8674 | CVE-2026-8674 | MEDIUM (CVSS 5.3); MEDIUM (CVSS 5.3 via CVE-2026-8674) | unfixed | — |
 | MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-86805 | CVE-2026-86805 | MEDIUM (CVSS 6.3) | unfixed | — |
 | MEDIUM | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-89092 | CVE-2026-89092 | MEDIUM (CVSS 4.2) | unfixed | — |
-| MEDIUM | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-76781 | CVE-2026-76781 | MEDIUM (CVSS 5.5) | unfixed | — |
-| MEDIUM | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86137 | CVE-2026-86137 | MEDIUM (CVSS 6.1) | unfixed | — |
+| MEDIUM | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-76781 | CVE-2026-76781 | MEDIUM (CVSS 5.5); MEDIUM (CVSS 5.5 via CVE-2026-76781) | unfixed | — |
+| MEDIUM | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86137 | CVE-2026-86137 | MEDIUM (CVSS 6.1); LOW (CVSS 2.9 via CVE-2026-86137) | unfixed | — |
 | MEDIUM | native | ubuntu:22.04 | gcc-12 @ 12.3.0-1ubuntu1~22.04.3 | UBUNTU-CVE-2022-27943 | CVE-2022-27943 | MEDIUM (CVSS 5.5); LOW (Ubuntu priority) | unfixed | — |
 | MEDIUM | native | ubuntu:22.04 | glibc @ 2.35-0ubuntu3.15 | UBUNTU-CVE-2026-18374 | CVE-2026-18374 | MEDIUM (CVSS 4.9); MEDIUM (Ubuntu priority) | unfixed | — |
-| MEDIUM | native | ubuntu:22.04 | glibc @ 2.35-0ubuntu3.15 | UBUNTU-CVE-2026-8674 | CVE-2026-8674 | MEDIUM (CVSS 5.3); MEDIUM (Ubuntu priority) | unfixed | — |
+| MEDIUM | native | ubuntu:22.04 | glibc @ 2.35-0ubuntu3.15 | UBUNTU-CVE-2026-8674 | CVE-2026-8674 | MEDIUM (CVSS 5.3); MEDIUM (Ubuntu priority); MEDIUM (CVSS 5.3 via CVE-2026-8674) | unfixed | — |
 | MEDIUM | native | ubuntu:22.04 | glibc @ 2.35-0ubuntu3.15 | UBUNTU-CVE-2026-89092 | CVE-2026-89092 | MEDIUM (CVSS 4.2); MEDIUM (Ubuntu priority) | unfixed | — |
 | MEDIUM | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2025-26434 | CVE-2025-26434 | MEDIUM (CVSS 5.5); MEDIUM (Ubuntu priority) | unfixed | — |
-| MEDIUM | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-76781 | CVE-2026-76781 | MEDIUM (CVSS 5.5); MEDIUM (Ubuntu priority) | unfixed | — |
-| MEDIUM | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86137 | CVE-2026-86137 | LOW (CVSS 2.9); MEDIUM (CVSS 6.1); MEDIUM (Ubuntu priority) | unfixed | — |
-| MEDIUM | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86141 | CVE-2026-86141 | LOW (CVSS 2.9); LOW (CVSS 3.3); MEDIUM (Ubuntu priority) | unfixed | — |
+| MEDIUM | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-76781 | CVE-2026-76781 | MEDIUM (CVSS 5.5); MEDIUM (Ubuntu priority); MEDIUM (CVSS 5.5 via CVE-2026-76781) | unfixed | — |
+| MEDIUM | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86137 | CVE-2026-86137 | LOW (CVSS 2.9); MEDIUM (CVSS 6.1); MEDIUM (Ubuntu priority); LOW (CVSS 2.9 via CVE-2026-86137) | unfixed | — |
+| MEDIUM | native | ubuntu:22.04 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | UBUNTU-CVE-2026-86141 | CVE-2026-86141 | LOW (CVSS 2.9); LOW (CVSS 3.3); MEDIUM (Ubuntu priority); LOW (CVSS 2.9 via CVE-2026-86141) | unfixed | — |
 | MEDIUM | native | ubuntu:24.04 | glibc @ 2.39-0ubuntu8.9 | UBUNTU-CVE-2026-18374 | CVE-2026-18374 | MEDIUM (CVSS 4.9); MEDIUM (Ubuntu priority) | unfixed | — |
-| MEDIUM | native | ubuntu:24.04 | glibc @ 2.39-0ubuntu8.9 | UBUNTU-CVE-2026-8674 | CVE-2026-8674 | MEDIUM (CVSS 5.3); MEDIUM (Ubuntu priority) | unfixed | — |
+| MEDIUM | native | ubuntu:24.04 | glibc @ 2.39-0ubuntu8.9 | UBUNTU-CVE-2026-8674 | CVE-2026-8674 | MEDIUM (CVSS 5.3); MEDIUM (Ubuntu priority); MEDIUM (CVSS 5.3 via CVE-2026-8674) | unfixed | — |
 | MEDIUM | native | ubuntu:24.04 | glibc @ 2.39-0ubuntu8.9 | UBUNTU-CVE-2026-89092 | CVE-2026-89092 | MEDIUM (CVSS 4.2); MEDIUM (Ubuntu priority) | unfixed | — |
 | MEDIUM | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2025-26434 | CVE-2025-26434 | MEDIUM (CVSS 5.5); MEDIUM (Ubuntu priority) | unfixed | — |
-| MEDIUM | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-76781 | CVE-2026-76781 | MEDIUM (CVSS 5.5); MEDIUM (Ubuntu priority) | unfixed | — |
-| MEDIUM | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86137 | CVE-2026-86137 | LOW (CVSS 2.9); MEDIUM (CVSS 6.1); MEDIUM (Ubuntu priority) | unfixed | — |
-| MEDIUM | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86141 | CVE-2026-86141 | LOW (CVSS 2.9); LOW (CVSS 3.3); MEDIUM (Ubuntu priority) | unfixed | — |
+| MEDIUM | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-76781 | CVE-2026-76781 | MEDIUM (CVSS 5.5); MEDIUM (Ubuntu priority); MEDIUM (CVSS 5.5 via CVE-2026-76781) | unfixed | — |
+| MEDIUM | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86137 | CVE-2026-86137 | LOW (CVSS 2.9); MEDIUM (CVSS 6.1); MEDIUM (Ubuntu priority); LOW (CVSS 2.9 via CVE-2026-86137) | unfixed | — |
+| MEDIUM | native | ubuntu:24.04 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | UBUNTU-CVE-2026-86141 | CVE-2026-86141 | LOW (CVSS 2.9); LOW (CVSS 3.3); MEDIUM (Ubuntu priority); LOW (CVSS 2.9 via CVE-2026-86141) | unfixed | — |
 | LOW | native | debian:12 | glibc @ 2.36-9+deb12u14 | DEBIAN-CVE-2026-95818 | CVE-2026-95818 | LOW (CVSS 3.6) | unfixed | — |
-| LOW | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86141 | CVE-2026-86141 | LOW (CVSS 3.3) | unfixed | — |
+| LOW | native | debian:12 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | DEBIAN-CVE-2026-86141 | CVE-2026-86141 | LOW (CVSS 3.3); LOW (CVSS 2.9 via CVE-2026-86141) | unfixed | — |
 
 ## Release distro dependencies (platform linux/arm64)
 
-Upstream base = upstream version inside the distro revision; `backported` counts advisories the distro fixed without moving that base.
+Upstream base = upstream version inside the distro revision; `Feed records` = advisories the distro feed holds for the source package (queried by source name); `Fixed by backport` counts those the distro fixed without moving that base.
 
-| Image | Package | Revision | Source @ revision | Upstream base | Fixed by backport | Affected |
-|---|---|---|---|---|---|---|
-| `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | libc6 | 2.35-0ubuntu3.15 | glibc @ 2.35-0ubuntu3.15 | 2.35 | 36 | 4 |
-| `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | libstdc++6 | 12.3.0-1ubuntu1~22.04.3 | gcc-12 @ 12.3.0-1ubuntu1~22.04.3 | 12.3.0 | 2 | 1 |
-| `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | libgcc-s1 | 12.3.0-1ubuntu1~22.04.3 | gcc-12 @ 12.3.0-1ubuntu1~22.04.3 | 12.3.0 | 2 | 1 |
-| `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | libxml2 | 2.9.13+dfsg-1ubuntu0.13 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | 2.9.13 | 40 | 10 |
-| `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | libc6 | 2.39-0ubuntu8.9 | glibc @ 2.39-0ubuntu8.9 | 2.39 | 35 | 4 |
-| `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | libstdc++6 | 14.2.0-4ubuntu2~24.04.1 | gcc-14 @ 14.2.0-4ubuntu2~24.04.1 | 14.2.0 | 0 | 0 |
-| `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | libgcc-s1 | 14.2.0-4ubuntu2~24.04.1 | gcc-14 @ 14.2.0-4ubuntu2~24.04.1 | 14.2.0 | 0 | 0 |
-| `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | libxml2 | 2.9.14+dfsg-1.3ubuntu3.9 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | 2.9.14 | 29 | 10 |
-| `debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443` | libc6 | 2.36-9+deb12u14 | glibc @ 2.36-9+deb12u14 | 2.36 | 26 | 22 |
-| `debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443` | libstdc++6 | 12.2.0-14+deb12u1 | gcc-12 @ 12.2.0-14+deb12u1 | 12.2.0 | 1 | 1 |
-| `debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443` | libgcc-s1 | 12.2.0-14+deb12u1 | gcc-12 @ 12.2.0-14+deb12u1 | 12.2.0 | 1 | 1 |
-| `debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443` | libxml2 | 2.9.14+dfsg-1.3~deb12u6 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | 2.9.14 | 28 | 12 |
-| `rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6` | glibc | 0:2.34-275.el9_8 | glibc @ 0:2.34-275.el9_8 | 2.34 | 9 | 0 |
-| `rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6` | libstdc++ | 0:11.5.0-14.el9 | gcc @ 0:11.5.0-14.el9 | 11.5.0 | 0 | 0 |
-| `rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6` | libgcc | 0:11.5.0-14.el9 | gcc @ 0:11.5.0-14.el9 | 11.5.0 | 0 | 0 |
-| `rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6` | libxml2 | 0:2.9.13-14.el9_8.4 | libxml2 @ 0:2.9.13-14.el9_8.4 | 2.9.13 | 11 | 0 |
+| Image | Package | Revision | Source @ revision | Upstream base | Feed records | Fixed by backport | Affected |
+|---|---|---|---|---|---|---|---|
+| `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | libc6 | 2.35-0ubuntu3.15 | glibc @ 2.35-0ubuntu3.15 | 2.35 | 40 | 36 | 4 |
+| `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | libstdc++6 | 12.3.0-1ubuntu1~22.04.3 | gcc-12 @ 12.3.0-1ubuntu1~22.04.3 | 12.3.0 | 3 | 2 | 1 |
+| `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | libgcc-s1 | 12.3.0-1ubuntu1~22.04.3 | gcc-12 @ 12.3.0-1ubuntu1~22.04.3 | 12.3.0 | 3 | 2 | 1 |
+| `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | libxml2 | 2.9.13+dfsg-1ubuntu0.13 | libxml2 @ 2.9.13+dfsg-1ubuntu0.13 | 2.9.13 | 50 | 40 | 10 |
+| `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | libc6 | 2.39-0ubuntu8.9 | glibc @ 2.39-0ubuntu8.9 | 2.39 | 40 | 35 | 4 |
+| `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | libstdc++6 | 14.2.0-4ubuntu2~24.04.1 | gcc-14 @ 14.2.0-4ubuntu2~24.04.1 | 14.2.0 | 0 | 0 | 0 |
+| `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | libgcc-s1 | 14.2.0-4ubuntu2~24.04.1 | gcc-14 @ 14.2.0-4ubuntu2~24.04.1 | 14.2.0 | 0 | 0 | 0 |
+| `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | libxml2 | 2.9.14+dfsg-1.3ubuntu3.9 | libxml2 @ 2.9.14+dfsg-1.3ubuntu3.9 | 2.9.14 | 39 | 29 | 10 |
+| `debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443` | libc6 | 2.36-9+deb12u14 | glibc @ 2.36-9+deb12u14 | 2.36 | 169 | 26 | 22 |
+| `debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443` | libstdc++6 | 12.2.0-14+deb12u1 | gcc-12 @ 12.2.0-14+deb12u1 | 12.2.0 | 2 | 1 | 1 |
+| `debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443` | libgcc-s1 | 12.2.0-14+deb12u1 | gcc-12 @ 12.2.0-14+deb12u1 | 12.2.0 | 2 | 1 | 1 |
+| `debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443` | libxml2 | 2.9.14+dfsg-1.3~deb12u6 | libxml2 @ 2.9.14+dfsg-1.3~deb12u6 | 2.9.14 | 126 | 28 | 12 |
+| `rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6` | glibc | 0:2.34-275.el9_8 | glibc @ 0:2.34-275.el9_8 | 2.34 | 9 | 9 | 0 |
+| `rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6` | libstdc++ | 0:11.5.0-14.el9 | gcc @ 0:11.5.0-14.el9 | 11.5.0 | 1 | 1 | 0 |
+| `rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6` | libgcc | 0:11.5.0-14.el9 | gcc @ 0:11.5.0-14.el9 | 11.5.0 | 1 | 1 | 0 |
+| `rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6` | libxml2 | 0:2.9.13-14.el9_8.4 | libxml2 @ 0:2.9.13-14.el9_8.4 | 2.9.13 | 11 | 11 | 0 |
 
 ## Resolved docs gems (docs/Gemfile.lock)
 

@@ -196,28 +196,31 @@ def gh_token():
     return None
 
 
-def ghsa_affecting(ecosystem, pkgs):
-    """GitHub Advisory Database advisories affecting any name@version in pkgs."""
+def ghsa_affecting(ecosystem, pkg_at_version):
+    """Reviewed GitHub Advisory Database advisories affecting one name@version.
+
+    One query per name@version, so every returned advisory affects exactly that
+    pin; pagination follows the Link rel="next" cursor (the endpoint ignores
+    `page`)."""
     headers = {"Accept": "application/vnd.github+json",
                "X-GitHub-Api-Version": "2022-11-28"}
     tok = gh_token()
     if tok:
         headers["Authorization"] = f"Bearer {tok}"
-    out, date = [], None
-    for i in range(0, len(pkgs), 50):
-        chunk = ",".join(pkgs[i:i + 50])
-        page = 1
-        while True:
-            url = (f"{GHSA_API}/advisories?ecosystem={ecosystem}&per_page=100"
-                   f"&page={page}&affects={urllib.parse.quote(chunk, safe=',@/')}")
-            hdrs, resp = http("GET", url, headers=headers)
-            date = hdrs.get("Date", date)
-            if not isinstance(resp, list):
-                raise ScannerError(f"GET {url}: unexpected response")
-            out.extend(resp)
-            if len(resp) < 100:
-                break
-            page += 1
+    out, date, seen = [], None, set()
+    url = (f"{GHSA_API}/advisories?type=reviewed&ecosystem={ecosystem}&per_page=100"
+           f"&affects={urllib.parse.quote(pkg_at_version, safe='@/')}")
+    while url:
+        hdrs, resp = http("GET", url, headers=headers)
+        date = hdrs.get("Date", date)
+        if not isinstance(resp, list):
+            raise ScannerError(f"GET {url}: unexpected response")
+        for adv in resp:
+            if adv.get("ghsa_id") not in seen:
+                seen.add(adv.get("ghsa_id"))
+                out.append(adv)
+        m = re.search(r'<([^>]+)>;\s*rel="next"', hdrs.get("Link") or "")
+        url = m.group(1) if m else None
     return out, date
 
 
@@ -326,14 +329,10 @@ def worst(ratings):
 
 def resolve_osv_rating(rec):
     ratings = ratings_of_osv(rec)
-    if not ratings:
-        # Distro records (e.g. DEBIAN-CVE-*) may carry no rating; fall back to
-        # the upstream CVE/GHSA record they alias.
-        for alias in (rec.get("upstream") or []) + (rec.get("aliases") or []):
-            ratings = ratings_of_osv(osv_vuln(alias))
-            if ratings:
-                ratings = [(lab, f"{src} via {alias}") for lab, src in ratings]
-                break
+    # Distro records (e.g. DEBIAN-CVE-*) may carry a weaker or no rating;
+    # merge the ratings of every upstream CVE/GHSA record they alias.
+    for alias in sorted(set(rec.get("upstream") or []) | set(rec.get("aliases") or [])):
+        ratings += [(lab, f"{src} via {alias}") for lab, src in ratings_of_osv(osv_vuln(alias))]
     return worst(ratings), ratings
 
 
@@ -504,13 +503,12 @@ def measure(only):
             except ScannerError as exc:
                 fail("gems", f"OSV scanner did not run: {exc}")
             try:
-                advs, date = ghsa_affecting("rubygems", [f"{n}@{v}" for n, v in sorted(gems.items())])
-                for adv in advs:
-                    for vuln in adv.get("vulnerabilities") or []:
-                        name = (vuln.get("package") or {}).get("name")
-                        if name in gems:
-                            found.setdefault((name, adv["ghsa_id"]), ("GHSA", adv))
-                rep["scanners"].append({"surface": "gems", "scanner": f"GitHub Advisory Database {GHSA_API}/advisories (rubygems)",
+                date = None
+                for name, ver in sorted(gems.items()):
+                    advs, date = ghsa_affecting("rubygems", f"{name}@{ver}")
+                    for adv in advs:
+                        found.setdefault((name, adv["ghsa_id"]), ("GHSA", adv))
+                rep["scanners"].append({"surface": "gems", "scanner": f"GitHub Advisory Database {GHSA_API}/advisories (rubygems, reviewed)",
                                         "database_date": f"live (HTTP Date {date})", "queried": now_utc()})
             except ScannerError as exc:
                 fail("gems", f"GitHub Advisory Database scanner did not run: {exc}")
@@ -552,31 +550,31 @@ def measure(only):
                 fail("actions", f"{name}@{ref} has no `# vX.Y.Z` pin comment; version not measurable")
             rep["actions"].append({"action": name, "version": version, "ref": ref,
                                    "files": sorted(paths), "affected": 0})
-        measurable = sorted({f"{n}@{v}" for (n, v, _r) in pins if v})
-        if measurable:
+        if pins:
             try:
-                advs, date = ghsa_affecting("actions", measurable)
-                rep["scanners"].append({"surface": "actions", "scanner": f"GitHub Advisory Database {GHSA_API}/advisories (actions)",
+                date = None
+                for row in rep["actions"]:
+                    if not row["version"]:
+                        continue
+                    advs, date = ghsa_affecting("actions", f"{row['action']}@{row['version']}")
+                    for adv in advs:
+                        row["affected"] += 1
+                        ratings = ratings_of_ghsa(adv)
+                        fixes = sorted({v.get("first_patched_version") for v in adv.get("vulnerabilities") or []
+                                        if (v.get("package") or {}).get("name") == row["action"]
+                                        and v.get("first_patched_version")})
+                        rep["advisories"].append({
+                            "surface": "actions", "target": ", ".join(row["files"]), "package": row["action"],
+                            "installed": row["version"], "id": adv["ghsa_id"],
+                            "aliases": [adv["cve_id"]] if adv.get("cve_id") else [],
+                            "severity": worst(ratings), "ratings": [f"{l} ({s})" for l, s in ratings],
+                            "disposition": "upstream-version-gap" if fixes else "unfixed",
+                            "fixed": fixes})
+                rep["scanners"].append({"surface": "actions", "scanner": f"GitHub Advisory Database {GHSA_API}/advisories (actions, reviewed)",
                                         "database_date": f"live (HTTP Date {date})", "queried": now_utc()})
-                for adv in advs:
-                    for vuln in adv.get("vulnerabilities") or []:
-                        name = (vuln.get("package") or {}).get("name")
-                        for row in rep["actions"]:
-                            if row["action"] != name or not row["version"]:
-                                continue
-                            row["affected"] += 1
-                            ratings = ratings_of_ghsa(adv)
-                            fix = vuln.get("first_patched_version")
-                            rep["advisories"].append({
-                                "surface": "actions", "target": ", ".join(row["files"]), "package": name,
-                                "installed": row["version"], "id": adv["ghsa_id"],
-                                "aliases": [adv["cve_id"]] if adv.get("cve_id") else [],
-                                "severity": worst(ratings), "ratings": [f"{l} ({s})" for l, s in ratings],
-                                "disposition": "upstream-version-gap" if fix else "unfixed",
-                                "fixed": [fix] if fix else []})
             except ScannerError as exc:
                 fail("actions", f"GitHub Advisory Database scanner did not run: {exc}")
-        elif not pins:
+        else:
             fail("actions", "no pinned `uses:` found")
 
     # ---- native ------------------------------------------------------------
@@ -586,6 +584,8 @@ def measure(only):
         except OSError as exc:
             images = []
             fail("native", f"cannot read {BASE_IMAGES}: {exc}")
+        if not images and not any(f.startswith("native:") for f in rep["failures"]):
+            fail("native", f"no images parsed from {BASE_IMAGES}")
         have_docker = shutil.which("docker") is not None
         platform = None
         if have_docker:
@@ -620,12 +620,13 @@ def measure(only):
                 row = {"image": image, "ecosystem": ecosystem or "none", "package": binary,
                        "version": bver, "source": src, "source_version": sver,
                        "upstream_base": upstream_base(sver, family),
-                       "backported": 0, "affected": 0, "assessed": ecosystem is not None}
+                       "backported": 0, "affected": 0, "feed_records": 0, "assessed": ecosystem is not None}
                 rep["native"].append(row)
                 if ecosystem is None:
                     continue
-                # Debian/Ubuntu feeds key on the source package; Rocky on the binary.
-                qname, qver = (src, sver) if family == "deb" else (binary, bver)
+                # Every distro feed (Debian, Ubuntu, Rocky) keys on the source
+                # package; for rpm the source EVR equals the binary EVR.
+                qname, qver = src, sver
                 try:
                     affected = {r["id"]: r for r in osv_query(qname, ecosystem, qver)}
                     every = osv_query(qname, ecosystem)
@@ -633,6 +634,7 @@ def measure(only):
                     fail("native", f"OSV scanner did not run for {qname} ({ecosystem}): {exc}")
                     row["assessed"] = False
                     continue
+                row["feed_records"] = len(every)
                 if ecosystem not in db_dates:
                     db_dates[ecosystem] = osv_db_date(ecosystem)
                 for rec in every:
@@ -668,6 +670,8 @@ def measure(only):
         rep["verdict"], rep["exit"] = "NOT ASSESSED — assessment incomplete (never a zero-vulnerability claim)", 2
     else:
         rep["verdict"], rep["exit"] = "PASS — no affected High/Critical advisory in the assessed scope", 0
+        if rep["not_assessed"]:
+            rep["verdict"] += f" ({len(rep['not_assessed'])} target(s) Not Assessed — see that section)"
     if blocking and (rep["failures"] or unrated):
         rep["verdict"] += "; assessment also incomplete"
     return rep
@@ -715,12 +719,14 @@ def render(rep, only):
         lines += ["None in the assessed scope.", ""]
     if rep["native"]:
         lines += [f"## Release distro dependencies (platform {rep.get('native_platform', 'unknown')})", "",
-                  "Upstream base = upstream version inside the distro revision; `backported` counts "
-                  "advisories the distro fixed without moving that base.", "",
+                  "Upstream base = upstream version inside the distro revision; `Feed records` = "
+                  "advisories the distro feed holds for the source package (queried by source name); "
+                  "`Fixed by backport` counts those the distro fixed without moving that base.", "",
                   md_table(["Image", "Package", "Revision", "Source @ revision", "Upstream base",
-                            "Fixed by backport", "Affected"],
+                            "Feed records", "Fixed by backport", "Affected"],
                            [(f"`{r['image']}`", r["package"], r["version"],
                              f"{r['source']} @ {r['source_version']}", r["upstream_base"],
+                             r["feed_records"] if r["assessed"] else "Not Assessed",
                              r["backported"] if r["assessed"] else "Not Assessed",
                              r["affected"] if r["assessed"] else "Not Assessed") for r in rep["native"]]), ""]
     if rep["gems"]:
