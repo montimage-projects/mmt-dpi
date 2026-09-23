@@ -24,7 +24,8 @@
  *      is still admitted until content nears the budget; a single stream
  *      filled to the budget reallocates its image a bounded number of times;
  *      randomized two-direction offers/drains at 64 KiB keep
- *      reserved + owed[0] + owed[1] <= limit after every offer.
+ *      reserved + owed[0] + owed[1] <= limit after every offer; an emptied
+ *      head block a larger carve does not fit is freed, never stranded.
  *
  * proto_tcp.c and tcp_segment.c are included directly so the static
  * reassembly helpers run unmodified (tests/parser_boundaries/
@@ -169,18 +170,24 @@ static void check_budget(const char *what) {
 	chain_blocks(r, &blocks);
 	uint64_t walked = blocks + r->image_cap[0] + r->image_cap[1];
 	if (walked > g_peak_reserved) g_peak_reserved = walked;
+	/* Only the head (bump target) may sit empty; any other block with no
+	 * live carve is stranded reserved storage. */
+	uint32_t stranded = 0;
+	if (r->blocks != NULL)
+		for (const mmt_segblk_t *k = r->blocks->next; k != NULL; k = k->next)
+			stranded += (k->live == 0);
 	int ok = (walked == r->reserved) && (walked <= g_handler.tcp_reassembly_limit)
-	         && (r->live <= walked);
+	         && (r->live <= walked) && stranded == 0;
 	checks++;
 	if (!ok) {
 		failures++;
 		if (g_budget_fail_reports++ < 5)
 			fprintf(stderr, "FAIL budget (%s): walked %llu (blocks %llu + images %u/%u), "
-			        "reserved %llu, live %llu, limit %u\n", what,
+			        "reserved %llu, live %llu, limit %u, stranded %u\n", what,
 			        (unsigned long long) walked, (unsigned long long) blocks,
 			        r->image_cap[0], r->image_cap[1],
 			        (unsigned long long) r->reserved, (unsigned long long) r->live,
-			        g_handler.tcp_reassembly_limit);
+			        g_handler.tcp_reassembly_limit, stranded);
 	}
 }
 
@@ -617,6 +624,30 @@ static void test_random_small_limit(void) {
 	       FLOWS, nadm, FLOWS * OFFERS, (unsigned long long) bytes);
 }
 
+/* An emptied head block that a larger carve does not fit must be freed,
+ * not left in the chain behind the new head (stranded reserved storage). */
+static void test_recycled_head(void) {
+	int64_t o0 = tcm_outstanding;
+	const uint32_t lens[] = {1000, 17000, 26000, 35000, 500, 40000};
+	uint64_t off = 0;
+	session_open(BUDGET);
+	for (uint32_t i = 0; i < sizeof(lens) / sizeof(lens[0]); i++) {
+		CHECK(offer(0, 9 + (uint32_t) off, off, lens[i]), "recycled head: %u B dropped", lens[i]);
+		off += lens[i];
+		drain(0);
+	}
+	const mmt_tcp_reasm_t *r = g_session.tcp_reasm;
+	uint64_t blocks;
+	uint32_t n = chain_blocks(r, &blocks);
+	CHECK(n == 1, "recycled head: %u blocks (%llu B) after full drains", n,
+	      (unsigned long long) blocks);
+	CHECK(r->image_len[0] == off, "recycled head: image %u B of %llu", r->image_len[0],
+	      (unsigned long long) off);
+	printf("  recycled head: %u block(s), %llu B of blocks after %llu B drained\n", n,
+	       (unsigned long long) blocks, (unsigned long long) off);
+	teardown(o0, "recycled head");
+}
+
 /* ------------------------------------------------------------------ */
 /* D — allocation failures                                             */
 /* ------------------------------------------------------------------ */
@@ -657,6 +688,7 @@ int main(void) {
 	test_lowered_limit();
 	test_fairness();
 	test_random_small_limit();
+	test_recycled_head();
 	test_oom();
 	printf("  checks: %d, failures: %d\n", checks, failures);
 	return failures ? 1 : 0;

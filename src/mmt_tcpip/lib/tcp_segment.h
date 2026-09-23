@@ -63,7 +63,10 @@ typedef struct mmt_segblk_s {
  * caller charges to it). A fresh block is only allocated when its
  * MMT_SEGBLK_HDR + cap fits in `room`; its cap is right-sized down to that
  * room (never below the aligned carve) and added to *reserved. Returns NULL
- * without allocating when even the aligned carve does not fit.
+ * without allocating when even the aligned carve does not fit. An empty head
+ * block (no live carve) that the carve does not fit is freed first — its
+ * storage leaves *reserved and is added to `room` — so it is never stranded
+ * behind the new head; that holds even when the new block cannot be had.
  */
 uint8_t *mmt_segblk_carve(mmt_segblk_t **head, uint32_t size, mmt_segblk_t **blk_out,
                           uint64_t *reserved, uint64_t room);

@@ -31,7 +31,17 @@ uint8_t *mmt_segblk_carve(mmt_segblk_t **head, uint32_t size, mmt_segblk_t **blk
 	if (b == NULL || b->used > b->cap || need > b->cap - b->used) {
 		/* Issue #380 (F-PERF-002): a fresh block must fit the caller's
 		 * remaining storage room, header included; right-size it down to
-		 * that room, but never below the aligned carve. */
+		 * that room, but never below the aligned carve. An emptied head
+		 * (recycled in place by mmt_segblk_release) that the carve does not
+		 * fit is freed first and its storage credited to the room — left
+		 * behind the new head it would stay reserved until teardown. */
+		if (b != NULL && b->live == 0) {
+			*head = b->next;
+			if (b->next != NULL) b->next->prev = NULL;
+			*reserved -= MMT_SEGBLK_HDR + b->cap;
+			room += MMT_SEGBLK_HDR + b->cap;
+			free(b);
+		}
 		if ((uint64_t) MMT_SEGBLK_HDR + need > room) return NULL;
 		uint32_t cap = (need > MMT_SEGBLK_PAYLOAD) ? need : MMT_SEGBLK_PAYLOAD;
 		if ((uint64_t) MMT_SEGBLK_HDR + cap > room)
