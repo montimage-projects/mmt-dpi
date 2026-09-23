@@ -25,7 +25,10 @@
 #       loaded. gcov reports its executable lines at count 0, so zero-hit
 #       sources enter the denominator instead of being absent; with --consume
 #       those .gcno are deleted too (the next SDK build rewrites them), so a
-#       later suite does not read the same build again.
+#       later suite does not read the same build again. This relies on every
+#       SDK build running `make -C sdk clean` first (all SDK-building suites
+#       do): an incremental coverage build would keep objects whose notes are
+#       gone, and their next .gcda would fail the pairing above.
 #       Nothing to harvest = exit 0 and OUT is not created.
 #
 #   report --unit-tsv FILE --harvest-dir DIR --repo-root DIR --summary FILE

@@ -130,6 +130,9 @@ jobs:
       # tracefile still fails the step (exit 2): a broken helper must fail CI.
       run: bash tools/ci/report-uncovered-runs.sh --report-only
     - name: Upload coverage report
+      # Also after a failed gate: sdk-coverage.json names the vanished source
+      # or the broken floor (issue #388).
+      if: success() || failure()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: unit-suite-coverage
