@@ -92,7 +92,10 @@ static uint64_t tcp_reasm_owed(const mmt_tcp_reasm_t *r, int dir) {
  * keeps the old buffer and the accounting unchanged. */
 static void tcp_reasm_trim(mmt_tcp_reasm_t *r) {
     for (int d = 0; d < 2; d++) {
-        uint64_t want = MMT_SEGBLK_ALIGN_UP((uint64_t) r->image_len[d] + r->pending_len[d]);
+        /* Round in 64 bits: MMT_SEGBLK_ALIGN_UP's 32-bit mask would wrap a
+         * sum near UINT32_MAX to 0 and free a non-empty image. */
+        uint64_t want = ((uint64_t) r->image_len[d] + r->pending_len[d]
+                         + (MMT_SEGBLK_ALIGN - 1u)) & ~(uint64_t) (MMT_SEGBLK_ALIGN - 1u);
         if (want >= r->image_cap[d]) continue;
         if (want == 0) {
             free(r->image[d]);
