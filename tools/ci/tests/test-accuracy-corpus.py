@@ -170,6 +170,21 @@ with Scratch() as s:
           "# unknown / malformed" in out and len(unk) == 2, out)
 
 with Scratch() as s:
+    rc, out = oracle("--corpus", s.corpus, "--classify-bin", s.fake, "--json",
+                     env={"FAKE_FP_DIR": s.fp_dir})
+    body = out[out.find("{"):out.rfind("}") + 1]
+    try:
+        fams = json.loads(body)["families"]
+    except ValueError:
+        fams = {}
+    check("--json reports the abstention family with its own keys",
+          rc == 0 and fams.get("unknown") == {"unknown_cases": 5,
+                                              "packets": 11, "abstain": 9,
+                                              "accepted": 2}
+          and not any("unknown_cases" in v for k, v in fams.items()
+                      if k != "unknown"), out)
+
+with Scratch() as s:
     os.remove(os.path.join(s.corpus, "acc_quic_positive.pcap"))
     rc, out = s.offline()
     check("missing listed capture fails", rc == 1 and "missing capture" in out,
