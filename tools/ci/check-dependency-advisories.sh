@@ -260,10 +260,8 @@ def cvss3_score(vector):
     except KeyError:
         return None
     iss = 1 - (1 - cia[0]) * (1 - cia[1]) * (1 - cia[2])
-    if scope_changed and vector.startswith("CVSS:3.0"):
+    if scope_changed:
         impact = 7.52 * (iss - 0.029) - 3.25 * (iss - 0.02) ** 15
-    elif scope_changed:  # CVSS v3.1 changed the scope-changed impact term
-        impact = 7.52 * (iss - 0.029) - 3.25 * (iss * 0.9731 - 0.02) ** 13
     else:
         impact = 6.42 * iss
     expl = 8.22 * av * ac * pr * ui
@@ -762,8 +760,10 @@ def self_test():
 
     check("cvss 9.8", cvss3_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H") == 9.8)
     check("cvss 8.6 scope changed", cvss3_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N/E:H") == 8.6)
-    check("cvss 3.1 scope changed 7.0", cvss3_score("CVSS:3.1/AV:P/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:H") == 7.0)
-    check("cvss 3.0 scope changed 6.9", cvss3_score("CVSS:3.0/AV:P/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:H") == 6.9)
+    # v3.1 changed only the environmental (modified) impact term; the base
+    # scope-changed formula is the v3.0 one (FIRST v3.1 spec section 7.1).
+    check("cvss 3.1 scope changed base 8.5", cvss3_score("CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H") == 8.5)
+    check("cvss 3.1 scope changed base 6.9", cvss3_score("CVSS:3.1/AV:P/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:H") == 6.9)
     check("cvss 7.3", cvss3_score("CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N") == 7.3)
     check("cvss 5.9", cvss3_score("CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H") == 5.9)
     check("cvss zero impact", cvss3_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N") == 0.0)
