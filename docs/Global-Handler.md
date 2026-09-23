@@ -28,7 +28,7 @@ Get current version of `MMT-DPI`:
 char * mmt_version();
 ```
 
-(`sdk/include/mmt_core.h:1045`)
+(`src/mmt_core/public_include/mmt_core.h:1228`)
 
 `init_extraction()` / `close_extraction()`: (`src/mmt_core/public_include/mmt_core.h:185,198`)
 
@@ -37,7 +37,7 @@ char * mmt_version();
 ```c
    bool init_extraction();
 ```
-Initializes MMT global context. This function MUST be called before any use of MMT, including `mmt_init_handler()`. It returns a positive value on success and zero on failure (`src/mmt_core/public_include/mmt_core.h:185`).
+Initializes MMT global context. This function MUST be called before any use of MMT, including `mmt_init_handler()`. It returns `true` on success and `false` on failure (`src/mmt_core/public_include/mmt_core.h:185`).
 
 #### Cleanup
 ```c

@@ -53,7 +53,7 @@ These are written only at these moments:
 | Plugin load      | `load_plugin()` / `load_plugins()` (append to `plugin_handlers_list`)      |
 | (Un)registration | `register_protocol()`, `unregister_protocol_by_id()`, `unregister_protocol_by_name()` |
 | Handler create/destroy | `mmt_init_handler()` (insert), `mmt_close_handler()` (delete) — mutate `mmt_configured_handlers_map` |
-| Teardown         | `close_plugins()`, `free_registered_protocols()`, `close_extraction()`     |
+| Teardown         | `close_extraction()` (internally `close_plugins()`, `free_registered_protocols()`) |
 
 ### Locking
 

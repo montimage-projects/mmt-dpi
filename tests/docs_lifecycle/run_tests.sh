@@ -53,6 +53,7 @@ src/examples/packet_handler.c:108	^	mmt_close_handler\(mmt_handler\);
 src/examples/packet_handler.c:111	^	close_extraction\(\);
 src/mmt_core/public_include/mmt_core.h:185	MMTAPI bool MMTCALL init_extraction\(\);
 src/mmt_core/public_include/mmt_core.h:198	MMTAPI void MMTCALL close_extraction\(\);
+src/mmt_core/public_include/mmt_core.h:1228	MMTAPI char\* MMTCALL mmt_version\(\);
 src/mmt_core/src/plugins_engine.c:43-50	scandir\( PLUGINS_REPOSITORY,	scandir\( PLUGINS_REPOSITORY_OPT,
 TABLE
 )"
@@ -112,8 +113,10 @@ fi
 # ---------------------------------------------------------------------------
 echo "  [2/4] checking the example's lifecycle order ..."
 EX="${REPO_ROOT}/${EXAMPLE_REL}"
-first_line() { grep -nE -- "$1" "$EX" | grep -vE '^[0-9]+:[[:space:]]*(\*|//)' | head -1 | cut -d: -f1; }
-last_line()  { grep -nE -- "$1" "$EX" | grep -vE '^[0-9]+:[[:space:]]*(\*|//)' | tail -1 | cut -d: -f1; }
+# A missing call yields an empty value (reported below), not a set -e abort.
+code_lines() { grep -nE -- "$1" "$EX" | grep -vE '^[0-9]+:[[:space:]]*(\*|//)' | cut -d: -f1 || true; }
+first_line() { code_lines "$1" | sed -n '1p'; }
+last_line()  { code_lines "$1" | sed -n '$p'; }
 l_init="$(first_line 'init_extraction\(\)')"
 l_handler="$(first_line 'mmt_init_handler\(')"
 l_process="$(first_line 'packet_process\(')"
