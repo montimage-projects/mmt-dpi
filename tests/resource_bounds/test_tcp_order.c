@@ -18,6 +18,10 @@
  *   B. Duplicates located through the index are refused before any carve.
  *   C. An image OOM during the drain resets the index; the next interior
  *      insert rebuilds it and the stream still flattens byte-exact.
+ *   D. Pending seqs spanning 2^31 or more (tcp_seq_before no longer
+ *      transitive): head prepends repeating indexed seqs are still indexed
+ *      once, so later interior inserts stay O(log n) instead of re-walking
+ *      an ever-unindexed head prefix (QA review of #382).
  *
  * proto_tcp.c and tcp_segment.c are included directly (the tcp-memory
  * fixture convention); see run_tests.sh.
@@ -253,11 +257,58 @@ static void test_oom_reset(void) {
 	printf("  oom: drain OOM reset the index; the next interior insert rebuilt it\n");
 }
 
+/* ---- D: seqs spanning 2^31 ---- */
+
+static void offer_seq(uint32_t seq) {
+	uint8_t b = 1;
+	tcp_reasm_offer(&g_session, 0, 1, seq, 0, &b, 1);
+}
+
+/* Returns the visits of the final interior phase. */
+static uint64_t run_wide_span(uint32_t m) {
+	session_open();
+	uint64_t d0 = g_dropped;
+	offer_seq(0);
+	offer_seq(0x70000000u);
+	for (uint32_t k = 1; k <= m; k++) offer_seq(k * 16);      /* indexed interior */
+	for (uint32_t x = 0xF0000000u; x >= 0x80000000u; x -= 0x10000000u)
+		offer_seq(x);                                         /* head walks back around 2^32 */
+	offer_seq(0x6FFFFFF0u);
+	offer_seq(0x3FFFFFF0u);
+	for (uint32_t k = m; k >= 1; k--) offer_seq(k * 16);      /* prepends repeating indexed seqs */
+	uint64_t v0 = g_visits;
+	for (uint32_t k = 1; k <= m; k++) offer_seq(k * 16 + 8);  /* interior inserts */
+	uint64_t visits = g_visits - v0;
+	mmt_tcp_reasm_t *r = g_session.tcp_reasm;
+	uint32_t n = 0, unindexed = 0;
+	for (const tcp_seg_t *s = r->seg_head[0]; s != NULL; s = s->next) {
+		n++;
+		unindexed += (s->idx_height == 0);
+	}
+	CHECK(g_dropped == d0 && n == 3 * m + 12, "wide span %u: %u pending, %llu B dropped",
+	      m, n, (unsigned long long) (g_dropped - d0));
+	CHECK(unindexed == 0, "wide span %u: %u segments never indexed", m, unindexed);
+	session_close("wide span");
+	return visits;
+}
+
+static void test_wide_span(void) {
+	uint64_t vs = run_wide_span(1024);
+	uint64_t vl = run_wide_span(8192);
+	/* O(m log m): 8x the segments may cost at most 12x the visits (the
+	 * pre-fix index re-walked the stuck prefix: 9,588,556 -> 813,294,061). */
+	CHECK(vl <= 12u * vs, "wide span: %llu -> %llu visits exceeds 12-fold growth",
+	      (unsigned long long) vs, (unsigned long long) vl);
+	printf("  wide span: 1,024 -> %llu visits, 8,192 -> %llu visits, every segment indexed\n",
+	       (unsigned long long) vs, (unsigned long long) vl);
+}
+
 int main(void) {
 	printf("tcp-order (issue #382): pending-segment insertion is O(log n) per offer\n");
 	test_workloads();
 	test_duplicates();
 	test_oom_reset();
+	test_wide_span();
 	printf("  checks: %d, failures: %d\n", checks, failures);
 	return failures ? 1 : 0;
 }

@@ -176,7 +176,11 @@ tcp_seg_t *tcp_seg_locate(tcp_seg_t *root, uint64_t seq);
  * it all at once through tcp_seg_idx_reset() (or with the list itself).
  * Callers index lazily — O(1) head/tail links need not touch it, and
  * tcp_seg_idx_sync() indexes those nodes the next time a lookup needs it,
- * at most once per node. The ordering is the wrap-aware tcp_seq_before().
+ * at most once per node. The ordering is the wrap-aware tcp_seq_before(),
+ * a consistent order only while the pending seqs span less than 2^31 (as
+ * for the sorted list it replaces); beyond that the insert position is
+ * unspecified, but every node is still indexed exactly once, so the work
+ * bound and memory safety hold.
  *
  * AVL height <= 1.45 * log2(n + 2): 64 path slots cover any 32-bit count.
  */

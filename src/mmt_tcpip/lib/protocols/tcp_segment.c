@@ -332,7 +332,10 @@ static tcp_seg_t * tcp_seg_idx_balance(tcp_seg_t * n){
 	return n;
 }
 
-tcp_seg_t * tcp_seg_idx_locate(tcp_seg_t ** root, uint64_t seq, tcp_seg_idx_path_t * path){
+/* Descend for `seq`; an equal seq stops the descent (duplicate) only when
+ * stop_on_equal is set, otherwise it is passed on the right. */
+static tcp_seg_t * tcp_seg_idx_descend(tcp_seg_t ** root, uint64_t seq, tcp_seg_idx_path_t * path,
+                                       int stop_on_equal){
 	tcp_seg_t * succ = NULL;
 	tcp_seg_t ** link = root;
 	int d = 0;
@@ -341,7 +344,7 @@ tcp_seg_t * tcp_seg_idx_locate(tcp_seg_t ** root, uint64_t seq, tcp_seg_idx_path
 		tcp_seg_t * n = *link;
 		mmt_tcp_reasm_stat_visit();
 		path->link[d++] = link;
-		if (tcp_seq_equal(n->seq, seq)) {
+		if (stop_on_equal && tcp_seq_equal(n->seq, seq)) {
 			succ = n; /* duplicate */
 			break;
 		}
@@ -355,6 +358,10 @@ tcp_seg_t * tcp_seg_idx_locate(tcp_seg_t ** root, uint64_t seq, tcp_seg_idx_path
 	path->link[d] = link;
 	path->depth = d;
 	return succ;
+}
+
+tcp_seg_t * tcp_seg_idx_locate(tcp_seg_t ** root, uint64_t seq, tcp_seg_idx_path_t * path){
+	return tcp_seg_idx_descend(root, seq, path, 1);
 }
 
 void tcp_seg_idx_link(tcp_seg_idx_path_t * path, tcp_seg_t * seg){
@@ -386,9 +393,12 @@ static tcp_seg_t * tcp_seg_idx_build(tcp_seg_t ** cur, uint32_t n){
 }
 
 static void tcp_seg_idx_insert(tcp_seg_t ** root, tcp_seg_t * seg){
+	/* Always link: a listed seq can repeat once pending seqs span 2^31 or
+	 * more (tcp_seq_before is then not transitive, and a head prepend is
+	 * only checked against head and tail). A skipped node would stay
+	 * unindexed in the head prefix and be re-walked by every sync. */
 	tcp_seg_idx_path_t path;
-	tcp_seg_t * at = tcp_seg_idx_locate(root, seg->seq, &path);
-	if (at != NULL && tcp_seq_equal(at->seq, seg->seq)) return; /* cannot happen: list seqs are unique */
+	(void) tcp_seg_idx_descend(root, seg->seq, &path, 0);
 	tcp_seg_idx_link(&path, seg);
 }
 
