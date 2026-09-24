@@ -46,4 +46,11 @@
 # markers in src/mmt_core/src/packet_stats.c were resolved by a decision to
 # keep cumulative per-packet protocol counters polled by the application
 # (docs/DECISIONS.md, 2026-09-24).
-70
+#
+# #333: re-baselined 70 -> 64 — the six `TODO/FIXME(#333)` markers in
+# proto_quic_ietf.{c,h} were resolved: QUIC v2 (RFC 9369) support, the
+# header-protected reserved bits explained, session init/analysis documented
+# at the classifier, coalesced QUIC-after-QUIC classification, a session
+# lookup for chained layers and the short-header DCID length learned from
+# the flow's long headers.
+64
