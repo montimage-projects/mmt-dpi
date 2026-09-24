@@ -31,4 +31,9 @@
 # coverage/accuracy tests (#388, #390) found the count already at 80: the
 # error-propagation work in #327 resolved 26 markers and #380 one more, but
 # neither tightened this file. Every surviving marker is still issue-linked.
-80
+#
+# #329: re-baselined 80 -> 78 — the two `TODO(#329)` "Throughout metrics"
+# markers in src/mmt_core/src/packet_stats.c were resolved by a decision to
+# keep cumulative per-packet protocol counters polled by the application
+# (docs/DECISIONS.md, 2026-09-24).
+78
