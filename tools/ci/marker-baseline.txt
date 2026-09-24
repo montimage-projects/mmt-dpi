@@ -37,8 +37,18 @@
 # (VOIP_METRIC_ID_*), and the commented-out `kpi_value >= 0` range check in
 # trapezoid_left() was answered (no lower bound, by design) and removed.
 #
-# #332: re-baselined 76 -> 70 — the six INT/INT-report markers were resolved:
+# #328: re-baselined 76 -> 72 — the four report/dump stubs in
+# src/mmt_core/src/packet_processing.c that emitted a literal "TODO"
+# (mmt_stats_snprintf/fprintf/format and the mmt_attr_snprintf default arm)
+# now render the protocol statistics or return a documented negative code.
+#
+# #329: re-baselined 72 -> 70 — the two `TODO(#329)` "Throughout metrics"
+# markers in src/mmt_core/src/packet_stats.c were resolved by a decision to
+# keep cumulative per-packet protocol counters polled by the application
+# (docs/DECISIONS.md, 2026-09-24).
+#
+# #332: re-baselined 70 -> 64 — the six INT/INT-report markers were resolved:
 # IPv6 carriers and inner packets are parsed, the payload after INT stays
 # PROTO_UNKNOWN for the QUIC_IETF-over-INT checker to reclassify, the stale
 # 64-hop cap note and the LV2 egress-port gap (both layouts decoded) went away.
-70
+64
