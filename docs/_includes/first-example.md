@@ -64,7 +64,7 @@ static int on_packet(const ipacket_t *ipacket, void *user_args) {
     proto_hierarchy_to_str_with_size(ipacket->proto_hierarchy, path, sizeof(path));
     printf("packet %" PRIu64 ": %u bytes, %s\n", ipacket->packet_id,
            len ? *len : 0, path);
-    return 0; // non-zero ends processing of this packet early
+    return 0; // returning 1 skips the remaining handlers for this packet
 }
 
 int main(int argc, char **argv) {
@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
     pcap_t *pcap = pcap_open_offline(argv[1], errbuf);
     if (!pcap) {
         fprintf(stderr, "hello_packet: cannot open capture '%s': %s\n"
-                "  download the sample next to this program:\n"
+                "  to fetch the sample capture into the current directory:\n"
                 "  curl -fsSLO https://montimage-projects.github.io/mmt-dpi/first-run/traffic.pcap\n",
                 argv[1], errbuf);
         return 1;

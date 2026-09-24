@@ -22,7 +22,8 @@
 # Only two substitutions are made to the displayed commands: the site URL
 # https://montimage-projects.github.io/mmt-dpi/ becomes file://$DOCS_SITE_DIR/
 # (default: the docs/ source tree, whose files the site serves verbatim — set
-# DOCS_SITE_DIR=docs/_site to verify a built site artifact instead), and
+# DOCS_SITE_DIR=docs/_site, relative to the repository root, to verify a built
+# site artifact instead), and
 # /opt/mmt becomes the throwaway prefix. $EXTRA_CFLAGS (sanitizer modes) is
 # added to the compile line.
 set -euo pipefail
@@ -34,7 +35,9 @@ INDEX="${REPO_ROOT}/docs/index.html"
 SOURCE="${REPO_ROOT}/docs/first-run/hello_packet.c"
 FIXTURE="${REPO_ROOT}/docs/first-run/traffic.pcap"
 SITE_URL="https://montimage-projects.github.io/mmt-dpi/"
-SITE_DIR="$(cd "${DOCS_SITE_DIR:-${REPO_ROOT}/docs}" && pwd)"
+SITE_DIR="${DOCS_SITE_DIR:-docs}"
+case "${SITE_DIR}" in /*) ;; *) SITE_DIR="${REPO_ROOT}/${SITE_DIR}" ;; esac  # relative = repo root
+SITE_DIR="$(cd "${SITE_DIR}" && pwd)"
 
 ERRORS=0
 ok()   { echo "    ✓ $1"; }
@@ -210,10 +213,12 @@ else
     fail "displayed steps failed (exit ${rc})"
     tail -10 "${WORK}/err.txt" >&2 || true
 fi
-if [ -s "${WORK}/out.txt" ] && cmp -s "${WORK}/out.txt" "${WORK}/blocks/text.block"; then
-    ok "output matches the displayed output ($(wc -l < "${WORK}/out.txt") lines)"
+if [ -s "${WORK}/out.txt" ] && cmp -s "${WORK}/out.txt" "${WORK}/blocks/text.block" \
+   && ! grep -q "^hello_packet: " "${WORK}/err.txt"; then
+    ok "output matches the displayed output ($(wc -l < "${WORK}/out.txt") lines), no errors reported"
 else
-    fail "output differs from the displayed output:"
+    fail "output differs from the displayed output, or the program reported errors:"
+    grep "^hello_packet: " "${WORK}/err.txt" >&2 || true
     diff "${WORK}/blocks/text.block" "${WORK}/out.txt" >&2 || true
 fi
 

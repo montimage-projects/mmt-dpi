@@ -240,6 +240,7 @@
     .term-body .cmd { color: var(--text); }
     .term-body .out { color: var(--text-mute); }
     .term-body .ok { color: var(--green); }
+    .term-body .out a { text-decoration: underline; } /* links distinguishable without colour */
     /* each command gets its own labelled copy control — one button must never
        silently copy a different command (F-UX-013) */
     .cmd-group { display: flex; align-items: center; gap: 14px; }
@@ -628,7 +629,7 @@
               {% capture first_example %}{% include first-example.md %}{% endcapture %}
               {{ first_example | markdownify }}
             </div>
-            <p class="api-note">The handler returns <code>int</code> (the callback contract) — non-zero aborts the packet loop early.</p>
+            <p class="api-note">The handler returns <code>int</code> (the callback contract) — returning <code>1</code> skips the remaining handlers for that packet.</p>
           </div>
 
           <!-- TIER 2 -->
