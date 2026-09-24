@@ -111,10 +111,10 @@ static void test_s1ap_outer_ok_inner_fail(void) {
 /*  [12..23] plain EMM attach request with BCD IMSI                    */
 /*                                                                     */
 /* Note: the vendored generated decoder (src/mmt_mobile/asn1c/, not    */
-/* editable) decodes every nested S1ap_IE.value ANY as EMPTY content   */
-/* (ANY_decode_aper passes ebits=0 to aper_get_length). Nested IE      */
-/* decoding therefore always fails; the fixed handlers must return -1  */
-/* cleanly instead of dereferencing the NULL out-pointer (F-BUG-201).  */
+/* editable) decoded every S1ap open-type ANY as EMPTY content         */
+/* (ANY_decode_aper passes ebits=0 to aper_get_length), so nested IE   */
+/* decoding always failed. Issue #427 installs a corrected ANY APER    */
+/* decoder from s1ap_common.c; this vector now decodes end to end.     */
 /* ------------------------------------------------------------------ */
 static const uint8_t VECTOR_ATTACH_REQUEST_IMSI[] = {
 		0x00, 0x0c, 0x00, 0x14,
@@ -123,6 +123,46 @@ static const uint8_t VECTOR_ATTACH_REQUEST_IMSI[] = {
 		0x07, 0x41, 0x01, 0x08,
 		0x09, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0x89
 };
+
+/* ------------------------------------------------------------------ */
+/* Issue #427: the S1AP payload of                                     */
+/* tools/phase0/ci/accuracy/acc_s1ap_positive.pcap — a TS 36.413       */
+/* InitialUEMessage with all mandatory IEs (eNB-UE-S1AP-ID 1, NAS-PDU  */
+/* EMM Attach Request with IMSI 001010123456789, TAI, EUTRAN-CGI,      */
+/* RRC-Establishment-Cause), cross-checked against pycrate. It used to */
+/* fail with "Decoding of S1ap_InitialUEMessage failed".               */
+/* ------------------------------------------------------------------ */
+static const uint8_t VECTOR_CORPUS_INITIAL_UE_MESSAGE[] = {
+		0x00, 0x0c, 0x40, 0x3e, 0x00, 0x00, 0x05, 0x00, 0x08, 0x00,
+		0x02, 0x00, 0x01, 0x00, 0x1a, 0x00, 0x16, 0x15, 0x07, 0x41,
+		0x71, 0x08, 0x09, 0x10, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98,
+		0x02, 0xe0, 0xe0, 0x00, 0x04, 0x02, 0x01, 0xd0, 0x11, 0x00,
+		0x43, 0x00, 0x06, 0x00, 0x00, 0xf1, 0x10, 0x00, 0x01, 0x00,
+		0x64, 0x40, 0x08, 0x00, 0x00, 0xf1, 0x10, 0x00, 0x00, 0x01,
+		0x00, 0x00, 0x86, 0x40, 0x01, 0x30
+};
+
+static void test_s1ap_corpus_initial_ue_message(void) {
+	s1ap_message_t msg;
+	int ret;
+
+	printf("S1AP accuracy-corpus InitialUEMessage (issue #427):\n");
+	memset(&msg, 0, sizeof(msg));
+	ret = s1ap_decode(&msg, VECTOR_CORPUS_INITIAL_UE_MESSAGE,
+			sizeof(VECTOR_CORPUS_INITIAL_UE_MESSAGE));
+	CHECK("spec-valid InitialUEMessage decodes", ret == 0);
+	CHECK("initiatingMessage present", msg.pdu_present == S1AP_PDU_PR_initiatingMessage);
+	CHECK("procedure code 12", msg.procedure_code == 12);
+	CHECK("eNB-UE-S1AP-ID 1", msg.enb_ue_id == 1);
+	CHECK("IMSI 001010123456789",
+			msg.has_imsi && strcmp(msg.imsi, "001010123456789") == 0);
+
+	/* an open-type length running past the buffer must still fail cleanly:
+	 * cut the PDU inside the NAS-PDU IE value */
+	memset(&msg, 0, sizeof(msg));
+	ret = s1ap_decode(&msg, VECTOR_CORPUS_INITIAL_UE_MESSAGE, 24);
+	CHECK("truncated inside an IE value rejected", ret < 0);
+}
 
 static void test_s1ap_valid_vectors(void) {
 	s1ap_message_t msg;
@@ -134,8 +174,10 @@ static void test_s1ap_valid_vectors(void) {
 	memset(&msg, 0, sizeof(msg));
 	ret = s1ap_decode(&msg, VECTOR_ATTACH_REQUEST_IMSI,
 			sizeof(VECTOR_ATTACH_REQUEST_IMSI));
-	CHECK("outer decode reaches the message handler", ret == -1);
+	CHECK("InitialUEMessage IEs decode (#427)", ret == 0);
 	CHECK("procedure code extracted", msg.procedure_code == 12);
+	CHECK("IMSI extracted from the NAS-PDU IE (#427)",
+			msg.has_imsi && strcmp(msg.imsi, "001012345678998") == 0);
 	CHECK("IMSI buffer keeps its terminator slot clean (F-BUG-220)",
 			msg.imsi[15] == '\0');
 
@@ -456,6 +498,7 @@ static void test_ngap_choice_discriminant(void) {
 int main(void) {
 	test_s1ap_outer_ok_inner_fail();
 	test_s1ap_valid_vectors();
+	test_s1ap_corpus_initial_ue_message();
 	test_ngap_get_nas_pdu();
 	test_s1ap_decode_failure_no_leak();
 	test_s1ap_entity_store_cap();
