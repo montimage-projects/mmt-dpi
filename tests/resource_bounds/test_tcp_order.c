@@ -168,7 +168,8 @@ static void build_order(int w, uint32_t n) {
 	}
 }
 
-static uint32_t g_admitted;   /* of the last run_workload() */
+static uint32_t g_admitted;       /* of the last run_workload() */
+static uint64_t g_refused_bytes;  /* dropped bytes = refused one-byte offers */
 
 static uint64_t run_workload(int w, uint32_t n) {
 	/* shuffled straddles the 32-bit wrap; the others start mid-space */
@@ -177,10 +178,11 @@ static uint64_t run_workload(int w, uint32_t n) {
 	snprintf(what, sizeof(what), "%s %u", w_name[w], n);
 	build_order(w, n);
 	session_open();
-	uint64_t v0 = g_visits;
+	uint64_t v0 = g_visits, d0 = g_dropped;
 	uint32_t admitted = 0;
 	for (uint32_t i = 0; i < n; i++) admitted += offer1(base, g_order[i]);
 	uint64_t visits = g_visits - v0;
+	g_refused_bytes = g_dropped - d0;
 	g_admitted = admitted;
 	CHECK(admitted == n, "%s: admitted %u (no capacity refusal expected)", what, admitted);
 	check_index(n, what);
@@ -194,8 +196,10 @@ static void test_workloads(void) {
 	for (int w = 0; w < W_COUNT; w++) {
 		uint64_t vs = run_workload(w, N_SMALL);
 		uint32_t as = g_admitted;
+		uint64_t rs = g_refused_bytes;
 		uint64_t vl = run_workload(w, N_LARGE);
 		uint32_t al = g_admitted;
+		uint64_t rl = g_refused_bytes;
 		CHECK(vs < EVIDENCE_SMALL, "%s: %llu visits at 1,024, bound 261,632", w_name[w],
 		      (unsigned long long) vs);
 		CHECK(vl < EVIDENCE_LARGE, "%s: %llu visits at 16,384, bound 67,100,672",
@@ -205,8 +209,8 @@ static void test_workloads(void) {
 		printf("  %-11s 1,024 -> %7llu visits, 16,384 -> %8llu visits (x%.1f)\n",
 		       w_name[w], (unsigned long long) vs, (unsigned long long) vl,
 		       vs ? (double) vl / (double) vs : 0.0);
-		const struct { uint32_t n, acc; uint64_t visits; } run[2] = {
-			{ N_SMALL, as, vs }, { N_LARGE, al, vl } };
+		const struct { uint32_t n, acc; uint64_t ref, visits; } run[2] = {
+			{ N_SMALL, as, rs, vs }, { N_LARGE, al, rl, vl } };
 		for (int i = 0; i < 2; i++) {
 			char k[64];
 			snprintf(k, sizeof k, "%s.n%u.offers", w_name[w], run[i].n);
@@ -214,7 +218,7 @@ static void test_workloads(void) {
 			snprintf(k, sizeof k, "%s.n%u.accepted", w_name[w], run[i].n);
 			rb_metric(RB, k, run[i].acc);
 			snprintf(k, sizeof k, "%s.n%u.refused", w_name[w], run[i].n);
-			rb_metric(RB, k, run[i].n - run[i].acc);
+			rb_metric(RB, k, run[i].ref);
 			snprintf(k, sizeof k, "%s.n%u.visits", w_name[w], run[i].n);
 			rb_metric(RB, k, run[i].visits);
 		}
@@ -234,13 +238,14 @@ static void test_duplicates(void) {
 	for (uint32_t i = 1; i + 1 < n; i += 4) CHECK(offer1(base, i), "odd %u dropped", i);
 	mmt_tcp_reasm_t *r = g_session.tcp_reasm;
 	uint64_t res0 = r->reserved, live0 = r->live, calls0 = tcm_calls;
-	uint32_t refused = 0, offers = 0;
+	uint32_t refused = 0, accepted = 0, offers = 0;
 	for (uint32_t i = 2; i + 2 < n; i += 2) {
 		offers++;
 		uint8_t b = 0xEE;
 		uint64_t d0 = g_dropped;
 		tcp_reasm_offer(&g_session, 0, 1, base + i, 0, &b, 1);
 		refused += (g_dropped == d0 + 1);
+		accepted += (g_dropped == d0);
 	}
 	CHECK(refused == n / 2 - 2, "interior duplicates refused %u of %u", refused, n / 2 - 2);
 	CHECK(r->reserved == res0 && r->live == live0 && tcm_calls == calls0,
@@ -252,7 +257,7 @@ static void test_duplicates(void) {
 	printf("  duplicates: %u interior duplicates refused through the index, nothing carved\n",
 	       refused);
 	rb_metric(RB, "duplicates.offers", offers);
-	rb_metric(RB, "duplicates.accepted", offers - refused);
+	rb_metric(RB, "duplicates.accepted", accepted);
 	rb_metric(RB, "duplicates.refused", refused);
 }
 

@@ -241,9 +241,11 @@ jq -n -R --slurpfile budgets "${BUDGETS}" --rawfile status "${WORK}/status" \
       --arg budgets_path "${BUDGETS#"${REPO_ROOT}/"}" '
   $budgets[0] as $B
   | [inputs | split(" ") | select(.[0] == "@rb")] as $raw
-  | [$raw[] | select(length != 5 or (.[2] != "metric" and .[2] != "seed"))
-     | join(" ")] as $malformed
-  | [$raw[] | select(length == 5 and (.[2] == "metric" or .[2] == "seed"))] as $L
+  | def wellformed: length == 5 and (.[3] | test("^[a-z0-9_.-]+$"))
+        and ((.[2] == "metric" and (.[4] | test("^[0-9]+$")))
+             or (.[2] == "seed" and (.[4] | test("^0x[0-9a-f]{16}$"))));
+    [$raw[] | select(wellformed | not) | join(" ")] as $malformed
+  | [$raw[] | select(wellformed)] as $L
   | [$L | group_by(.[1:4])[] | select(length > 1) | .[0][1:4] | join(" ")] as $dups
   | [$status | split("\n")[] | select(length > 0) | split(" ")
      | {key: .[0], value: (.[1] | tonumber)}] as $S
@@ -271,6 +273,8 @@ jq -n -R --slurpfile budgets "${BUDGETS}" --rawfile status "${WORK}/status" \
          elif ($c.op | IN("eq", "sum", "le", "lt") | not) then {error: "unknown op"}
          else {} end) ] as $C
   | [$S[] | select(($B.fixtures[.key].checks // []) | length == 0) | .key] as $unbudgeted
+  | ([$S[].key]) as $ran
+  | [$L[] | .[1] | select(. as $f | $ran | index($f) | not)] | unique as $stray
   | {
       schema: "mmt-dpi/resource-bounds-result/v1",
       budgets: $budgets_path,
@@ -283,7 +287,8 @@ jq -n -R --slurpfile budgets "${BUDGETS}" --rawfile status "${WORK}/status" \
       checks: $C,
       errors: ([$malformed[] | "malformed line: \(.)"]
                + [$dups[] | "duplicate key: \(.)"]
-               + [$unbudgeted[] | "fixture without budgets: \(.)"]),
+               + [$unbudgeted[] | "fixture without budgets: \(.)"]
+               + [$stray[] | "results for a fixture that did not run: \(.)"]),
       summary: {
         fixtures: ($S | length),
         failed_fixtures: ([$S[] | select(.value != 0)] | length),

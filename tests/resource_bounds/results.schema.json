@@ -57,7 +57,7 @@
     },
     "errors": {
       "type": "array",
-      "description": "Malformed @rb lines, duplicate keys and fixtures without budgets; any entry fails the run.",
+      "description": "Malformed @rb lines, duplicate keys, fixtures without budgets and results for fixtures that did not run; any entry fails the run.",
       "items": { "type": "string" }
     },
     "summary": {
