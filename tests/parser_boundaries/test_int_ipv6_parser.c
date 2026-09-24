@@ -280,6 +280,17 @@ int main(void) {
         n = build_int_udp(pkt, 1, 0x0a, 41003, 1, 0x8000, 2);
         run(h, pkt, n);
         CHECK(!g.int_seen, "IPv6 other DSCP: INT not detected");
+
+        /* the low Traffic Class nibble (IPv6 byte 1) is part of the DSCP */
+        n = build_int_udp(pkt, 1, 0x21, 41010, 1, 0x8000, 2);
+        run(h, pkt, n);
+        CHECK(!g.int_seen, "IPv6 DSCP 0x21: INT not detected");
+
+        /* ECN bits do not affect the DSCP: Traffic Class 0x83 */
+        n = build_int_udp(pkt, 1, 0x20, 41011, 1, 0x8000, 2);
+        pkt[14 + 1] |= 0x30;
+        run(h, pkt, n);
+        CHECK(g.int_seen, "IPv6 DSCP 0x20 with ECN bits set: INT detected");
     }
 
     printf("issue #332: INT hop metadata parsing\n");

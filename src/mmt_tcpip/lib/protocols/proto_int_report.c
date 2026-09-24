@@ -59,7 +59,7 @@ static bool _parse_inner_ip(uint16_t eth_type, const u_char **cursor, const u_ch
 
 	switch( eth_type ){
 	case ETH_TYPE_IP:
-		if( avail < IPV4_MIN_HDR_SIZE )
+		if( avail < IPV4_MIN_HDR_SIZE || (p[0] >> 4) != 4 )
 			return false;
 		hdr_len = (size_t)(p[0] & 0x0f) * 4; //IHL in 4-byte words
 		if( hdr_len < IPV4_MIN_HDR_SIZE || hdr_len > avail )
