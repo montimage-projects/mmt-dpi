@@ -114,7 +114,7 @@ int register_evasion_handler(mmt_handler_t * mmt_handler, generic_evasion_handle
 With `evasion_handler`:
 
 ```c
-void evasion_handler(const ipacket_t * ipacket, uint32_t proto_id, unsigned proto_index, unsigned evasion_id, void * data, void * args);
+void evasion_handler(const ipacket_t * ipacket, mmt_proto_id_t proto_id, mmt_proto_index_t proto_index, unsigned evasion_id, mmt_opaque_t data, mmt_opaque_t args);
 ```
 
 Signature from `src/mmt_core/public_include/mmt_core.h:125` (`generic_evasion_handler_callback`).

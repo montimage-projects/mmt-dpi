@@ -221,7 +221,8 @@ src, dst, site_url, site_dir, prefix = sys.argv[1:6]
 local_url = "file://" + urllib.parse.quote(site_dir) + "/"
 lines = []
 for cmd in open(src, encoding="utf-8").read().splitlines():
-    cmd = cmd.replace(site_url, local_url).replace("/opt/mmt/", shlex.quote(prefix) + "/")
+    # prefix first: a checkout under /opt/mmt/ must not have its file URL rewritten
+    cmd = cmd.replace("/opt/mmt/", shlex.quote(prefix) + "/").replace(site_url, local_url)
     if cmd.startswith("gcc "):
         cmd = '${CC:-gcc} ${EXTRA_CFLAGS:-} ' + cmd[len("gcc "):]
     lines.append(cmd)
