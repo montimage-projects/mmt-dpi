@@ -27,7 +27,8 @@ typedef struct {
 	nas_octet_string_t                 esm_message_container;
 	/* Optional fields (TS 24.301 §8.2.1). Each one that was seen sets its
 	 * NAS_EMM_ATTACH_ACCEPT_HAS_* bit in `present`; only the first
-	 * occurrence of a repeated IE is kept (TS 24.301 §7.6.3). Octet
+	 * occurrence of a repeated IE is kept (TS 24.301 §7.6.3); for the
+	 * GUTI, the first well-formed one. Octet
 	 * strings are views of the IE value inside the decoded buffer. */
 	uint32_t                           present;
 	nas_eps_mobile_identity_t          guti;

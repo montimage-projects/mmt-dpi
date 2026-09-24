@@ -112,7 +112,8 @@ static int _decode_optional_ie(nas_emm_attach_accept_t *acc, const uint8_t *buff
 		if( nas_decode_eps_mobile_identity( &acc->guti, ATTACH_ACCEPT_GUTI_IEI,
 				buffer, hdr + value_len ) > 0 )
 			acc->present |= NAS_EMM_ATTACH_ACCEPT_HAS_GUTI;
-		else /* a malformed GUTI must not leave a half-filled identity */
+		else /* a malformed GUTI must not leave a half-filled identity;
+		      * the first well-formed GUTI is the one kept */
 			memset( &acc->guti, 0, sizeof( acc->guti ));
 		break;
 	case ATTACH_ACCEPT_MS_IDENTITY_IEI:
