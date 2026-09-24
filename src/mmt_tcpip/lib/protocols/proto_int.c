@@ -79,14 +79,16 @@ static int _classify_int_from_tcp(ipacket_t * ipacket, unsigned index) {
  * Length in bytes of the INT header stack (shim + metadata header + metadata
  * stack) at the given index: the shim Length field counts 4-byte words and
  * includes the shim and the 8-byte metadata header (3 words at least).
- * Falls back to the historical 56 bytes when the shim is absent or invalid.
+ * Falls back to the historical 56 bytes when the shim is absent or invalid
+ * (the QUIC_IETF-over-INT checker still probes at 56 bytes, see #333).
  */
 static int _int_header_length(const ipacket_t *ipacket, unsigned index) {
 	int offset = get_packet_offset_at_index(ipacket, index);
 	if( offset < 0 || !mmt_have_bytes(ipacket, (size_t)offset, sizeof(int_shim_tcpudp_v10_t)) )
 		return INT_DEFAULT_LENGTH;
 	const int_shim_tcpudp_v10_t *shim = (const int_shim_tcpudp_v10_t *) &ipacket->data[offset];
-	if( shim->length < 3 )
+	//same shim types as the attribute extraction accepts
+	if( shim->type > 1 || shim->length < 3 )
 		return INT_DEFAULT_LENGTH;
 	return shim->length * 4;
 }

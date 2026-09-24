@@ -178,16 +178,21 @@ static void run(mmt_handler_t *h, const uint8_t *pkt, size_t len) {
     free(cap);
 }
 
-/* Ethernet/IP(v4|v6)/UDP carrying INT + 8 opaque payload bytes. */
-static size_t build_int_udp(uint8_t *pkt, int v6, uint8_t dscp, uint16_t sport,
+/* Ethernet/IP(v4 with ihl words|v6)/UDP carrying INT + 8 opaque payload bytes. */
+static size_t build_int_udp_ihl(uint8_t *pkt, int v6, unsigned ihl, uint8_t dscp, uint16_t sport,
         uint8_t hop_ml, uint16_t ins, unsigned nb_words) {
     size_t int_len = 12 + 4 * nb_words + 8;
     size_t o = put_eth(pkt, v6 ? 0x86DD : 0x0800);
-    o += v6 ? put_ip6(pkt + o, dscp, 8 + int_len) : put_ip4(pkt + o, dscp, 5, 8 + int_len);
+    o += v6 ? put_ip6(pkt + o, dscp, 8 + int_len) : put_ip4(pkt + o, dscp, ihl, 8 + int_len);
     o += put_udp(pkt + o, sport, 40000, 8 + int_len);
     o += put_int(pkt + o, hop_ml, ins, nb_words);
     memset(pkt + o, 0x5a, 8);
     return o + 8;
+}
+
+static size_t build_int_udp(uint8_t *pkt, int v6, uint8_t dscp, uint16_t sport,
+        uint8_t hop_ml, uint16_t ins, unsigned nb_words) {
+    return build_int_udp_ihl(pkt, v6, 5, dscp, sport, hop_ml, ins, nb_words);
 }
 
 /* Ethernet/IPv4/UDP:6000 INT report of an inner Ethernet/IP(v4|v6)/UDP/INT. */
@@ -259,6 +264,18 @@ int main(void) {
         run(h, pkt, n);
         CHECK(g.int_seen, "IPv6 Traffic Class DSCP 0x20: INT detected");
         CHECK(g.has_num_hop && g.num_hop == 2, "IPv6: two hops of one word");
+        CHECK(g.after_int_offset == 20, "IPv6: layer after INT starts at shim length");
+
+        /* DSCP read at the carrier's own offset, not 20 bytes before UDP */
+        n = build_int_udp_ihl(pkt, 0, 6, 0x20, 41008, 1, 0x8000, 2);
+        run(h, pkt, n);
+        CHECK(g.int_seen, "IPv4 with options, DSCP 0x20: INT detected");
+
+        /* shim length below the 3-word minimum: historical 56-byte fallback */
+        n = build_int_udp(pkt, 0, 0x20, 41009, 1, 0x8000, 2);
+        pkt[14 + 20 + 8 + 2] = 2;
+        run(h, pkt, n);
+        CHECK(g.int_seen && g.after_int_offset == 56, "shim length < 3: layer after INT at 56 bytes");
 
         n = build_int_udp(pkt, 1, 0x0a, 41003, 1, 0x8000, 2);
         run(h, pkt, n);
