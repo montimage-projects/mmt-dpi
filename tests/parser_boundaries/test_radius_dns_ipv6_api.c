@@ -161,6 +161,7 @@ int main(void) {
     CHECK(!g_dns_seen, "sub-attribute shorter than one address is not extracted");
 
     run_case(h, 40004, 16, 8);
+    CHECK(g_radius_seen, "over-long VSA frame is classified as RADIUS");
     CHECK(!g_dns_seen, "VSA running past the capture is not extracted");
 
     mmt_close_handler(h);

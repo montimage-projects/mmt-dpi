@@ -202,6 +202,21 @@ static void check_malformed(void) {
     CHECK(run(tcp_option_extraction, TCP_OPT_WSCALE, pkt, sizeof(pkt), sizeof(pkt), &v) == 0,
           "window scale running past the header end must not extract");
 
+    /* Fully captured header, but the option's declared length crosses the
+     * data-offset end: the per-option cursor check (not the header-level
+     * caplen gate) must reject. MSS at +38 (len 4 -> ends at +42 > +40). */
+    memcpy(pkt, syn_opts, sizeof(pkt));
+    memset(pkt + 20, 0x01, 18);           /* NOPs up to +37 */
+    pkt[38] = 0x02; pkt[39] = 0x04;
+    CHECK(run(tcp_option_extraction, TCP_OPT_MSS, pkt, sizeof(pkt), sizeof(pkt), &v) == 0,
+          "MSS whose length crosses the header end must not extract");
+    /* Timestamps at +32 (len 10 -> ends at +42 > +40). */
+    memcpy(pkt, syn_opts, sizeof(pkt));
+    memset(pkt + 20, 0x01, 12);
+    pkt[32] = 0x08; pkt[33] = 0x0a;
+    CHECK(run(tcp_option_extraction, TCP_TSVAL, pkt, sizeof(pkt), sizeof(pkt), &v) == 0,
+          "timestamps whose length crosses the header end must not extract");
+
     /* Window scale of length 2 (no shift byte) is skipped, never read. */
     memcpy(pkt, syn_opts, sizeof(pkt));
     pkt[38] = 2; pkt[39] = 0x00;          /* then end-of-options */
