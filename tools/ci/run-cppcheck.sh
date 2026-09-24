@@ -31,7 +31,10 @@
 #     tools/ci/cppcheck-ratchet.txt with the new release and bump the pin in
 #     the same change;
 #   - mismatch locally -> warning; the ratchet verdict is advisory only (the
-#     count is not comparable) while the error-severity gate stays enforced.
+#     count is not comparable) while the error-severity gate stays enforced
+#     (another release may also add or drop error checks, so a local error
+#     verdict may not reproduce in CI). Only CI=true (GitHub Actions) counts
+#     as CI.
 # For a verdict that matches CI, run cppcheck $CPPCHECK_PINNED_VERSION.x
 # locally (e.g. in an ubuntu:24.04 container: apt-get install -y cppcheck).
 # Never raise the baseline to absorb version drift.
