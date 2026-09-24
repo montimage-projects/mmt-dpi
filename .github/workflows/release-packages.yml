@@ -7,9 +7,7 @@ name: Build & release packages
 #
 # Each distribution is built inside its own container image (GitHub-hosted
 # runners only provide Ubuntu/macOS/Windows), for both amd64 and arm64.
-# The arm64 legs run on GitHub's native arm64 runner (ubuntu-24.04-arm), not
-# under QEMU user emulation: emulated ldconfig from the Ubuntu 22.04 image
-# intermittently died with `qemu: uncaught target signal 11` (issue #421).
+# The arm64 legs run on GitHub's native arm64 runner (see the build job).
 # Every run uploads the packages as CI artifacts; pushing a `v*` tag
 # additionally attaches them all to a GitHub Release.
 #
