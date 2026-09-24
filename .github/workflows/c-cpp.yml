@@ -160,7 +160,9 @@ jobs:
       # Issue #189 (F-CI-004): two gates, both enforced. Pass 1 in the script
       # writes cppcheck-report.xml (the artifact uploaded below) and fails when
       # the total finding count rises above tools/ci/cppcheck-ratchet.txt;
-      # pass 2 fails on any error-severity finding.
+      # pass 2 fails on any error-severity finding. The ratchet is pinned to
+      # this runner's cppcheck release (CPPCHECK_PINNED_VERSION in the script,
+      # issue #345): a different version here fails the step with exit 2.
       run: bash tools/ci/run-cppcheck.sh
     - name: Upload cppcheck findings report
       if: always()
