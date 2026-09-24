@@ -181,6 +181,17 @@ static void test_s1ap_valid_vectors(void) {
 	CHECK("IMSI buffer keeps its terminator slot clean (F-BUG-220)",
 			msg.imsi[15] == '\0');
 
+	/* even digit count: the last octet carries the 0xF filler, so the
+	 * IMSI is 14 digits with no trailing '?' (issue #427 review) */
+	memcpy(buf, VECTOR_ATTACH_REQUEST_IMSI,
+			sizeof(VECTOR_ATTACH_REQUEST_IMSI));
+	buf[16] = 0x01; /* digit1 0, even, type IMSI */
+	buf[23] = 0xF9; /* digit14 9, filler */
+	memset(&msg, 0, sizeof(msg));
+	ret = s1ap_decode(&msg, buf, sizeof(VECTOR_ATTACH_REQUEST_IMSI));
+	CHECK("even-length IMSI has 14 digits",
+			ret == 0 && strcmp(msg.imsi, "00101234567899") == 0);
+
 	/* truncated packet: outer decode fails, must not crash */
 	memset(&msg, 0, sizeof(msg));
 	ret = s1ap_decode(&msg, VECTOR_ATTACH_REQUEST_IMSI, 10);

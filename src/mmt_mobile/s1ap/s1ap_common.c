@@ -212,7 +212,13 @@ static inline int _s1ap_decode_e_rabtobesetuplistctxtsureq(
 					if( octet->len > 0 ){
 						nas_msg_t  mm;
 						memset( &mm, 0, sizeof( mm ) );
-						if( nas_decode( &mm, octet->data, octet->len) > 0 ){
+						/* issue #427 review: only read the ESM view of a plain
+						 * Activate Default EPS Bearer Context Request — any other
+						 * layout aliases unrelated union bytes as the PDN address */
+						if( nas_decode( &mm, octet->data, octet->len) > 0
+								&& nas_is_plain_msg( &mm )
+								&& mm.plain_msg.header.protocol_discriminator == NAS_EPS_SESSION_MANAGEMENT_MESSAGE
+								&& mm.plain_msg.esm.header.message_type == NAS_ESM_ACTIVATE_DEFAULT_EPS_BEARER_CONTEXT_REQUEST ){
 							// F-BUG-202: bound UE-IP read by pdn_type-implied minimum
 							nas_pdn_address_t *pdn = &mm.plain_msg.esm.active_default_esp_bearer_context_request.pdn_address;
 							if( pdn && pdn->pdn_type_value == NAS_PDN_VALUE_TYPE_IPV4
@@ -460,6 +466,10 @@ static inline int _decode_s1ap_initialuemessageies(
 						message->imsi[13] ='0' + imsi->digit14;
 						message->imsi[14] ='0' + imsi->digit15;
 						message->imsi[15] = '\0';
+						/* an even digit count ends with the 0xF filler
+						 * (TS 24.301 §9.9.3.12): 14 digits, not a '?' */
+						if( imsi->oddeven == EPS_MOBILE_IDENTITY_EVEN )
+							message->imsi[14] = '\0';
 						message->has_imsi = 1;
 						//printf("Got IMSI: %.*s\n", 15, message->imsi );
 						break;
