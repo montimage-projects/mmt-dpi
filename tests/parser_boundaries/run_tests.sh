@@ -71,9 +71,22 @@
 #                               functions of the linked SDK over exactly
 #                               caplen-sized heap captures.
 #
+# Issue #331 adds the "tcp-options" and "radius-dns" fixtures: the appended
+# tcp.mss / tcp.wscale / tcp.sack_permitted attributes and the 4-byte
+# tcp.syn_received result, and the radius.dns_ipv6 extraction (first server
+# of the 3GPP-IPv6-DNS-Servers vendor sub-attribute).
+#
+#   test_tcp_options_bounds.c  — calls the exported tcp_option_extraction()
+#                               and tcp_syn_rcv_extraction() over exactly
+#                               caplen-sized heap captures (every truncation,
+#                               mis-sized and odd-offset options).
+#   test_radius_dns_ipv6_api.c — packet/API path: crafted
+#                               Ethernet/IPv4/UDP/RADIUS Accounting-Requests
+#                               through mmt_init_handler + packet_process.
+#
 # Usage: tests/parser_boundaries/run_tests.sh [fixture ...]
-#   no arguments runs every fixture; "udp"/"dtls"/"dns-soa"/"dns-txt"/"dns-names"/"nfs"
-#   select a fixture family.
+#   no arguments runs every fixture; "udp"/"dtls"/"dns-soa"/"dns-txt"/"dns-names"/"nfs"/
+#   "tcp-options"/"radius-dns" select a fixture family.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -81,7 +94,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # --- fixture selection -----------------------------------------------------
 FIXTURES=( "$@" )
-[ "${#FIXTURES[@]}" -eq 0 ] && FIXTURES=(udp dtls dns-soa dns-txt dns-names nfs)
+[ "${#FIXTURES[@]}" -eq 0 ] && FIXTURES=(udp dtls dns-soa dns-txt dns-names nfs tcp-options radius-dns)
 UNIT_TESTS=()
 API_TESTS=()
 for f in "${FIXTURES[@]}"; do
@@ -105,8 +118,14 @@ for f in "${FIXTURES[@]}"; do
         nfs)
             API_TESTS+=(nfs_rpc_header_bounds)
             ;;
+        tcp-options)
+            API_TESTS+=(tcp_options_bounds)
+            ;;
+        radius-dns)
+            API_TESTS+=(radius_dns_ipv6_api)
+            ;;
         *)
-            echo "✗ unknown parser_boundaries fixture '$f' (known: udp dtls dns-soa dns-txt dns-names nfs)" >&2
+            echo "✗ unknown parser_boundaries fixture '$f' (known: udp dtls dns-soa dns-txt dns-names nfs tcp-options radius-dns)" >&2
             exit 2
             ;;
     esac
@@ -213,4 +232,4 @@ if [ "${rc}" -ne 0 ]; then
     echo "✗ parser boundary tests failed" >&2
     exit 1
 fi
-echo "✓ parser boundary tests passed (issues #375, #376, #377, #378, #407, #409)"
+echo "✓ parser boundary tests passed (issues #331, #375, #376, #377, #378, #407, #409)"
