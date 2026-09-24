@@ -212,11 +212,13 @@ static inline int _s1ap_decode_e_rabtobesetuplistctxtsureq(
 					if( octet->len > 0 ){
 						nas_msg_t  mm;
 						memset( &mm, 0, sizeof( mm ) );
-						/* issue #427 review: only read the ESM view of a plain
+						/* issue #427 review: only read the ESM view of an
 						 * Activate Default EPS Bearer Context Request — any other
-						 * layout aliases unrelated union bytes as the PDN address */
+						 * layout aliases unrelated union bytes as the PDN address.
+						 * nas_decode() routes every ESM PDU to the plain decoder;
+						 * octet 1's upper nibble is the EPS bearer identity, not a
+						 * security header type, so nas_is_plain_msg() must not gate */
 						if( nas_decode( &mm, octet->data, octet->len) > 0
-								&& nas_is_plain_msg( &mm )
 								&& mm.plain_msg.header.protocol_discriminator == NAS_EPS_SESSION_MANAGEMENT_MESSAGE
 								&& mm.plain_msg.esm.header.message_type == NAS_ESM_ACTIVATE_DEFAULT_EPS_BEARER_CONTEXT_REQUEST ){
 							// F-BUG-202: bound UE-IP read by pdn_type-implied minimum
