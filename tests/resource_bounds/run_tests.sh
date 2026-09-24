@@ -278,8 +278,9 @@ jq -n -R --slurpfile budgets "${BUDGETS}" --rawfile status "${WORK}/status" \
       # "invalid budget", not as a missing metric (issue #395).
       | (if ($c.op | IN("eq", "le", "lt", "sum") | not) then false
          elif $c.op == "sum" then (($c.parts | type) == "array" and ($c.parts | length) > 0)
-         elif ($c | has("limit_metric")) then (($c.limit_metric | type) == "string")
-         else (($c.limit | type) == "number") end) as $valid
+         elif ($c | has("limit_metric")) then (($c.limit_metric | type) == "string"
+              and (($c.factor // 1) | type == "number" and . == floor and . > 0))
+         else ($c.limit | type == "number" and . == floor) end) as $valid
       | (if ($valid | not) then null
          elif $c.op == "sum" then
            [$c.parts[] | mval($f; .)] as $p

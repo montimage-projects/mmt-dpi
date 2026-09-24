@@ -528,6 +528,8 @@ jobs:
         RESOURCE_BOUNDS_RESULTS: ${{ runner.temp }}/resource-bounds/results.json
       run: bash tests/resource_bounds/run_tests.sh all
     - name: Re-check the published results (all dimensions required)
+      # Explicit full-mode re-check of the uploaded file, independent of the
+      # runner's own invocation.
       run: python3 tools/ci/check-resource-budgets.py "${{ runner.temp }}/resource-bounds/results.json"
     - name: Upload resource-bound results
       if: success() || failure()
@@ -535,5 +537,5 @@ jobs:
       with:
         name: resource-bounds-results-${{ runner.arch }}
         path: ${{ runner.temp }}/resource-bounds/results.json
-        if-no-files-found: error
+        if-no-files-found: warn
         retention-days: 14

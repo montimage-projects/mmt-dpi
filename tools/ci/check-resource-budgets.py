@@ -225,6 +225,10 @@ def gate(results, budgets, schema, partial=False):
             fails.append("fixture %s: issue/finding differ from budgets.json" % fx)
         if not rec["metrics"]:
             fails.append("fixture %s: no metrics recorded" % fx)
+        # The workload record the fixture itself emits: its fixed seeds
+        # (the description above is copied from budgets.json by the runner).
+        if not rec["seeds"]:
+            fails.append("fixture %s: no seed recorded (workload record missing)" % fx)
         held = 0
         for check in spec["checks"]:
             key = (fx, check["id"])
@@ -380,6 +384,9 @@ def self_test():
     case("--partial accepts a single-fixture run", single, partial=True)
     case("missing workload record fails", edited(lambda r: r["fixtures"]["mem"].update(workload=None)),
          expect="fixture mem: missing workload record")
+    case("missing seed (fixture-emitted workload record) fails",
+         edited(lambda r: r["fixtures"]["mem"].update(seeds={})),
+         expect="fixture mem: no seed recorded")
     case("empty metric record fails", edited(lambda r: r["fixtures"]["cpu"].update(metrics={})),
          expect="fixture cpu: no metrics recorded")
     case("failed fixture exit status fails", edited(lambda r: r["fixtures"]["mem"].update(exit_status=1)),
