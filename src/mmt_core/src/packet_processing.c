@@ -527,7 +527,6 @@ int mmt_stats_fprintf(FILE *f, attribute_internal_t * attr) {
                              r.packets, r.data_volume, r.payload_volume, r.sessions, r.timedout_sessions);
 }
 
-
 int mmt_attr_fprintf(FILE * f, attribute_t * a) {
     attribute_internal_t * attr = (attribute_internal_t *) a;
     switch (mmt_attr_get_data_type_typed(a)) {
@@ -572,6 +571,7 @@ int mmt_attr_fprintf(FILE * f, attribute_t * a) {
          * MMT_U16/U32/U64_ARRAY) reuse their mmt_attr_snprintf() text form; a
          * type with no text form returns -1 and writes nothing. */
         char buff[MMT_BINARYVAR_STRLEN];
+        buff[0] = '\0'; /* an empty MMT_U*_ARRAY writes no terminator */
         if (mmt_attr_snprintf(buff, (int) sizeof(buff), a) < 0) return -1;
         return mmt_stream_printf(f, "%s", buff);
     }
@@ -728,6 +728,7 @@ int mmt_attr_format(FILE * f, attribute_t * a) {
     default: {
         /* Issue #328: same text-form fallback as mmt_attr_fprintf(). */
         char buff[MMT_BINARYVAR_STRLEN];
+        buff[0] = '\0'; /* an empty MMT_U*_ARRAY writes no terminator */
         if (mmt_attr_snprintf(buff, (int) sizeof(buff), a) < 0) return -1;
         return mmt_stream_printf(f, "Attribute %s.%s = %s\n",
                        get_protocol_name_by_id(attr->proto_id), get_attribute_name_by_protocol_and_attribute_ids(attr->proto_id, attr->field_id), buff);

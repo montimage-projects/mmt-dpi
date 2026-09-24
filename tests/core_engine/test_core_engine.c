@@ -1373,6 +1373,12 @@ static void test_attr_report_output(void) {
     attr.data = &arr;
     CHECK(capture_stream(mmt_attr_fprintf, a, out, sizeof(out), &ret) && strcmp(out, "17,42") == 0,
           "MMT_U16_ARRAY fprintf writes the snprintf text form");
+    arr.len = 0;
+    CHECK(capture_stream(mmt_attr_fprintf, a, out, sizeof(out), &ret) && ret == 0 && out[0] == '\0',
+          "empty MMT_U16_ARRAY fprintf writes nothing");
+    CHECK(capture_stream(mmt_attr_format, a, out, sizeof(out), &ret)
+              && ret > 0 && strstr(out, " = \n") != NULL,
+          "empty MMT_U16_ARRAY format dumps an empty value");
 }
 
 static int g_proto_seen, g_attr_seen;

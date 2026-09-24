@@ -1313,8 +1313,8 @@ MMTAPI int MMTCALL mmt_strncmp(
  * @param f Pointer to a FILE object that identifies an output stream.
  * @param attr Pointer to the attribute to format.
  * @return On success, the total number of characters written is returned. <br>
- * If a writing error occurs, or the attribute's data type has no text form, a negative value is returned
- * and nothing is written.
+ * If a writing error occurs, or the attribute's data type has no text form, a negative value is returned;
+ * for a data type with no text form nothing is written.
  */
 MMTAPI int MMTCALL mmt_attr_format(FILE * f, attribute_t * attr);
 
@@ -1324,8 +1324,8 @@ MMTAPI int MMTCALL mmt_attr_format(FILE * f, attribute_t * attr);
  * @param f Pointer to a FILE object that identifies an output stream.
  * @param attr Pointer to the attribute to format.
  * @return On success, the total number of characters written is returned. <br>
- * If a writing error occurs, or the attribute's data type has no text form, a negative value is returned
- * and nothing is written.
+ * If a writing error occurs, or the attribute's data type has no text form, a negative value is returned;
+ * for a data type with no text form nothing is written.
  */
 MMTAPI int MMTCALL mmt_attr_fprintf(FILE * f, attribute_t * attr);
 
