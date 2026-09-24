@@ -41,6 +41,12 @@ static inline void _set_octets(nas_emm_attach_accept_t *acc, uint32_t bit,
 	acc->present |= bit;
 }
 
+/* Count a skipped IE; saturates instead of wrapping */
+static inline void _count_unknown(nas_emm_attach_accept_t *acc){
+	if( acc->unknown_ies < UINT8_MAX )
+		acc->unknown_ies ++;
+}
+
 static inline void _set_u8(nas_emm_attach_accept_t *acc, uint32_t bit,
 		uint8_t *dst, uint8_t value){
 	if( acc->present & bit )
@@ -65,7 +71,7 @@ static int _decode_optional_ie(nas_emm_attach_accept_t *acc, const uint8_t *buff
 			_set_u8( acc, NAS_EMM_ATTACH_ACCEPT_HAS_ADDITIONAL_UPDATE_RESULT,
 					&acc->additional_update_result, iei & 0x0F );
 		else
-			acc->unknown_ies ++;
+			_count_unknown( acc );
 		return 1;
 	}
 
@@ -130,7 +136,7 @@ static int _decode_optional_ie(nas_emm_attach_accept_t *acc, const uint8_t *buff
 				&acc->t3412_extended_value, buffer + hdr, value_len );
 		break;
 	default:
-		acc->unknown_ies ++;
+		_count_unknown( acc );
 		break;
 	}
 	return (int)(hdr + value_len);

@@ -41,7 +41,7 @@ typedef struct {
 	nas_octet_string_t                 emergency_number_list;
 	nas_octet_string_t                 eps_network_feature_support;
 	nas_octet_string_t                 t3412_extended_value;
-	uint8_t                            unknown_ies;          /* skipped, not decoded */
+	uint8_t                            unknown_ies;          /* skipped, not decoded (saturates at 255) */
 } nas_emm_attach_accept_t;
 
 #define NAS_EMM_ATTACH_ACCEPT_HAS_GUTI                        (1u << 0)

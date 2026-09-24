@@ -1,7 +1,7 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "tracking_area_identity_list.h"
 #include "../util/decoder.h"
@@ -49,6 +49,10 @@ static void _decode_partial_lists(nas_tracking_area_identity_list_t *lst,
     uint8_t  type  = (p[off] >> 5) & 0x3;
     uint32_t count = (uint32_t)(p[off] & 0x1f) + 1;
     uint32_t need;
+
+    /* number of elements above 01111 is unused and interpreted as 16 */
+    if (count > TRACKING_AREA_IDENTITY_LIST_MAX_TAIS)
+      count = TRACKING_AREA_IDENTITY_LIST_MAX_TAIS;
     nas_tracking_area_identity_t plmn = {0};
 
     switch (type) {
@@ -65,7 +69,7 @@ static void _decode_partial_lists(nas_tracking_area_identity_list_t *lst,
       lst->malformed = 1;
       return;
     }
-    if (count > TRACKING_AREA_IDENTITY_LIST_MAX_TAIS || need > ielen - off) {
+    if (need > ielen - off) {
       lst->malformed = 1;
       return;
     }
@@ -121,9 +125,8 @@ int nas_decode_tracking_area_identity_list(nas_tracking_area_identity_list_t *ls
   // F-BUG-204: validate ielen>=6 (+IEI) for TAI lists (legal 0..5)
   CHECK_LENGTH_DECODER(ielen, 6);
 
-  lst->partial_lists = 0;
-  lst->tai_count     = 0;
-  lst->malformed     = 0;
+  /* no stale header or first TAI survives a malformed first partial list */
+  memset(lst, 0, sizeof(*lst));
   _decode_partial_lists(lst, buffer + decoded, ielen);
 
   /* The first TAI stays mirrored in the flat fields for existing callers */

@@ -376,6 +376,21 @@ static void test_tai_list_types(void) {
     CHECK("17 TAIs capped at 16 and flagged", lst.tai_count == 16 && lst.malformed
           && lst.tai[15].tac == 15);
 
+    /* number of elements 11111 (unused) is read as 16 (TS 24.301 §9.9.3.33) */
+    const uint8_t unused_n[] = { 6, 0x3F, 0x00, 0xF1, 0x10, 0x00, 0x10 };
+    memset(&lst, 0, sizeof(lst));
+    CHECK("unused number of elements decodes IE",
+          nas_decode_tracking_area_identity_list(&lst, 0, unused_n, sizeof(unused_n)) == 7);
+    CHECK("unused number of elements read as 16", lst.tai_count == 16 && !lst.malformed
+          && lst.tai[15].tac == 0x001F);
+
+    /* a malformed first partial list leaves no stale flat fields */
+    memset(&lst, 0xA5, sizeof(lst));
+    CHECK("stale struct: overrunning list decodes IE",
+          nas_decode_tracking_area_identity_list(&lst, 0, over, sizeof(over)) == 9);
+    CHECK("stale struct: flat fields cleared", lst.malformed && lst.tai_count == 0
+          && lst.tac == 0 && lst.typeoflist == 0 && lst.mccdigit1 == 0);
+
     /* the IE length is still checked against the buffer */
     memset(&lst, 0, sizeof(lst));
     CHECK("ielen beyond buffer rejected",
@@ -383,8 +398,8 @@ static void test_tai_list_types(void) {
 }
 
 /* A plain Attach Accept (after the 2-byte EMM header) with a 2-TAC TAI list:
- * the old decoder consumed only 8 bytes of the list and read the ESM
- * container from the wrong offset. */
+ * the old decoder consumed only the first TAI (7 bytes of the 9-byte list)
+ * and read the ESM container from the wrong offset. */
 static const uint8_t attach_accept_body[] = {
     0x02,                                           /* EPS attach result */
     0x21,                                           /* T3412 */

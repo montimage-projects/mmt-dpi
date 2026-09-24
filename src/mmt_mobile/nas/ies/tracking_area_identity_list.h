@@ -20,7 +20,8 @@
 
 typedef struct TrackingAreaIdentityList_tag {
   /* Header and first TAI of the first partial list. numberofelements is
-   * the raw 5-bit field: the partial list holds numberofelements + 1 TAIs. */
+   * the raw 5-bit field: the partial list holds numberofelements + 1 TAIs
+   * (raw values above 15 are read as 16). */
   uint8_t  typeoflist:2;
   uint8_t  numberofelements:5;
   uint8_t  mccdigit2:4;
@@ -35,7 +36,10 @@ typedef struct TrackingAreaIdentityList_tag {
   uint8_t  tai_count;      /* TAIs stored in tai[] */
   uint8_t  malformed;      /* 1: a partial list was truncated, of the reserved
                             * type 11, or the list held more than 16 TAIs;
-                            * decoding stopped there, tai[] keeps the prefix */
+                            * decoding stopped there, tai[] keeps the prefix.
+                            * A number of elements above 01111 is read as 16
+                            * (TS 24.301 §9.9.3.33). All fields are zeroed
+                            * before decoding. */
   nas_tracking_area_identity_t tai[TRACKING_AREA_IDENTITY_LIST_MAX_TAIS];
 } nas_tracking_area_identity_list_t;
 
