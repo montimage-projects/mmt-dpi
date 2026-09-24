@@ -60,6 +60,7 @@ src/mmt_core/public_include/mmt_core.h:106-110	^#define EVA_IP_FRAGMENT_PACKET 1
 src/mmt_core/public_include/mmt_core.h:125	^typedef void \(\*generic_evasion_handler_callback\)
 src/mmt_core/public_include/mmt_core.h:218	^MMTAPI void MMTCALL mmt_close_handler\(
 src/mmt_core/public_include/mmt_core.h:229	^MMTAPI uint64_t MMTCALL get_active_session_count\(
+src/mmt_core/public_include/mmt_core.h:331	^MMTAPI bool MMTCALL register_evasion_handler\(
 src/mmt_core/public_include/mmt_core.h:580	^MMTAPI bool MMTCALL set_fragment_in_packet\(
 src/mmt_core/public_include/mmt_core.h:592	^MMTAPI bool MMTCALL set_fragmented_packet_in_session\(
 src/mmt_core/public_include/mmt_core.h:604	^MMTAPI bool MMTCALL set_fragment_in_session\(

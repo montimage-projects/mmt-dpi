@@ -49,67 +49,69 @@ MMT Handler has the following elements:
    Enables/Disables the **statistics** maintenance for the protocol of the given MMT Handler.
 
 ```c
-   void enable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id);
+   void enable_protocol_analysis(mmt_handler_t *mmt_handler, mmt_proto_id_t proto_id);
 
-   void disable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id);
+   void disable_protocol_analysis(mmt_handler_t *mmt_handler, mmt_proto_id_t proto_id);
 ```
    Enables/Disables the **analysis** sub-process for the protocol with the given id.
 
 ```c
-   void enable_protocol_classification(mmt_handler_t *mmt_handler, uint32_t proto_id);
+   void enable_protocol_classification(mmt_handler_t *mmt_handler, mmt_proto_id_t proto_id);
 
-   void disable_protocol_classification(mmt_handler_t *mmt_handler, uint32_t proto_id);
+   void disable_protocol_classification(mmt_handler_t *mmt_handler, mmt_proto_id_t proto_id);
 ```
    Enables/Disables the classification sub-process for the protocol with the given id.
 
 Change the default session timedout values: 
 
 ```c
-int set_default_session_timed_out(mmt_handler_t *mmt_handler,uint32_t timedout_value);
-int set_long_session_timed_out(mmt_handler_t *mmt_handler,uint32_t timedout_value);
-int set_short_session_timed_out(mmt_handler_t *mmt_handler,uint32_t timedout_value);
-int set_live_session_timed_out(mmt_handler_t *mmt_handler,uint32_t timedout_value);
+bool set_default_session_timed_out(mmt_handler_t *mmt_handler,uint32_t timedout_value);
+bool set_long_session_timed_out(mmt_handler_t *mmt_handler,uint32_t timedout_value);
+bool set_short_session_timed_out(mmt_handler_t *mmt_handler,uint32_t timedout_value);
+bool set_live_session_timed_out(mmt_handler_t *mmt_handler,uint32_t timedout_value);
 ```
 
 Enable/disable classification by hostname (enable by default)
 
 ```c
-int enable_hostname_classify(mmt_handler_t * mmt);
-int disable_hostname_classify(mmt_handler_t * mmt);
+bool enable_hostname_classify(mmt_handler_t * mmt);
+bool disable_hostname_classify(mmt_handler_t * mmt);
 ```
 
 Enable/disable classification by ip address (enable by default)
 
 ```c
-int enable_ip_address_classify(mmt_handler_t * mmt);
-int disable_ip_address_classify(mmt_handler_t * mmt);
+bool enable_ip_address_classify(mmt_handler_t * mmt);
+bool disable_ip_address_classify(mmt_handler_t * mmt);
 ```
 
 Enable/disable classification by port number (disable by default)
 
 ```c
-int enable_port_classify(mmt_handler_t * mmt);
-int disable_port_classify(mmt_handler_t * mmt);
+bool enable_port_classify(mmt_handler_t * mmt);
+bool disable_port_classify(mmt_handler_t * mmt);
 ```
 
 Enable/disable using `mmt_reassembly` (disable by default)
 
 ```c
-int enable_mmt_reassembly(mmt_handler_t * mmt);
-int disable_mmt_reassembly(mmt_handler_t * mmt);
+bool enable_mmt_reassembly(mmt_handler_t * mmt);
+bool disable_mmt_reassembly(mmt_handler_t * mmt);
 ```
 
 Process session timer handler which is registered by user
 
 ```c
-void process_session_timer_handler(mmt_hanlder_t * mmt);
+void process_session_timer_handler(mmt_handler_t * mmt);
 ```
 
 Register an evasion_handler
 
 ```c
-int register_evasion_handler(mmt_handler_t * mmt_handler, generic_evasion_handler_callback evasion_handler);
+bool register_evasion_handler(mmt_handler_t * mmt_handler, generic_evasion_handler_callback evasion_handler, mmt_opaque_t user_args);
 ```
+
+Signature from `src/mmt_core/public_include/mmt_core.h:331`; `user_args` is passed back to the callback as `args`.
 
 With `evasion_handler`:
 
