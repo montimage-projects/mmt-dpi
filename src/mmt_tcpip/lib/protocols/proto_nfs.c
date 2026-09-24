@@ -202,9 +202,9 @@ int nfs_rpc_version_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) &ipacket->data[nfs_payload_offset + 8]));
-        if (message_type == 0) {
+        if (message_type == 0 && mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 16)) {
             // Call message
             *((unsigned int *) extracted_data->data) = ntohl(*((unsigned int *) &ipacket->data[nfs_payload_offset + 12]));
             return 1;
@@ -219,10 +219,10 @@ int nfs_program_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) &ipacket->data[nfs_payload_offset + 8]));
 
-        if (message_type == 0) {
+        if (message_type == 0 && mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 20)) {
             // Call message
             *((unsigned int *) extracted_data->data) = ntohl(*((unsigned int *) &ipacket->data[nfs_payload_offset + 16]));
             return 1;
@@ -238,10 +238,10 @@ int nfs_prog_version_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) &ipacket->data[nfs_payload_offset + 8]));
 
-        if (message_type == 0 && (nfs_payload_offset + 20 < ipacket->p_hdr->caplen)) {
+        if (message_type == 0 && mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 24)) {
             // Call message
             *((unsigned int *) extracted_data->data) = ntohl(*((unsigned int *) &ipacket->data[nfs_payload_offset + 20]));
             return 1;
@@ -257,10 +257,10 @@ int nfs_procedure_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) & ipacket->data[nfs_payload_offset + 8]));
 
-        if (message_type == 0  && (nfs_payload_offset + 24 < ipacket->p_hdr->caplen)) {
+        if (message_type == 0  && mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 28)) {
             // Call message
             *((unsigned int *) extracted_data->data) = ntohl(*((unsigned int *) &ipacket->data[nfs_payload_offset + 24]));
             return 1;
@@ -299,7 +299,7 @@ int nfs_tag_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) & ipacket->data[nfs_payload_offset + 8]));
 
         if (message_type == 0) {
@@ -333,7 +333,7 @@ int nfs_minorversion_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) & ipacket->data[nfs_payload_offset + 8]));
 
         if (message_type == 0) {
@@ -361,7 +361,7 @@ int nfs_nb_operations_extraction(const ipacket_t * ipacket, unsigned proto_index
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) & ipacket->data[nfs_payload_offset + 8]));
 
         if (message_type == 0) {
@@ -396,7 +396,7 @@ int nfs_file_opcode_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) & ipacket->data[nfs_payload_offset + 8]));
 
         if (message_type == 0) {
@@ -461,7 +461,7 @@ int nfs_file_name_extraction(const ipacket_t * ipacket, unsigned proto_index,
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) & ipacket->data[nfs_payload_offset + 8]));
         if (message_type == 0) {
             // Call message
@@ -528,7 +528,7 @@ int nfs_file_new_name_extraction(const ipacket_t * ipacket, unsigned proto_index
         return 0;
     }
     int nfs_payload_offset = get_packet_offset_at_index(ipacket, proto_index);
-    if(ipacket->data[nfs_payload_offset] >= 0x80 && (nfs_payload_offset + 8 < ipacket->p_hdr->caplen)){
+    if(mmt_have_bytes(ipacket, (size_t) nfs_payload_offset, 12) && ipacket->data[nfs_payload_offset] >= 0x80){
         int message_type = ntohl(*((unsigned int *) & ipacket->data[nfs_payload_offset + 8]));
 
         if (message_type == 0) {
