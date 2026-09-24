@@ -29,12 +29,12 @@ MMT Handler has the following elements:
 ```c
    void mmt_close_handler(mmt_handler_t *mmt_handler);
 ```
-   Closes the given MMT handler and frees any allocated object (`sdk/include/mmt_core.h:198`).
+   Closes the given MMT handler and frees any allocated object (`src/mmt_core/public_include/mmt_core.h:218`).
 
 ```c
-   mmt_handler_t * get_active_session_count(mmt_handler_t * mmt_handler);
+   uint64_t get_active_session_count(mmt_handler_t * mmt_handler);
 ```
-   Returns `uint64_t` count of active sessions (`sdk/include/mmt_core.h:209`).
+   Returns the count of active sessions (`src/mmt_core/public_include/mmt_core.h:229`).
 
 ```c
    int get_data_link_type(mmt_handler_t *mmt_handler);
@@ -117,37 +117,46 @@ With `evasion_handler`:
 void evasion_handler(const ipacket_t * ipacket, uint32_t proto_id, unsigned proto_index, unsigned evasion_id, void * data, void * args);
 ```
 
-Signature from `sdk/include/mmt_core.h:105` (`generic_evasion_handler_callback`).
+Signature from `src/mmt_core/public_include/mmt_core.h:125` (`generic_evasion_handler_callback`).
 
 ## Evasion event
 
-Define the id of evasion (`sdk/include/mmt_core.h:86-90`):
+Define the id of evasion (`src/mmt_core/public_include/mmt_core.h:106-110`):
 
 ```c
-#define EVA_IP_FRAGMENT_PACKET 1    // Event: too many fragments in one packet
-#define EVA_IP_FRAGMENT_SESSION 2   // Event: too many fragmented packet in one session
-#define EVA_IP_FRAGMENTED_PACKET_SESSION 3
-#define EVA_IP_FRAGMENT_OVERLAPPED 4
-#define EVA_IP_FRAGMENT_DUPLICATED 5
+#define EVA_IP_FRAGMENT_PACKET 1 // Event: too many fragments in one packet
+#define EVA_IP_FRAGMENT_SESSION 2 // Event: too many fragments in one session
+#define EVA_IP_FRAGMENTED_PACKET_SESSION 3 // Event: too many fragmented packet in one session
+#define EVA_IP_FRAGMENT_OVERLAPPED 4 // Event: IP fragmentation overlapping data
+#define EVA_IP_FRAGMENT_DUPLICATED 5 // Event: IP fragmentation duplicated segments
 ```
 
-Update the value for the limit number of fragment in packet
+Update the value for the limit number of fragment in packet (`src/mmt_core/public_include/mmt_core.h:580`)
 ```c
-MMTAPI int MMTCALL set_fragment_in_packet(
+MMTAPI bool MMTCALL set_fragment_in_packet(
     mmt_handler_t *mmt_handler,
-    uint32_t frag_per_packet
+    uint32_t frag_in_packet
 );
 ```
-Set value for number of fragment in packet
+Set value for number of fragment in packet; returns `true` on success.
 
 ```c
-MMTAPI int MMTCALL set_fragmented_packet_in_session(
+MMTAPI bool MMTCALL set_fragmented_packet_in_session(
     mmt_handler_t *mmt_handler,
-    uint32_t frag_packet_per_session
+    uint32_t frag_packet_in_session
 );
 ```
 
-Set value for number of fragmented packet in session
+Set value for number of fragmented packet in session (`src/mmt_core/public_include/mmt_core.h:592`); returns `true` on success.
+
+```c
+MMTAPI bool MMTCALL set_fragment_in_session(
+    mmt_handler_t *mmt_handler,
+    uint32_t frag_in_session
+);
+```
+
+Set value for number of fragments in one session (`src/mmt_core/public_include/mmt_core.h:604`); returns `true` on success.
 
 
 ## Open Issues ##
