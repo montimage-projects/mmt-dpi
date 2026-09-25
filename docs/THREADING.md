@@ -144,7 +144,11 @@ take a mutex:
   connection overwrites the slot, and a lookup matches both S1AP IDs, so an
   evicted connection reads as "unknown", never as another UE's algorithm.
 
-Each mutex is held only around its own table access and never nested. Both
+The lock order is fixed: attribute extraction (`proto_s1ap.c`) holds the
+entity `mutex` while it decodes the packet, and the decoder takes
+`_nas_ciphering_mutex` inside it — `mutex` → `_nas_ciphering_mutex`, never
+the reverse (`_free_entities_list()` releases `mutex` before it resets the
+ciphering table), so the two cannot deadlock. Both
 tables are shared by every handler, and the S1AP protocol-cleanup callback
 (run when a handler is closed) and `s1ap_entities_reset()` clear both of them
 — for all handlers, not just the one being closed.

@@ -941,9 +941,11 @@ static inline int _decode_s1ap_downlinkNASTransport(
 	int i, algorithm = NAS_CIPHERING_ALGORITHM_UNKNOWN;
 	int has_mme_ue_id = 0, has_enb_ue_id = 0;
 	int tempDecoded = 0;
+	/* failures return 0: nothing of the message depends on this decode, so
+	 * a DownlinkNASTransport keeps its attributes as before #452 */
 	if (any_p == NULL) {
 		S1AP_ERROR("NULL ANY_t value\n");
-		return -1;
+		return 0;
 	}
 
 	tempDecoded = _any_to_type_aper(any_p, &asn_DEF_S1ap_DownlinkNASTransport, (void**)&s1ap_DownlinkNASTransport_p);
@@ -951,7 +953,7 @@ static inline int _decode_s1ap_downlinkNASTransport(
 		S1AP_ERROR("Decoding of S1ap_DownlinkNASTransport failed\n");
 		if (s1ap_DownlinkNASTransport_p)
 			ASN_STRUCT_FREE(asn_DEF_S1ap_DownlinkNASTransport, s1ap_DownlinkNASTransport_p);
-		return -1;
+		return 0;
 	}
 
 	memset( &ids, 0, sizeof( ids ));
