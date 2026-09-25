@@ -55,7 +55,6 @@ static int _decode_guti_eps_mobile_identity(nas_guti_eps_mobile_identity_t *guti
  * as the filler, so consumers find the end at the first 0xF digit.
  */
 #define IMSI_MAX_OCTETS 8
-#define IMSI_MIN_DIGITS 6 /* MCC (3) + a 2-digit MNC, TS 23.003 §2.2 */
 
 static int _decode_imsi_eps_mobile_identity(nas_imsi_eps_mobile_identity_t *imsi,
 		const uint8_t *buffer, uint8_t ielen)
@@ -69,7 +68,11 @@ static int _decode_imsi_eps_mobile_identity(nas_imsi_eps_mobile_identity_t *imsi
 		return (DECODE_VALUE_DOESNT_MATCH);
 	}
 
-	octets = ielen < IMSI_MAX_OCTETS ? ielen : IMSI_MAX_OCTETS;
+	/* more than 15 digits is not an IMSI; reading only 8 of the ielen
+	 * octets would also desync the caller's offset */
+	if (ielen > IMSI_MAX_OCTETS)
+		return (DECODE_VALUE_DOESNT_MATCH);
+	octets = ielen;
 	imsi->oddeven = (*buffer >> 3) & 0x1;
 
 	memset(digits, 0x0f, sizeof(digits));
@@ -90,8 +93,6 @@ static int _decode_imsi_eps_mobile_identity(nas_imsi_eps_mobile_identity_t *imsi
 			return (DECODE_VALUE_DOESNT_MATCH);
 		ndigits--;
 	}
-	if (ndigits < IMSI_MIN_DIGITS)
-		return (DECODE_VALUE_DOESNT_MATCH);
 	/* no end mark inside the digit string */
 	for (i = 0; i < ndigits; i++)
 		if (digits[i] == 0x0f)
@@ -184,9 +185,9 @@ int nas_decode_eps_mobile_identity(nas_eps_mobile_identity_t *ident, uint8_t iei
 
 	switch( typeofidentity){
 	case EPS_MOBILE_IDENTITY_IMSI:
-		// F-BUG-203: the IMSI decoder reads at most 8 octets (identity
-		// octet + 7 BCD octets, 15 digits) and never more than ielen,
-		// which CHECK_LENGTH_DECODER above bounded by the buffer.
+		// F-BUG-203: the IMSI decoder reads exactly ielen octets, which
+		// CHECK_LENGTH_DECODER above bounded by the buffer, and rejects
+		// more than 8 (identity octet + 7 BCD octets, 15 digits).
 		// Issue #427: 15 digits are 8 octets, not 9. Issue #443: shorter
 		// IMSIs are fewer octets (TS 24.301 §9.9.3.12) — at least 4, the
 		// 6 digits of MCC + MNC.

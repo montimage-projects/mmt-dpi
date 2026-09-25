@@ -164,6 +164,11 @@ static void test_mobile_identity_imsi_short(void) {
     const uint8_t imsi5[4] = { 0x03, 0x09, 0x10, 0x10 };
     CHECK("imsi below MCC+MNC (ielen=3) rejected",
           nas_decode_eps_mobile_identity(&ident, 0, imsi5, sizeof(imsi5)) < 0);
+    /* more than 15 digits is not an IMSI (and reading only 8 of the 9
+     * octets would desync the caller's offset) */
+    const uint8_t imsi17[10] = { 0x09, 0x09, 0x10, 0x10, 0x10, 0x32, 0x54, 0x76, 0x98, 0x11 };
+    CHECK("imsi ielen=9 rejected",
+          nas_decode_eps_mobile_identity(&ident, 0, imsi17, sizeof(imsi17)) < 0);
 }
 
 static void test_tai_tail(void) {
