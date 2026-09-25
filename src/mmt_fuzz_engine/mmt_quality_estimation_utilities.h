@@ -103,7 +103,8 @@ extern "C" {
      * estimation context of `model` and binds metric_values[i] to the model
      * metric whose metric_index is i. The context owns the model. On failure
      * -- NULL model or values, nb_values not equal to the model's metric
-     * count, a NULL value, an invalid estimation-metric set -- the model is
+     * count, a NULL value, a metric_index outside 0..nb_values-1, an invalid
+     * estimation-metric set -- the model is
      * freed and NULL is returned. */
     application_quality_estimation_internal_t * init_application_quality_estimation_context(
             application_quality_estimation_t * model, double * const metric_values[], int nb_values);
