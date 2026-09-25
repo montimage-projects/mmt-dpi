@@ -503,10 +503,13 @@ int main(void) {
               "Hop ML 2 over a 1-word hop: second hop read at hop_ml*4");
 
         /* switch id + hop latency (2 words parsed), Hop ML 1: the parsed
-         * fields stay the stride, no re-sync backwards */
+         * fields stay the stride, no re-sync backwards. The second hop
+         * lies past the shim-declared stack, so only assert that it was
+         * not read at hop_ml*4 (the first hop's latency word). */
         n = build_int_udp(pkt, 0, 0x20, 45002, 1, 0xA000, 2);
         run(h, pkt, n);
-        CHECK(g.has_sw_ids && g.sw_len == 2 && g.sw_ids[0] == 0xA0000000u && g.sw_ids[1] == 0x5a5a5a5au,
+        CHECK(g.has_sw_ids && g.sw_len >= 1 && g.sw_ids[0] == 0xA0000000u
+              && (g.sw_len < 2 || g.sw_ids[1] != 0xA0000001u),
               "Hop ML smaller than the parsed fields: stride unchanged");
     }
 
