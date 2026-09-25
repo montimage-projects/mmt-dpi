@@ -514,6 +514,20 @@ int main(void) {
 
     /* --- #466: every parsed rules set is attached or freed ------------ */
 
+    /* The standalone destructor is NULL-safe and frees a detached set with
+     * its rules (LSan checks the latter under SANITIZE=asan). */
+    free_application_quality_estimation_rules(NULL);
+    {
+        application_quality_estimation_rules_t *rs =
+            init_new_app_quality_estimation_rules(SUM_AGGREGATION);
+        CHECK(rs != NULL &&
+              register_application_quality_estimation_rule(rs, init_new_rule_struct(AND_RULE)) &&
+              register_application_quality_estimation_rule(rs, init_new_rule_struct(AND_RULE)) &&
+              rs->nb_rules == 2,
+              "detached rules set with two rules builds");
+        free_application_quality_estimation_rules(rs);
+    }
+
     /* Several <rules> nodes: the last set is kept, the earlier ones are
      * freed (LSan under SANITIZE=asan, the heap loop below otherwise). */
     write_fixture(path, sizeof(path), dir, "two_rules.xml", XML_TWO_RULES_NODES);
