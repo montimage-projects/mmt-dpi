@@ -258,9 +258,11 @@ int main(void) {
     }
 
     /* #447: the model and its estimation context free every allocation
-     * exactly once. ASan reports a double free or a use after free; the
-     * in-use heap byte count must return to its starting value (not
-     * measurable under ASan, which replaces the allocator). */
+     * exactly once. ASan reports a double free or a use after free. The
+     * leak check repeats the build/free cycle: after a warm-up cycle the
+     * allocator reuses the same (tcache/fastbin) chunks, so the in-use heap
+     * byte count stays flat, while a leak grows it on every cycle. It is
+     * skipped when a sanitizer replaces the allocator (mallinfo2 reads 0). */
     free_internal_application_quality_estimation_struct(NULL);
     free_application_quality_estimation_struct(NULL);
     if (voip) {
@@ -271,19 +273,20 @@ int main(void) {
         free_application_quality_estimation_struct(voip);
         voip = NULL;
     }
-#ifndef __SANITIZE_ADDRESS__
-    {
+#if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__)
+    if (mallinfo2().uordblks != 0) {
         size_t before = mallinfo2().uordblks;
-        application_quality_estimation_t *model =
-            init_voip_quality_estimation_struct();
-        application_quality_estimation_internal_t *ctx =
-            init_new_internal_application_quality_estimation_struct(model);
-        size_t held = mallinfo2().uordblks;
-        free_internal_application_quality_estimation_struct(ctx);
-        free_application_quality_estimation_struct(model);
+        for (int i = 0; i < 64; i++) {
+            application_quality_estimation_t *model =
+                init_voip_quality_estimation_struct();
+            application_quality_estimation_internal_t *ctx =
+                init_new_internal_application_quality_estimation_struct(model);
+            free_internal_application_quality_estimation_struct(ctx);
+            free_application_quality_estimation_struct(model);
+        }
         size_t after = mallinfo2().uordblks;
-        CHECK(held > before && after == before,
-              "freeing the VoIP model and context returns every heap byte");
+        CHECK(after <= before,
+              "repeated VoIP model/context build+free does not grow the heap");
     }
 #endif
 

@@ -95,7 +95,8 @@ extern "C" {
     /* Frees a model and everything it owns (metrics, grades, rules). */
     void free_application_quality_estimation_struct(application_quality_estimation_t * app_q_est);
 
-    /* Frees the per-estimation working arrays; the referenced model is not freed. */
+    /* Frees the per-estimation working arrays; the referenced model is not
+     * freed and must still be alive (the row count is read from it). */
     void free_internal_application_quality_estimation_struct(application_quality_estimation_internal_t * app_q_est_internal);
 
 
