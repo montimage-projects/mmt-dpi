@@ -145,8 +145,11 @@ static inline int _nas_msg_protected_decode(
 					header->security_header_type,
 					ciphering_algorithm );
 
+	 /* NULL: ciphered with a non-null algorithm, or a reserved security
+	  * header type (not a ciphered payload) */
 	 if( unlikely( plain_msg == NULL ))
-		 return DECODE_CIPHERED_PAYLOAD;
+		 return nas_is_ciphered_security_header( header->security_header_type )
+			 ? DECODE_CIPHERED_PAYLOAD : DECODE_MAC_MISMATCH;
 
 	 /* ciphered with an unknown algorithm: decode only a plausible plain
 	  * NAS message (issue #452) */

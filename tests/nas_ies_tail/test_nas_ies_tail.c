@@ -633,6 +633,12 @@ static void test_nas_ciphering(void) {
     CHECK("unknown: ESM first octet reaches the plain decoder",
           ret > 0 && m.protected_msg.msg.esm.header.message_type == attach_accept_body[0]);
     pdu[6] = 0x07;
+    /* a reserved security header type (5) is not reported as ciphered */
+    pdu[0] = 0x57;
+    memset(&m, 0, sizeof(m));
+    CHECK("reserved security header type: MAC mismatch, not ciphered",
+          nas_decode_ciphered(&m, pdu, sizeof(pdu), 2) == DECODE_MAC_MISMATCH);
+    pdu[0] = 0x27;
     /* header-only ciphered PDU with unknown algorithm: still a clean error */
     uint8_t hdr_only[6] = { 0x27, 0, 0, 0, 0, 0 };
     memset(&m, 0, sizeof(m));

@@ -128,6 +128,27 @@ So under the documented init-before-workers ordering, the global registries are
 read-only while workers run, and concurrent calls to `mmt_init_handler()` only
 perform concurrent reads of the global table - which is safe.
 
+### Exception: S1AP decoder state
+
+The S1AP dissector (`libmmt_tmobile`) keeps two process-wide tables that the
+per-packet path updates, so S1AP packets — unlike the rest of the hot path —
+take a mutex:
+
+- the entity list (`src/mmt_mobile/proto_s1ap.c`), guarded by its own `mutex`;
+- the per-S1-connection NAS ciphering algorithm table (issue #452,
+  `src/mmt_mobile/s1ap/s1ap_common.c`): a fixed array of
+  `S1AP_NAS_CIPHERING_SLOTS` (1024) entries, direct-mapped by MME-UE-S1AP-ID,
+  guarded by `_nas_ciphering_mutex`. It is written from a DownlinkNASTransport
+  Security Mode Command, freed per connection by a UEContextReleaseCommand,
+  and read on the InitialContextSetupRequest Attach Accept path. A colliding
+  connection overwrites the slot, and a lookup matches both S1AP IDs, so an
+  evicted connection reads as "unknown", never as another UE's algorithm.
+
+Each mutex is held only around its own table access and never nested. Both
+tables are shared by every handler, and the S1AP protocol-cleanup callback
+(run when a handler is closed) and `s1ap_entities_reset()` clear both of them
+— for all handlers, not just the one being closed.
+
 ## Per-handler state (not shared)
 
 The following live inside `mmt_handler_t` and are private to the owning thread,
