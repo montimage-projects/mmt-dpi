@@ -6,7 +6,8 @@ Part of issue #65 (multi-threaded TSan harness). MMT-DPI classifies RADIUS by
 whose RADIUS code field is a defined packet code (1-5, 11-13, 40-45) and whose
 RADIUS length field equals the actual UDP payload length, at least 20 bytes
 (see src/mmt_tcpip/lib/protocols/proto_radius.c). The parser state for RADIUS
-is kept PER SESSION (issue #23), so to exercise that state under ThreadSanitizer we need many DISTINCT RADIUS flows replayed concurrently.
+is kept PER SESSION (issue #23), so to exercise that state under
+ThreadSanitizer we need many DISTINCT RADIUS flows replayed concurrently.
 
 This tool emits a classic little-endian pcap (DLT_EN10MB) with several distinct
 UDP 5-tuples, each carrying a valid RADIUS Access-Request payload (20-byte
