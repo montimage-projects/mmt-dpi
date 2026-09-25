@@ -3,7 +3,8 @@
 
 Part of issue #65 (multi-threaded TSan harness). MMT-DPI classifies RADIUS by
 *content*, not by port: mmt_check_radius() matches a UDP-with-payload packet
-whose RADIUS code field is <= 5 and whose RADIUS length field equals the actual
+whose RADIUS code field is a defined packet code (1-5, 11-13, 40-45) and whose
+RADIUS length field equals the actual
 UDP payload length (see src/mmt_tcpip/lib/protocols/proto_radius.c). The parser
 state for RADIUS is kept PER SESSION (issue #23), so to exercise that state
 under ThreadSanitizer we need many DISTINCT RADIUS flows replayed concurrently.
@@ -28,7 +29,7 @@ IP_HLEN = 20
 UDP_HLEN = 8
 RADIUS_HLEN = 20  # code(1) + id(1) + length(2) + authenticator(16)
 
-# RADIUS codes <= 5 are accepted by mmt_check_radius.
+# Access-Request is one of the codes mmt_check_radius accepts.
 RADIUS_ACCESS_REQUEST = 1
 
 
@@ -63,7 +64,7 @@ def radius_payload(identifier):
     authenticator = bytes((identifier + i) & 0xFF for i in range(16))
     total_len = RADIUS_HLEN + len(attrs)
     # The length field MUST equal the actual RADIUS (== UDP) payload length and
-    # code MUST be <= 5 for mmt_check_radius() to classify the flow.
+    # code MUST be one mmt_check_radius() accepts to classify the flow.
     header = struct.pack("!BBH", RADIUS_ACCESS_REQUEST, identifier & 0xFF,
                          total_len) + authenticator
     return header + attrs
