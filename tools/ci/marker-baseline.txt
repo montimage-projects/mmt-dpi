@@ -52,10 +52,15 @@
 # PROTO_UNKNOWN for the QUIC_IETF-over-INT checker to reclassify, the stale
 # 64-hop cap note and the LV2 egress-port gap (both layouts decoded) went away.
 #
-# #331: re-baselined 64 -> 56 — the TCP-options, tcp.syn_received,
+# #335: re-baselined 64 -> 62 — the TAI-list decoder now handles all three
+# list types and the Attach Accept decoder walks every optional IE, which
+# resolved the `XXX(#335)` and `TODO(#335)` extraction markers; the NAS
+# decryption marker was retargeted to follow-up #452.
+#
+# #331: re-baselined 62 -> 54 — the TCP-options, tcp.syn_received,
 # radius.dns_ipv6 and HTTP-scope markers were implemented, and the stale
 # RTP inter-arrival/inter-delay, PTP-over-UDP and HTTP_ATTRIBUTES_NB markers
 # (features already present) were deleted. The nine design-dependent markers
 # (GRE sequence/loss, GTP per-message detail, struct realignment, RTP QoE
 # helper) were retargeted to #455.
-56
+54
