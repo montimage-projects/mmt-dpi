@@ -432,6 +432,7 @@ static void _quic_ietf_classify_coalesced(ipacket_t *ipacket, unsigned quic_inde
 		int qoff = get_packet_offset_at_index(ipacket, quic_index);
 		quic_ietf_long_header_t hdr;
 		if( qoff >= 0 && (size_t)qoff < ipacket->p_hdr->caplen
+				&& (ipacket->data[qoff] & 0x80)
 				&& _quic_ietf_parse_long_header( ipacket->data + qoff,
 						ipacket->p_hdr->caplen - (size_t)qoff, &hdr ) ){
 			dcid = ipacket->data + qoff + hdr.destination_connection_id_offset;

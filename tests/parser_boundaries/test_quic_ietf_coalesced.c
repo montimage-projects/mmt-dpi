@@ -339,10 +339,14 @@ int main(void) {
     CHECK(g_quic_layers == 2, "Handshake + 1-RTT, same DCID: QUIC after QUIC");
     memset(q, 0x01, 12);                         /* fixed bit clear: not QUIC */
     run_udp(h, 1, 50004, q, 12, t++);
-    CHECK(g_quic_layers <= 1, "non-QUIC datagram on the QUIC flow: chained layer dropped");
-    n = quic_short(q, CID_A, 8, 8, 4);           /* 15 bytes: too short */
+    CHECK(g_quic_layers == 1, "non-QUIC datagram on the QUIC flow: chained layer dropped");
+    n1 = quic_long(q, 0x00000001, 2, 0, CID_A, 8, CID_B, 8, 100);
+    n = n1 + quic_short(q + n1, CID_A, 8, 8, 40);
     run_udp(h, 1, 50004, q, n, t++);
-    CHECK(g_quic_layers <= 1, "too-short short header on the QUIC flow: no chained layer");
+    CHECK(g_quic_layers == 2, "coalesced again: QUIC after QUIC");
+    n = quic_short(q, CID_A, 8, 9, 4);           /* 15 bytes: too short */
+    run_udp(h, 1, 50004, q, n, t++);
+    CHECK(g_quic_layers == 1, "too-short short header on the QUIC flow: chained layer dropped");
 
     /* --- 5d. the 40th (last classified) datagram is coalesced (#458) ----- */
     {
@@ -370,7 +374,7 @@ int main(void) {
               "packet 42 coalesced past the threshold: chain walked from this datagram");
         memset(q, 0x01, 12);
         run_udp(h, 0, sport, q, 12, t++);
-        CHECK(g_quic_layers <= 1, "packet 43 not QUIC past the threshold: no chained layer");
+        CHECK(g_quic_layers == 1, "packet 43 not QUIC past the threshold: no chained layer");
         n = quic_short(q, CID_B, 8, 11, 30);
         run_udp(h, 0, sport, q, n, t++);
         CHECK(g_quic_layers == 1, "packet 44, 1-RTT past the threshold: one quic_ietf layer");
