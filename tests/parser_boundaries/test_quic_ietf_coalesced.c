@@ -11,7 +11,9 @@
  *   - coalesced packets (RFC 9000 §12.2) are classified as QUIC after QUIC,
  *     the chained layer is dropped again on a later non-coalesced datagram,
  *     zero padding and a Length running past the capture add no layer, and
- *     a long chain stays bounded by the protocol path.
+ *     a long chain stays bounded by the protocol path;
+ *   - QUIC over INT starts at the INT shim Length, by the same rule as the
+ *     INT dissector (type <= 1, at least 3 words; else the historical 56).
  *
  * Crafted Ethernet/IPv4/UDP frames go through mmt_init_handler +
  * packet_process; the packet handler reads the protocol path and the
@@ -49,6 +51,8 @@ static int g_checks   = 0;
 static int      g_quic_layers;              /* number of quic_ietf layers */
 static int      g_quic_index[MAX_LAYERS];   /* their protocol indexes */
 static int      g_path_len;
+static int      g_quic_off;                 /* header offset of the first quic layer */
+static uint8_t  g_ip_tos;                   /* IPv4 TOS of the next frame */
 static int      g_version_set[MAX_LAYERS];
 static uint32_t g_version[MAX_LAYERS];
 static int      g_type_set[MAX_LAYERS];
@@ -79,8 +83,10 @@ static int packet_handler(const ipacket_t *ipacket, void *user_args) {
     }
     g_dcid_set = 0;
     g_pn_set = 0;
+    g_quic_off = -1;
     if (g_quic_layers > 0) {
         unsigned i = (unsigned) g_quic_index[0];
+        g_quic_off = get_packet_offset_at_index(ipacket, i);
         const mmt_string_data_t *s = get_attribute_extracted_data_at_index(
                 ipacket, PROTO_QUIC_IETF, QUIC_IETF_DESTINATION_CONNECTION_ID, i);
         if (s != NULL) {
@@ -147,6 +153,7 @@ static void run_udp(mmt_handler_t *h, int dir, uint16_t sport,
     uint8_t *ip = f + 14;
     memset(ip, 0, 20);
     ip[0] = 0x45;
+    ip[1] = g_ip_tos;
     put_be16(ip + 2, (uint16_t)(20 + 8 + qlen));
     ip[8] = 64; ip[9] = 17;
     uint8_t cli[4] = {10,0,0,1}, srv[4] = {10,0,0,2};
@@ -288,6 +295,25 @@ int main(void) {
     n = quic_long(q, 0x00000001, 2, 0, CID_B, 8, CID_A, 8, 100);
     run_udp(h, 0, 50004, q, n, t++);
     CHECK(g_quic_layers == 1, "after the long chain: back to one quic_ietf layer");
+
+    /* --- 6. QUIC over INT (UDP carrier with DSCP 0x20) -------------------- */
+    {
+        const int l4 = 14 + 20 + 8;
+        struct { uint8_t type, words; size_t bytes; int quic_at; const char *msg; } c[] = {
+            { 1, 5,  20, 20, "INT shim type 1, 5 words: QUIC at 20 bytes" },
+            { 1, 2,  56, 56, "INT shim length < 3 words: QUIC at the historical 56" },
+            { 2, 5,  56, 56, "INT shim type 2: QUIC at the historical 56, like the INT layer" },
+        };
+        g_ip_tos = 0x20 << 2;
+        for (size_t k = 0; k < sizeof(c) / sizeof(c[0]); k++) {
+            memset(q, 0, c[k].bytes);
+            q[0] = c[k].type; q[2] = c[k].words;
+            n = c[k].bytes + quic_long(q + c[k].bytes, 0x00000001, 0, 1, CID_B, 8, CID_A, 8, 300);
+            run_udp(h, 0, (uint16_t)(50100 + k), q, n, t++);
+            CHECK(g_quic_layers == 1 && g_quic_off == l4 + c[k].quic_at, c[k].msg);
+        }
+        g_ip_tos = 0;
+    }
 
     mmt_close_handler(h);
     close_extraction();

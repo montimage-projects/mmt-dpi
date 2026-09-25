@@ -463,13 +463,14 @@ static int _classify_quic_ietf_from_int(ipacket_t *ipacket, unsigned index) {
 		return NOT_FOUND;
 	//the INT shim Length (byte 2) counts the shim, metadata header and
 	//metadata stack in 4-byte words (INT v1.0 §4.6.1); fall back to the
-	//historical fixed size when it is absent or smaller than shim + header
+	//historical fixed size when the shim is absent, of a type the INT
+	//dissector does not parse (> 1) or smaller than shim + header — the
+	//same rule as _int_header_length() in proto_int.c, so both agree on
+	//where the layer after INT starts
 	size_t int_len = QUIC_IETF_INT_DEFAULT_LENGTH;
-	if( (size_t)base + 4 <= ipacket->p_hdr->caplen ){
-		size_t words_len = (size_t)ipacket->data[ base + 2 ] * 4;
-		if( words_len >= 12 )
-			int_len = words_len;
-	}
+	if( (size_t)base + 4 <= ipacket->p_hdr->caplen
+			&& ipacket->data[ base ] <= 1 && ipacket->data[ base + 2 ] >= 3 )
+		int_len = (size_t)ipacket->data[ base + 2 ] * 4;
 	size_t offset = (size_t)base + int_len;
 	if( offset >= ipacket->p_hdr->caplen )
 		return NOT_FOUND;
