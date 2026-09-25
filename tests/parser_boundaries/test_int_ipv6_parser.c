@@ -19,7 +19,9 @@
  *     ip_src is absent; an inner IPv4 with options still yields its ports;
  *     truncated inner headers and non-first inner fragments are rejected,
  *     an inner packet without a valid shim carries no INT layer, and the
- *     inner IPv4 ip_src/ip_dst are in network byte order.
+ *     inner IPv4 ip_src/ip_dst are in network byte order; an inner TCP header
+ *     is skipped by its data offset (options included), and a data offset
+ *     below 5 words is rejected.
  *
  * Frames are copied into exactly caplen-sized heap buffers, and run_tests.sh
  * builds with sanitizers under SANITIZE=asan, so any over-read or misaligned
@@ -288,6 +290,34 @@ static size_t build_report(uint8_t *pkt, int inner_v6, unsigned inner_ihl,
     return build_report_ex(pkt, inner_v6, inner_ihl, sport, truncate_to, 0, 1);
 }
 
+/* Ethernet/IPv4/UDP:6000 INT report of an inner Ethernet/IPv4/TCP/INT whose
+ * TCP header has data offset doff (options are NOPs when doff > 5). */
+static size_t build_report_tcp(uint8_t *pkt, uint16_t sport, unsigned doff) {
+    uint8_t in[256];
+    size_t tcp_len = doff > 5 ? doff * 4 : 20;
+    size_t inner_l4 = tcp_len + 12 + 4 + 8;
+    size_t io = put_eth(in, 0x0800);
+    io += put_ip4(in + io, 0x20, 5, inner_l4, 6);
+    put_tcp(in + io, 1234, 5678, 0x18);
+    memset(in + io + 20, 0x01, tcp_len - 20);   /* NOP options */
+    in[io + 12] = (uint8_t)(doff << 4);
+    io += tcp_len;
+    io += put_int(in + io, 1, 0x8000, 1);       /* one hop, switch id only */
+    memset(in + io, 0x5a, 8); io += 8;
+
+    size_t rep_len = 16 + io;
+    size_t o = put_eth(pkt, 0x0800);
+    o += put_ip4(pkt + o, 0, 5, 8 + rep_len, 17);
+    o += put_udp(pkt + o, sport, 6000, 8 + rep_len);
+    memset(pkt + o, 0, 16);
+    pkt[o] = 0x10;                       /* version 1 */
+    put_be32(pkt + o + 4, 7);            /* switch id */
+    put_be32(pkt + o + 8, 42);           /* seq */
+    o += 16;
+    memcpy(pkt + o, in, io);
+    return o + io;
+}
+
 /* offset of the INT shim in build_int_udp() frames */
 #define INT_OFF4 (14 + 20 + 8)
 #define INT_OFF6 (14 + 40 + 8)
@@ -534,6 +564,21 @@ int main(void) {
         run(h, pkt, n);
         CHECK(g.has_ip_src && memcmp(g.ip_src, src4, 4) == 0, "inner IPv4: ip_src 10.0.0.1 in network order");
         CHECK(g.has_ip_dst && memcmp(g.ip_dst, dst4, 4) == 0, "inner IPv4: ip_dst 10.0.0.2 in network order");
+
+        /* inner TCP without options, then with 12 option bytes (doff 8) */
+        n = build_report_tcp(pkt, 46005, 5);
+        run(h, pkt, n);
+        CHECK(g.report_seen && g.int_seen, "inner TCP doff 5: report and INT detected");
+        CHECK(g.has_ports && g.port_src == 1234 && g.port_dst == 5678, "inner TCP doff 5: ports extracted");
+
+        n = build_report_tcp(pkt, 46006, 8);
+        run(h, pkt, n);
+        CHECK(g.report_seen && g.int_seen, "inner TCP with options (doff 8): INT found past the options");
+
+        /* data offset below the 5-word minimum */
+        n = build_report_tcp(pkt, 46007, 4);
+        run(h, pkt, n);
+        CHECK(!g.report_seen && !g.int_seen, "inner TCP doff 4: INT report rejected");
     }
 
     mmt_close_handler(h);

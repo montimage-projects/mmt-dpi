@@ -130,14 +130,22 @@ size_t proto_int_get_int_report_header_size(const u_char *cursor, const u_char *
 		}
 		cursor += UDP_HDR_SIZE;
 		break;
-	case IP_PROTO_TCP:
-		//jump over TCP header: need also at least one byte after it
+	case IP_PROTO_TCP: {
+		//jump over TCP header, including its options (data offset in
+		// 4-byte words): need also at least one byte after it
 		if( (size_t)(end_cursor - cursor) <= TCP_HDR_SIZE ){
 			debug("No INT.Ethernet.IP.TCP");
 			return 0;
 		}
-		cursor += TCP_HDR_SIZE;
+		size_t tcp_hdr_len = (size_t)(cursor[12] >> 4) * 4;
+		if( tcp_hdr_len < TCP_HDR_SIZE
+				|| (size_t)(end_cursor - cursor) <= tcp_hdr_len ){
+			debug("Invalid INT.Ethernet.IP.TCP data offset");
+			return 0;
+		}
+		cursor += tcp_hdr_len;
 		break;
+	}
 	default:
 		debug("Neither UDP, nor TCP is found after IP. Need to support INT over other protocol than TCP/UDP over IP");
 		return 0;
