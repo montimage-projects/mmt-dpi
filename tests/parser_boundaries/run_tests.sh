@@ -82,6 +82,19 @@
 #                               mmt_init_handler + packet_process, reading the
 #                               INT/INT-report attributes back.
 #
+# Issue #331 adds the "tcp-options" and "radius-dns" fixtures: the appended
+# tcp.mss / tcp.wscale / tcp.sack_permitted attributes and the 4-byte
+# tcp.syn_received result, and the radius.dns_ipv6 extraction (first server
+# of the 3GPP-IPv6-DNS-Servers vendor sub-attribute).
+#
+#   test_tcp_options_bounds.c  — calls the exported tcp_option_extraction()
+#                               and tcp_syn_rcv_extraction() over exactly
+#                               caplen-sized heap captures (every truncation,
+#                               mis-sized and odd-offset options).
+#   test_radius_dns_ipv6_api.c — packet/API path: crafted
+#                               Ethernet/IPv4/UDP/RADIUS Accounting-Requests
+#                               through mmt_init_handler + packet_process.
+#
 # Issue #333 adds the "quic" fixture: QUIC-IETF version 2 (RFC 9369), the
 # short-header DCID length learned from the flow's long headers, and
 # coalesced packets (RFC 9000 §12.2) classified as QUIC after QUIC, every
@@ -93,8 +106,8 @@
 #                               QUIC attributes back per layer.
 #
 # Usage: tests/parser_boundaries/run_tests.sh [fixture ...]
-#   no arguments runs every fixture; "udp"/"dtls"/"dns-soa"/"dns-txt"/"dns-names"/"nfs"/"int"/"quic"
-#   select a fixture family.
+#   no arguments runs every fixture; "udp"/"dtls"/"dns-soa"/"dns-txt"/"dns-names"/"nfs"/"int"/
+#   "tcp-options"/"radius-dns"/"quic" select a fixture family.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -102,7 +115,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # --- fixture selection -----------------------------------------------------
 FIXTURES=( "$@" )
-[ "${#FIXTURES[@]}" -eq 0 ] && FIXTURES=(udp dtls dns-soa dns-txt dns-names nfs int quic)
+[ "${#FIXTURES[@]}" -eq 0 ] && FIXTURES=(udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic)
 UNIT_TESTS=()
 API_TESTS=()
 for f in "${FIXTURES[@]}"; do
@@ -129,11 +142,17 @@ for f in "${FIXTURES[@]}"; do
         int)
             API_TESTS+=(int_ipv6_parser)
             ;;
+        tcp-options)
+            API_TESTS+=(tcp_options_bounds)
+            ;;
+        radius-dns)
+            API_TESTS+=(radius_dns_ipv6_api)
+            ;;
         quic)
             API_TESTS+=(quic_ietf_coalesced)
             ;;
         *)
-            echo "✗ unknown parser_boundaries fixture '$f' (known: udp dtls dns-soa dns-txt dns-names nfs int quic)" >&2
+            echo "✗ unknown parser_boundaries fixture '$f' (known: udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic)" >&2
             exit 2
             ;;
     esac
@@ -240,4 +259,4 @@ if [ "${rc}" -ne 0 ]; then
     echo "✗ parser boundary tests failed" >&2
     exit 1
 fi
-echo "✓ parser boundary tests passed (issues #332, #333, #375, #376, #377, #378, #407, #409)"
+echo "✓ parser boundary tests passed (issues #331, #332, #333, #375, #376, #377, #378, #407, #409)"
