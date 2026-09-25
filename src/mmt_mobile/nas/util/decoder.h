@@ -81,6 +81,8 @@ typedef enum {
   DECODE_BUFFER_TOO_SHORT             = -12,
   DECODE_BUFFER_NULL                  = -13,
   DECODE_MAC_MISMATCH                 = -14,
+  /* issue #452: ciphered with a non-null algorithm (EEA1-7), not decrypted */
+  DECODE_CIPHERED_PAYLOAD             = -15,
 } decoder_error_code_t;
 
 /* Defines error code limit below which received message should be discarded
