@@ -165,7 +165,8 @@ int mmt_check_thunder_tcp(ipacket_t * ipacket, unsigned index) {
             && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
         int over_http = mmt_int_search_thunder_http(ipacket);
         /* A Thunder-over-HTTP match returns here, so the TCP search never
-         * runs on the same packet. */
+         * runs on the same packet (a later packet of the flow that reaches
+         * this checker can still run it). */
         if(over_http == 1){
             return over_http;
         }

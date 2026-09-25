@@ -231,6 +231,16 @@ static void test_radius(mmt_handler_t *h) {
     static const uint8_t tiny[] = { 0x01, 0x02, 0x00 };
     CHECK(!classifies(h, 0, 44004, 40812, tiny, sizeof tiny, PROTO_RADIUS),
           "3-byte payload is not RADIUS (and is not read past)");
+
+    uint8_t bare[20];                    /* Access-Reject, no attributes */
+    memset(bare, 0x22, sizeof bare);
+    bare[0] = 3;
+    put_be16(bare + 2, sizeof bare);
+    CHECK(classifies(h, 0, 44005, 40812, bare, sizeof bare, PROTO_RADIUS),
+          "attribute-less 20-byte Access-Reject is classified as RADIUS");
+    put_be16(bare + 2, 8);               /* self-consistent but below 20 */
+    CHECK(!classifies(h, 0, 44006, 40812, bare, 8, PROTO_RADIUS),
+          "8-byte payload with a matching length field is not RADIUS");
 }
 
 static void test_ftp_pasv_ipv6(mmt_handler_t *h) {

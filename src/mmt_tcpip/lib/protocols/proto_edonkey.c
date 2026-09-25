@@ -191,21 +191,6 @@ int mmt_int_edonkey_tcp(ipacket_t * ipacket) {
 
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     struct mmt_internal_tcpip_session_struct *flow = packet->flow;
-    /* unused
-    int edk_stage2_len;
-    */
-
-    /*len range increase if safe mode and also only once */
-    /* unused
-    if (edonkey_safe_mode == 0)
-        edk_stage2_len = 140;
-    else if (!flow->l4.tcp.edk_ext || packet->payload_packet_len == 212) {
-        edk_stage2_len = 300;
-
-    } else
-        edk_stage2_len = 140;
-    */
-
     /* skip excluded connections */
     if (MMT_COMPARE_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_EDONKEY) != 0)
         return 0;

@@ -1964,8 +1964,9 @@ int mmt_check_radius(ipacket_t * ipacket, unsigned index) {
         mmt_una_radius_header_t *h = (mmt_una_radius_header_t*) packet->payload;
 
         /* The length field is read only once the payload is known to hold
-         * the whole header. */
-        if ((payload_len > sizeof (struct radius_header))
+         * the whole header; a RADIUS packet is at least 20 bytes (code,
+         * identifier, length and the 16-byte authenticator, RFC 2865 §3). */
+        if ((payload_len >= 20)
                 && mmt_radius_code_is_valid(h->code)
                 && (ntohs(h->len) == payload_len)) {
             MMT_LOG(PROTO_RADIUS, MMT_LOG_DEBUG, "Found radius.\n");

@@ -2909,7 +2909,7 @@ void ftp_request_packet(ipacket_t *ipacket, unsigned index, ftp_control_session_
         current_data_session->data_conn_mode = MMT_FTP_DATA_ACTIVE_MODE;
         if(current_data_session->data_conn->is_ipv6==1){
             char *ipv6_address_from_EPRT = ftp_get_data_client_addr_v6_from_EPRT(payload, payload_len);
-            current_data_session->data_conn->c_addr_v6 = (char*)malloc(33*sizeof(char));
+            current_data_session->data_conn->c_addr_v6 = (char*)calloc(33, sizeof(char));
             if (current_data_session->data_conn->c_addr_v6!=NULL){
                 /* Bounded copy into the fixed 33-byte buffer: an EPRT address
                  * field longer than 32 chars must not overflow it. Always leave
@@ -2941,7 +2941,7 @@ void ftp_request_packet(ipacket_t *ipacket, unsigned index, ftp_control_session_
         if(current_data_session->data_conn->is_ipv6==1){
             char *ipv6_address_from_LPRT = ftp_get_data_client_addr_v6_from_LPRT(payload, payload_len);
             debug("[PROTO_FTP] %lu ipv6_address_from_LPRT: %s",ipacket->packet_id,ipv6_address_from_LPRT);
-            current_data_session->data_conn->c_addr_v6 = (char*)malloc(33*sizeof(char));
+            current_data_session->data_conn->c_addr_v6 = (char*)calloc(33, sizeof(char));
             if (current_data_session->data_conn->c_addr_v6 !=NULL){
                 /* Bounded copy into the fixed 33-byte buffer. Always leave a
                  * valid NUL-terminated string, even on malformed input. */

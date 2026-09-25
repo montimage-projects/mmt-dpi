@@ -157,7 +157,7 @@
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_directconnect_udp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_msn_udp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_yahoo_udp, 50)
-    MMT_INTER_PROTO(PROTO_UDP, mmt_check_oscar, 50)                          // TCP-only signatures: the checker excludes a UDP flow at once
+    MMT_INTER_PROTO(PROTO_UDP, mmt_check_oscar, 50)                          // fixed: TCP-only signatures, the checker excludes a UDP flow at once
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_jabber, 50)                         // verified: the XML stanza match does not depend on TCP
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_gtp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_manolito_udp, 50)

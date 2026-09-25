@@ -177,7 +177,7 @@ int mmt_check_imesh_tcp(ipacket_t * ipacket, unsigned index) {
                     mmt_memcmp(packet->host_line.ptr, "login.bearshare.com",
                     19) == 0 &&
                     mmt_memcmp(packet->line[4].ptr, "Accept-Encoding: identity",
-                    25 == 0)) {
+                    25) == 0) {
                 MMT_LOG(PROTO_IMESH, MMT_LOG_DEBUG, "iMesh Login detected\n");
                 mmt_int_imesh_add_connection(ipacket, MMT_CORRELATED_PROTOCOL);
                 return 1;
