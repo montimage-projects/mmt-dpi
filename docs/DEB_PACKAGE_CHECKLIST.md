@@ -30,7 +30,7 @@ Those instructions have been removed to avoid presenting a self-hosted channel
 as fulfillment of issue #475.
 
 To use the existing upstream-built files, follow the verified-download and
-local-file installation instructions in [README.md](../README.md#pre-built-packages-upstream-github-releases-not-distribution-archives).
+local-file installation instructions in the [repository README](https://github.com/montimage-projects/mmt-dpi/blob/main/README.md#pre-built-packages-upstream-github-releases-not-distribution-archives).
 Do not advertise `apt install mmt-dpi` or `dnf install mmt-dpi` without a local
 file as available from a distribution until the corresponding archive actually
 indexes and serves the package.
