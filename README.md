@@ -66,14 +66,17 @@ curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/inst
 curl -sSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/install.sh | SKIP_DEPS=1 bash
 ```
 
-### Pre-built packages
+### Pre-built packages (upstream GitHub releases, not distribution archives)
 
-Every tagged release publishes ready-to-install `.deb` and `.rpm` packages
-(amd64 and arm64) — one per distribution in the release matrix: **Ubuntu
-22.04, Ubuntu 24.04, Debian 12 (.deb), Rocky Linux 9, and CentOS Stream 9
-(.rpm)**. Download the one matching your distribution from the
+The release workflow builds `.deb` and `.rpm` packages for amd64 and arm64
+in **Ubuntu 22.04, Ubuntu 24.04, Debian 12 (.deb), Rocky Linux 9, and
+CentOS Stream 9 (.rpm)** containers. These are **upstream-built release
+assets**, not packages accepted into the official Ubuntu, Debian, Rocky, or
+CentOS Stream repositories. A plain `apt install mmt-dpi` or
+`dnf install mmt-dpi` from those distributions' default repositories is
+**not verified**. Download the asset matching your distribution from the
 [Releases page](https://github.com/montimage-projects/mmt-dpi/releases) and
-install it with your native package manager:
+install that local file with your native package manager:
 
 ```bash
 # Debian / Ubuntu (.deb)
@@ -109,7 +112,9 @@ gh attestation verify mmt-dpi_*_ubuntu-24.04_x86_64.deb \
   --repo montimage-projects/mmt-dpi
 ```
 
-Install only after both checks pass.
+Install only after both checks pass. To track the separate, maintainer-led
+process of submitting to official distribution archives, see the
+[distribution packaging checklist](docs/DEB_PACKAGE_CHECKLIST.md).
 
 ### Manual Build and Install
 
