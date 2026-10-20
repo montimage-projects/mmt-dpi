@@ -35,16 +35,19 @@ fail() { echo "✗ canary: $*" >&2; exit 1; }
 make_repo() {
     local dir="$1"
     mkdir -p "$dir"
-    git -C "$dir" init -q
+    git -C "$dir" init -q --template=
     cp "${REPO_ROOT}/.gitleaks.toml" "$dir/.gitleaks.toml"
     cp "${REPO_ROOT}/.gitleaksignore" "$dir/.gitleaksignore"
     printf 'canary fixture for tools/ci/tests/test-gitleaks-canary.sh\n' > "$dir/README"
 }
 
 commit_all() {
-    git -C "$1" add -A
+    # Isolate from the contributor's git setup: a global excludesFile could
+    # ignore the planted file, and a global hook could refuse the commit.
+    git -C "$1" -c core.excludesFile=/dev/null add -A -f
     git -C "$1" -c user.name=canary -c user.email=canary@example.invalid \
-        -c commit.gpgsign=false commit -q -m "$2"
+        -c commit.gpgsign=false -c core.hooksPath=/dev/null \
+        commit -q --no-verify -m "$2"
 }
 
 # Runs the real scan script in a repo; prints its exit status.
