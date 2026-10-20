@@ -142,6 +142,12 @@ if [ "${#PCAPS[@]}" -eq 0 ]; then
     exit 2
 fi
 
+# Absolute, like --artifacts: the drivers run from inside the prefix, so a
+# relative path would pass the manifest checks here, then fail to open in
+# the driver and read as a parser refusal — a silent false PASS.
+[ -d "${REGRESSIONS}" ] || { echo "✗ regression directory missing: ${REGRESSIONS}" >&2; exit 2; }
+REGRESSIONS="$(cd "${REGRESSIONS}" && pwd)"
+
 # The regression manifest is checked before the (minutes-long) SDK build so
 # a broken corpus fails fast. Format: "<sha256>  <file>" per line, '#'
 # comments allowed; every file in the directory must be listed.

@@ -270,6 +270,15 @@ expect_rc "file not listed in the manifest -> exit 2" 2
 reset_reg; rm -f "${REG}"/*.pcap
 expect_rc "listed reproducer missing -> exit 2" 2
 
+# A relative --regressions path is resolved before the drivers run from
+# inside the prefix, so the replay reads the files it just verified.
+reset_reg; EXTRA_ARGS=( --replay-only --regressions "${REG##*/}" )
+cd "${REG%/*}"
+expect_rc "relative --regressions path -> replayed, 0" 0
+expect_grep "relative path resolved to absolute" "committed reproducer\(s\) in ${REG}\$"
+cd - >/dev/null
+EXTRA_ARGS=( --replay-only --regressions "${REG}" )
+
 reset_reg; rm -f "${REG}"/*.pcap; grep -v '^[0-9a-f]' "${REAL_REGRESSIONS}/manifest.txt" > "${REG}/manifest.txt"
 expect_rc "--replay-only with an empty manifest -> exit 2" 2
 EXTRA_ARGS=()
