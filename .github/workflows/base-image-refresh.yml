@@ -111,7 +111,7 @@ jobs:
         if: env.HAS_REPIN_TOKEN == 'true'
         env:
           GH_TOKEN: ${{ secrets.BASE_IMAGE_REFRESH_TOKEN }}
-          BASE: ${{ github.event.repository.default_branch }}
+          BASE: ${{ github.event.repository.default_branch || 'main' }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
