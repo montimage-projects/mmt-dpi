@@ -126,7 +126,10 @@ jobs:
             cat "$RUNNER_TEMP/repin.txt"
             echo '```'
           } > "$RUNNER_TEMP/body.md"
-          pr="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          # Same-repository PRs only: a fork PR whose branch is also named
+          # ci/base-image-refresh must never have its body rewritten.
+          pr="$(gh pr list --head "$BRANCH" --state open --json number,isCrossRepository \
+                  --jq 'map(select(.isCrossRepository | not)) | .[0].number // empty')"
           if [ -n "$pr" ]; then
             gh pr edit "$pr" --body-file "$RUNNER_TEMP/body.md"
           else
@@ -156,8 +159,12 @@ jobs:
             cat "$RUNNER_TEMP/repin.diff"
             echo '```'
           } > "$RUNNER_TEMP/body.md"
-          issue="$(gh issue list --state open --limit 200 --json number,title \
-                    --jq ".[] | select(.title == \"$title\") | .number" | head -n1)"
+          # Only an issue this job opened: anyone can file an issue with the
+          # same title, and its author could later rewrite the body the job
+          # put there (a forged "apply this diff").
+          issue="$(gh issue list --state open --limit 200 --author app/github-actions \
+                    --json number,title,author \
+                    --jq ".[] | select(.title == \"$title\" and .author.is_bot) | .number" | head -n1)"
           if [ -n "$issue" ]; then
             gh issue edit "$issue" --body-file "$RUNNER_TEMP/body.md"
           else
