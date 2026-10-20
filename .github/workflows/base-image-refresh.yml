@@ -1,0 +1,112 @@
+name: Base image refresh
+
+# Digest-drift job for the container images CI pulls (issue #491,
+# F-DEP-202/F-DEP-201). Dependabot only sees images in Dockerfiles, so the
+# name:tag@sha256 pins recorded in tools/ci/base-images.txt are resolved here
+# instead: tools/ci/refresh-base-images.sh asks each registry for the digest
+# the tag points at today and whether the pinned digest still exists.
+#
+# Daily, not weekly: quay.io retags centos/centos:stream9 about weekly and
+# 404s the previous manifest at once (issues #587/#590), so a weekly diff
+# would leave the release build broken for up to a week.
+#
+# On drift or a missing digest the `drift` job fails (the visible signal) and
+# the `repin` job opens — or force-updates — the single pull request from the
+# ci/base-image-refresh branch with every pin rewritten by --write.
+#
+# Note for maintainers: a pull request opened with the built-in GITHUB_TOKEN
+# does not trigger CI (GitHub suppresses workflow runs for it), and creating
+# it requires "Allow GitHub Actions to create and approve pull requests" in
+# the repository's Actions settings. Close and reopen the PR (or push to its
+# branch) to start the checks, or switch GH_TOKEN below to a dedicated token.
+
+on:
+  schedule:
+    - cron: '41 5 * * *'
+  workflow_dispatch:
+
+# One refresh at a time; a dispatched run never races the scheduled one on
+# the shared repin branch.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+# Least-privilege default (F-SEC-005): only the repin job gets write scopes.
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Resolve every pinned base image tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      outcome: ${{ steps.check.outcome }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Every recorded pin matches its upstream tag
+        id: check
+        continue-on-error: true
+        run: bash tools/ci/refresh-base-images.sh --check
+
+      - name: Fail on drift or a missing digest
+        if: steps.check.outcome == 'failure'
+        run: |
+          echo "::error title=base image drift::a pinned base image tag moved or its digest is gone upstream — see the step above; the repin job opens the fix as a pull request from ci/base-image-refresh"
+          exit 1
+
+  repin:
+    name: Open or update the repin pull request
+    needs: drift
+    if: always() && needs.drift.outputs.outcome == 'failure'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write        # push the ci/base-image-refresh branch
+      pull-requests: write   # open or edit the repin pull request
+    env:
+      BRANCH: ci/base-image-refresh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Rewrite every drifted pin
+        run: |
+          set -o pipefail
+          bash tools/ci/refresh-base-images.sh --write | tee "$RUNNER_TEMP/repin.txt"
+          bash tools/ci/check-image-digests.sh
+
+      - name: Push the branch and open or update the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "no pin changed — nothing to propose"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git commit -qam "ci(images): repin drifted base images (#491)"
+          git push --force origin "$BRANCH"
+          {
+            echo "Automated repin from \`tools/ci/refresh-base-images.sh --write\` (issue #491)."
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/repin.txt"
+            echo '```'
+            echo
+            echo "Opened with the workflow GITHUB_TOKEN, so CI does not start on its own: close and reopen this pull request (or push to \`$BRANCH\`) to run the checks."
+          } > "$RUNNER_TEMP/body.md"
+          pr="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base "$BASE" --head "$BRANCH" \
+              --title "ci(images): repin drifted base images" \
+              --body-file "$RUNNER_TEMP/body.md"
+          fi
