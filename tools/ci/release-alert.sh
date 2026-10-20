@@ -21,13 +21,17 @@ set -euo pipefail
 TAG="$1"; RUN_URL="$2"; DRY=0
 [ "${3:-}" = "--dry-run" ] && DRY=1
 [ -n "$TAG" ] || { echo "✗ empty tag" >&2; exit 2; }
+# Git ref names may hold quotes or `$`: keep only safe characters, so the
+# title (also used in the --jq filter below) always files an alert.
+TAG="$(printf '%s' "$TAG" | tr -cd 'A-Za-z0-9._/+-')"
+[ -n "$TAG" ] || TAG="(unprintable tag)"
 
 TITLE="Release workflow failed for ${TAG}"
 BODY="$(mktemp)"
 trap 'rm -f "${BODY}"' EXIT
 
 {
-    echo "The release workflow run for tag \`${TAG}\` failed, so nothing was published: ${RUN_URL}"
+    echo "The release workflow run for tag \`${TAG}\` failed and did not publish: ${RUN_URL}"
     echo ""
     echo "| Job | Result |"
     echo "|-----|--------|"
@@ -37,6 +41,12 @@ trap 'rm -f "${BODY}"' EXIT
         echo "| ${job} | ${value:-unknown} |"
     done < <(env | grep '^NEEDS_RESULT_' | LC_ALL=C sort)
     echo ""
+    if [ "${NEEDS_RESULT_RELEASE:-}" = "failure" ]; then
+        echo "The \`release\` job itself failed: check the repository's Releases for a"
+        echo "Release made by hand for this tag (the job refuses to overwrite one) or a"
+        echo "draft left by this run (a re-run replaces it)."
+        echo ""
+    fi
     echo "Do not create the Release by hand: the \`release\` job is the only publisher"
     echo "and refuses to run when a Release for the tag already exists. Fix the cause"
     echo "(a \`verify-tag\` failure usually means the tag is not on \`main\` or does not"

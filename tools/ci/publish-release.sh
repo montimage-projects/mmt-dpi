@@ -66,8 +66,8 @@ draft_id="$(gh api --paginate "repos/${GH_REPO}/releases" \
     --jq ".[] | select(.tag_name == \"${TAG}\" and .draft and .author.login == \"${BOT}\") | .id" \
     | head -n 1)" || { echo "✗ could not list the releases of ${GH_REPO}" >&2; exit 2; }
 [ -n "$draft_id" ] || { echo "✗ the draft Release for ${TAG} was not found after create" >&2; exit 2; }
-# make_latest=legacy: GitHub marks it Latest by date and semver, so a patch
-# release of an older line never displaces the newest one.
+# make_latest=legacy: GitHub picks Latest by creation date and higher
+# semantic version, rather than forcing this Release to be Latest.
 gh api -X PATCH "repos/${GH_REPO}/releases/${draft_id}" \
     -F draft=false -f make_latest=legacy >/dev/null \
     || { echo "✗ publishing draft Release ${draft_id} failed — it stays for a re-run" >&2; exit 2; }

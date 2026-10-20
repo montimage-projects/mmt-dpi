@@ -22,8 +22,9 @@ Release by hand (`gh release create`, the web UI's *Draft a new release*,
 an upload of assets): pushing the tag is the whole publication step. Once
 every gate passes, the `release` job of
 `.github/workflows/release-packages.yml` creates the Release with
-`tools/ci/publish-release.sh` — as a draft carrying every package, SBOM,
-`SHA256SUMS` and attestation subject, then published — and it **refuses to
+`tools/ci/publish-release.sh` — as a draft carrying every package, SBOM and
+`SHA256SUMS` (each covered by the build-provenance attestation), then
+published — and it **refuses to
 run when a Release for the tag already exists**. When any job of a tag run
 fails, the `release-alert` job opens (or comments on) an issue titled
 `Release workflow failed for vx.y.z`; nothing is published, so fix the
