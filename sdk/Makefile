@@ -131,10 +131,13 @@ install: --check-built --check-prefix
 	fi
 # Record every entry laid down above in $(MMT_MANIFEST), merged with the one a
 # previous install left, so `uninstall` removes exactly those (issue #485).
-	@ umask 022 && { if [ -f $(MMT_MANIFEST) ]; then grep -v '^#' $(MMT_MANIFEST); fi; $(MMT_LIST_INSTALLED); } \
-		| LC_ALL=C sort -u > $(MMT_MANIFEST).tmp \
-		&& { echo "# mmt-dpi install manifest: paths relative to $(MMT_BASE), read by make uninstall"; cat $(MMT_MANIFEST).tmp; } > $(MMT_MANIFEST) \
-		&& rm -f $(MMT_MANIFEST).tmp && chmod 0644 $(MMT_MANIFEST)
+# Written to a fresh mktemp file and renamed into place, so a symlink planted
+# at the manifest name is replaced, never written through.
+	@ umask 022; if [ -L $(MMT_MANIFEST) ]; then echo "ERROR: $(MMT_MANIFEST) is a symlink — refusing to use it" >&2; exit 1; fi; \
+	tmp=`mktemp $(MMT_MANIFEST).XXXXXX` || exit 1; \
+	{ { if [ -f $(MMT_MANIFEST) ]; then grep -v '^#' $(MMT_MANIFEST); fi; $(MMT_LIST_INSTALLED); } | LC_ALL=C sort -u \
+	  | { echo "# mmt-dpi install manifest: paths relative to $(MMT_BASE), read by make uninstall"; cat; } > "$$tmp" \
+	  && chmod 0644 "$$tmp" && mv -f -- "$$tmp" $(MMT_MANIFEST); } || { rm -f -- "$$tmp"; exit 1; }
 	@ echo "[MMT-]> Done! "
 
 #  - - - - - - - - -
@@ -148,12 +151,18 @@ install: --check-built --check-prefix
 # ones and the SDK directories, never anything above $(MMT_BASE). An install
 # that predates the manifest is reconstructed from this checkout's sdk/include
 # and sdk/examples when they exist; otherwise only the libmmt_* libraries and
-# plugins go and the include/examples trees are kept with a warning. The
+# plugins go and the include/examples trees are kept with a warning. A
+# symlinked manifest is refused, and an entry is removed only when its parent
+# directory resolves (cd -P) inside the real $(MMT_BASE): a directory symlink
+# planted under the prefix cannot redirect a root uninstall elsewhere. The
 # drop-in is removed only when it names this $(MMT_LIB) — never one
 # registering another prefix (issue #485, F-UX-007).
 uninstall: --check-prefix
 	@ echo "[MMT-]> Removing MMT-DPI from $(MMT_BASE)"
 	$(QUIET) set -e; base='$(MMT_BASE)'; list=`mktemp`; trap 'rm -f "$$list"' EXIT; \
+	if [ -L $(MMT_MANIFEST) ]; then echo "ERROR: $(MMT_MANIFEST) is a symlink — refusing to uninstall" >&2; exit 1; fi; \
+	rbase=`cd -P -- "$$base" 2>/dev/null && pwd -P` || rbase="$$base"; \
+	inside() { r=`cd -P -- "$$1" 2>/dev/null && pwd -P` || return 1; case "$$r" in "$$rbase"|"$$rbase"/*) return 0 ;; esac; return 1; }; \
 	if [ -f $(MMT_MANIFEST) ]; then \
 		grep -v '^#' $(MMT_MANIFEST) > "$$list" || true; \
 	else \
@@ -173,12 +182,14 @@ uninstall: --check-prefix
 	done < "$$list"; \
 	while IFS= read -r rel; do \
 		p="$$base/$$rel"; \
-		if [ -L "$$p" ] || { [ -e "$$p" ] && [ ! -d "$$p" ]; }; then rm -f -- "$$p"; fi; \
+		if [ -L "$$p" ] || { [ -e "$$p" ] && [ ! -d "$$p" ]; }; then \
+			if inside "$${p%/*}"; then rm -f -- "$$p"; else echo "[MMT-]> WARNING: skipped $$p — its directory resolves outside $$rbase" >&2; fi; \
+		fi; \
 	done < "$$list"; \
 	{ while IFS= read -r rel; do if [ -d "$$base/$$rel" ] && [ ! -L "$$base/$$rel" ]; then echo "$$rel"; fi; done < "$$list"; \
 	  for d in $(foreach d,$(MMT_INC) $(MMT_EXAMS) $(MMT_LIB) $(MMT_PLUGINS) $(MMT_DPI),$(call mmt_rel,$(d))); do echo "$$d"; done; } \
 	| LC_ALL=C sort -r -u | while IFS= read -r rel; do \
-		if [ -d "$$base/$$rel" ] && [ ! -L "$$base/$$rel" ]; then rmdir -- "$$base/$$rel" 2>/dev/null || echo "[MMT-]> Kept non-empty $$base/$$rel"; fi; \
+		if [ -d "$$base/$$rel" ] && [ ! -L "$$base/$$rel" ] && inside "$$base/$$rel"; then rmdir -- "$$base/$$rel" 2>/dev/null || echo "[MMT-]> Kept non-empty $$base/$$rel"; fi; \
 	done; \
 	rm -f $(MMT_MANIFEST); \
 	if [ -d "$$base" ]; then rmdir -- "$$base" 2>/dev/null || echo "[MMT-]> Kept non-empty $$base"; fi

@@ -525,7 +525,7 @@ MANIFEST_NAME=".mmt-dpi-manifest"
 MMT_PLUGIN_SET="libmmt_tcpip libmmt_tmobile libmmt_tdicom libmmt_business_app"
 
 uninstall_mmt() {
-    local lib="$MMT_BASE/dpi/lib" run="" f removed=0 rel p entries
+    local lib="$MMT_BASE/dpi/lib" run="" f removed=0 rel p r entries rbase
     local manifest="$MMT_BASE/$MANIFEST_NAME"
     step "Uninstalling mmt-dpi from $MMT_BASE"
 
@@ -542,6 +542,13 @@ uninstall_mmt() {
     if [ ! -d "$MMT_BASE/dpi" ] && [ ! -d "$MMT_BASE/plugins" ] && [ ! -d "$MMT_BASE/examples" ]; then
         warn "No MMT-DPI install found under $MMT_BASE"
     fi
+    if [ -L "$manifest" ]; then
+        fatal "$manifest is a symlink — refusing to uninstall"
+    fi
+    # Entries are removed only when their directory resolves inside the real
+    # prefix: a directory symlink planted under the prefix cannot redirect
+    # the removal elsewhere.
+    rbase="$(resolve_dir "$MMT_BASE")" || rbase="$MMT_BASE"
     if [ -f "$manifest" ]; then
         entries="$(grep -v '^#' "$manifest" || true)"
     else
@@ -563,7 +570,11 @@ uninstall_mmt() {
         [ -n "$rel" ] || continue
         p="$MMT_BASE/$rel"
         if [ -L "$p" ] || { [ -e "$p" ] && [ ! -d "$p" ]; }; then
-            $run rm -f -- "$p"
+            r="$(resolve_dir "${p%/*}")" || r=""
+            case "$r" in
+                "$rbase"|"$rbase"/*) $run rm -f -- "$p" ;;
+                *) warn "Skipped $p — its directory resolves outside $rbase" ;;
+            esac
         fi
     done <<< "$entries"
     {
@@ -573,7 +584,9 @@ uninstall_mmt() {
         printf '%s\n' dpi/include examples dpi/lib plugins dpi
     } | LC_ALL=C sort -r -u | while IFS= read -r rel; do
         p="$MMT_BASE/$rel"
-        if [ -d "$p" ] && [ ! -L "$p" ]; then
+        r="$(resolve_dir "$p")" || continue
+        case "$r" in "$rbase"|"$rbase"/*) ;; *) continue ;; esac
+        if [ ! -L "$p" ]; then
             $run rmdir -- "$p" 2>/dev/null || warn "Kept non-empty $p"
         fi
     done
@@ -725,6 +738,13 @@ install_mmt() {
 # copied from <sdk dir>, relative to the prefix.
 write_manifest() {
     local sdk="$1" priv="${2:-}" f
+    local manifest="$MMT_BASE/$MANIFEST_NAME" tmp
+    # Never write through a symlink planted at the manifest name: write a
+    # fresh mktemp file and rename it into place.
+    if [ -L "$manifest" ]; then
+        fatal "$manifest is a symlink — refusing to write the install manifest"
+    fi
+    tmp="$($priv mktemp "$manifest.XXXXXX")" || fatal "Cannot create a temporary manifest under $MMT_BASE"
     {
         echo "# mmt-dpi install manifest: paths relative to $MMT_BASE, read by make uninstall"
         {
@@ -736,8 +756,15 @@ write_manifest() {
             (cd "$sdk/include" && find . -mindepth 1) | sed 's|^\./|dpi/include/|'
             (cd "$sdk/examples" && find . -mindepth 1) | sed 's|^\./|examples/|'
         } | LC_ALL=C sort -u
-    } | $priv tee "$MMT_BASE/$MANIFEST_NAME" >/dev/null
-    $priv chmod 0644 "$MMT_BASE/$MANIFEST_NAME"
+    } | $priv tee "$tmp" >/dev/null
+    $priv chmod 0644 "$tmp"
+    $priv mv -f -- "$tmp" "$manifest"
+}
+
+# resolve_dir <dir> — the physical path of an existing directory (cd -P), so
+# symlinked components are resolved; fails when <dir> does not exist.
+resolve_dir() {
+    (cd -P -- "$1" 2>/dev/null && pwd -P)
 }
 
 # ---------------------------------------------------------------------------

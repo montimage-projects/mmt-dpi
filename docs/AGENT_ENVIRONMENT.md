@@ -371,14 +371,19 @@ documents link here.
   root install out; `LDCONF=1` forces registration; `LDCONF_DIR` and
   `LDCONFIG` relocate the drop-in and the command (the installer suite uses
   a staged directory and a fake `ldconfig`).
-- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:154-190`)
+- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:160-201`)
   removes exactly the entries `install` recorded in
   `<prefix>/.mmt-dpi-manifest` (one path per line, relative to the prefix,
   merged across reinstalls), then the SDK directories left empty (`rmdir`,
   deepest first — never `rm -rf` on a tree and never a directory above the
   prefix), and the drop-in when it names that prefix's `dpi/lib`; files
   another product put under the prefix — even inside `examples/` or
-  `dpi/include/` — survive. An install that predates the manifest is
+  `dpi/include/` — survive. A symlinked manifest is refused, the manifest
+  is written via `mktemp` + rename (never through a planted symlink), and an
+  entry is removed only when its directory resolves (`cd -P`) inside the
+  real prefix, so a directory symlink under the prefix cannot redirect a
+  root uninstall; keep the prefix writable only by the installing user.
+  An install that predates the manifest is
   reconstructed from the checkout's `sdk/include` and `sdk/examples` when
   they exist; otherwise only the `libmmt_*` libraries and plugins go and the
   include/examples trees are kept with a warning. `dist-clean` is kept as an
@@ -401,7 +406,7 @@ documents link here.
 
 ### The `make test` trap
 
-`sdk/Makefile`'s `test` target (`sdk/Makefile:442-447`) compiles the
+`sdk/Makefile`'s `test` target (`sdk/Makefile:453-458`) compiles the
 `proto_attributes_iterator` example **from the installed prefix**:
 
 ```
@@ -525,7 +530,7 @@ next build of any profile deletes them, so harvest them first with
 
 - Object/header selection: `rules/common.mk:201-203, 225-228, 310-313`
 - Link rules and libxml2 wiring: `rules/common-linux.mk:6-12, 215-218, 226-230, 263-279`
-- Install symlinks for both engines: `sdk/Makefile:89-90, 271-272`
+- Install symlinks for both engines: `sdk/Makefile:89-90, 282-283`
 
 Usage (requires `libxml2-dev`):
 

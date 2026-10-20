@@ -181,6 +181,18 @@ check_fail "install.sh --uninstall refuses a manifest entry leaving the prefix" 
     bash "${REPO_ROOT}/install.sh" --uninstall --prefix "${UI}"
 check "refused manifest uninstall deleted nothing" \
     bash -c "[ -f '${WORK}/outside/keep' ] && [ -f '${UI}/.mmt-dpi-manifest' ]"
+# A directory symlink planted under the prefix must not redirect removal
+# outside it, and a symlinked manifest is refused.
+rm -rf "${UI}"; mkdir -p "${UI}/dpi" "${WORK}/outside-ui"; : > "${WORK}/outside-ui/victim.h"
+ln -s "${WORK}/outside-ui" "${UI}/dpi/include"
+printf '%s\n' dpi/include/victim.h > "${UI}/.mmt-dpi-manifest"
+check "install.sh --uninstall skips an entry behind a symlinked parent" \
+    bash -c "bash '${REPO_ROOT}/install.sh' --uninstall --prefix '${UI}' && [ -f '${WORK}/outside-ui/victim.h' ]"
+rm -rf "${UI}"; mkdir -p "${UI}"; printf 'examples/x.c\n' > "${WORK}/outside-ui/manifest"
+ln -s "${WORK}/outside-ui/manifest" "${UI}/.mmt-dpi-manifest"
+check_fail "install.sh --uninstall refuses a symlinked manifest" \
+    bash "${REPO_ROOT}/install.sh" --uninstall --prefix "${UI}"
+rm -rf "${UI}"
 for bad in '//' '/.' '/opt/./mmt' '/opt/*'; do
     check_fail "install.sh --uninstall refuses MMT_BASE='${bad}'" \
         bash "${REPO_ROOT}/install.sh" --uninstall --prefix "${bad}" --dry-run
@@ -354,6 +366,24 @@ for bad in "MMT_BASE=//" "MMT_BASE=/." "MMT_BASE=${WORK}/c*" "MMT_BASE=${PREFIX2
 done
 check "refused uninstalls deleted nothing" test -f "${CANARY}/keep"
 rmdir "${PREFIX2}"
+# Symlinked parent inside the prefix pointing outside it: the canary named in
+# the manifest survives; a symlinked manifest is refused.
+SYMP="${WORK}/sym-prefix"; mkdir -p "${SYMP}/dpi"; : > "${CANARY}/victim.h"
+ln -s "${CANARY}" "${SYMP}/dpi/include"
+printf '%s\n' dpi/include/victim.h > "${SYMP}/.mmt-dpi-manifest"
+check "uninstall skips an entry behind a symlinked parent" \
+    bash -c "\"\$@\" MMT_BASE='${SYMP}' uninstall && [ -f '${CANARY}/victim.h' ]" _ "${SDKM[@]}" "${STAGE[@]}"
+rm -rf "${SYMP}"; mkdir -p "${SYMP}"; printf 'examples/x.c\n' > "${CANARY}/manifest"
+ln -s "${CANARY}/manifest" "${SYMP}/.mmt-dpi-manifest"
+check_fail "uninstall refuses a symlinked manifest" \
+    "${SDKM[@]}" MMT_BASE="${SYMP}" "${STAGE[@]}" uninstall
+mkdir -p "${PREFIX2}"; ln -s "${CANARY}/manifest" "${PREFIX2}/.mmt-dpi-manifest"
+check_fail "install refuses to write through a symlinked manifest" \
+    "${SDKM[@]}" MMT_BASE="${PREFIX2}" "${STAGE[@]}" LDCONF=0 install
+rm -rf "${PREFIX2}"
+check "symlinked manifest target untouched" \
+    bash -c "[ \"\$(cat '${CANARY}/manifest')\" = examples/x.c ]"
+rm -rf "${SYMP}"
 check "dist-clean is an alias for uninstall" \
     grep -q '^dist-clean: uninstall$' "${REPO_ROOT}/sdk/Makefile"
 
