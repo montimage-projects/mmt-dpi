@@ -406,6 +406,31 @@ check "states the gh admin requirement" \
 check "states that no .env exists or is needed" \
       "grep -qF 'No \`.env\` file exists' '$DOC' && [ -z \"\$(git -C '$ROOT' ls-files '.env*' 2>/dev/null)\" ]"
 
+# -----------------------------------------------------------------------------
+# 5. AGENTS.md is the cross-agent source of truth (issue #481)
+# -----------------------------------------------------------------------------
+echo ""
+echo "-- AGENTS.md source of truth --"
+
+AGENTS="$ROOT/AGENTS.md"
+check "AGENTS.md exists at the repository root" "[ -f '$AGENTS' ]"
+check "AGENTS.md names the build command of record" \
+      "grep -qF 'make -C sdk -j\$(nproc)' '$AGENTS'"
+check "AGENTS.md names the test command with the ${suite_count}/${suite_count} suite count" \
+      "grep -qF 'bash tests/run_all_tests.sh' '$AGENTS' && grep -qF '${suite_count}/${suite_count} suites' '$AGENTS'"
+check "AGENTS.md names both phase0 gate commands" \
+      "grep -qF 'tools/phase0/ci/check_classification.sh' '$AGENTS' && grep -qF 'tools/phase0/ci/check_precision.sh' '$AGENTS'"
+# shellcheck disable=SC2016  # backticks are Markdown syntax inside the pattern
+check "AGENTS.md no longer defers project context and commands to CLAUDE.md" \
+      "! grep -qF 'Project context and commands: [CLAUDE.md]' '$AGENTS'"
+check "AGENTS.md has no @imports (Claude-only syntax)" \
+      "! grep -qE '^@' '$AGENTS'"
+check "the never-commit rule names dist/packages/, and dist/packages/ is ignored" \
+      "grep -qF 'dist/packages/' '$AGENTS' && grep -qx 'dist/packages/' '$ROOT/.gitignore'"
+# shellcheck disable=SC2016  # backticks are Markdown syntax inside the pattern
+check "no agent file forbids committing all of dist/ (dist/ZIP/ is tracked source)" \
+      "! grep -qF '\`dist/\`' '$AGENTS' && ! grep -qF '\`dist/\`' '$ROOT/CLAUDE.md'"
+
 echo ""
 if [ "$ERRORS" -eq 0 ]; then
     echo "Result: PASS (all checks passed)"

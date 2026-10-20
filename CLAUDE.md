@@ -35,7 +35,7 @@ Install instructions: [docs/AGENT_ENVIRONMENT.md §4](docs/AGENT_ENVIRONMENT.md#
 - NEVER use `make -C sdk test` as a smoke test: it compiles examples from the installed prefix and fails without a prior `sudo make install`. Use `bash tests/run_all_tests.sh`.
 - Classification logic changes must keep the phase0 golden-pcap fingerprint unchanged. The `classification-gate` job ("Golden classification fingerprint unchanged", `.github/workflows/phase0-baseline.yml`) runs on every PR into `main` and — since issue #184 made the phase0 gates required status checks on `main` — a mismatch blocks the merge. If the fingerprint changes, stop and flag the difference. An intentional behavior change requires regenerating baselines per `tools/phase0/README.md`.
 - YOU MUST follow the `MMT_BASE` prefix contract stated in [docs/AGENT_ENVIRONMENT.md §4](docs/AGENT_ENVIRONMENT.md#4-mmt_base-install-prefix-behavior) when building and installing.
-- Never commit generated artifacts: `sdk/lib/`, `sdk/include/`, `sdk/examples/`, `sdk/bin/`, `build/`, `dist/`.
+- Never commit generated artifacts: `sdk/lib/`, `sdk/include/`, `sdk/examples/`, `sdk/bin/`, `build/`, `dist/packages/` (`dist/ZIP/` is tracked source).
 
 ## Workflow preferences
 
