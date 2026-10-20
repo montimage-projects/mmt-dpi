@@ -384,3 +384,8 @@ test:
 	# (-fPIE + -pie + RELRO/noexecstack via MMT_EXAMPLE_* in rules/common.mk).
 	$(CC) $(MMT_EXAMPLE_CFLAGS) -o proto_attributes_iterator $(MMT_EXAMS)/proto_attributes_iterator.c -I $(MMT_INC) -L $(MMT_LIB) $(MMT_EXAMPLE_LDFLAGS) -lmmt_core -ldl
 	./proto_attributes_iterator
+# `make sdk install` in one invocation: install no longer depends on sdk, so
+# order it after the build when both are requested (issue #485).
+ifneq ($(filter sdk default,$(MAKECMDGOALS)),)
+install: | sdk
+endif
