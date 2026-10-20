@@ -35,10 +35,10 @@ dated `CHANGELOG.md` entry:
 
 | Site | What the check reads |
 |------|----------------------|
-| `install.sh` | `RELEASE_TAG="vx.y.z"` (with `RELEASE_TAG_SHA`, the commit the tag resolves to) |
+| `install.sh` | `RELEASE_TAG="vx.y.z"` (update `RELEASE_TAG_SHA`, the commit the tag resolves to, alongside it — not compared) |
 | `README.md` | `Current release: [vx.y.z]` and `` pinned release tag (`vx.y.z`) `` |
 | `docs/_includes/quick-start.md` | `` pinned release tag (`vx.y.z`) `` |
-| `docs/index.html` | the hero eyebrow `vx.y.z · Apache‑2.0 · …` |
+| `docs/index.html` | the hero eyebrow `vx.y.z · Apache-2.0 · …` |
 
 Release order:
 
