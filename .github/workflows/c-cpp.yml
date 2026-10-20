@@ -449,6 +449,11 @@ jobs:
     - name: Check the gitleaks allowlist for drift
       run: bash tools/ci/check-gitleaks-allowlist.sh
 
+    # A config with no detection rules passes on any secret (issue #488,
+    # F-SEC-001): prove the scan catches a planted key before trusting it.
+    - name: Canary — the secret scan catches a planted key
+      run: bash tools/ci/tests/test-gitleaks-canary.sh
+
     - name: Secret scan (gitleaks-action)
       id: action-scan
       continue-on-error: true
