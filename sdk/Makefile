@@ -12,7 +12,7 @@ else
 endif
 
 default: sdk
-.PHONY: sdk install uninstall clean dist-clean --check-built FORCE
+.PHONY: sdk install uninstall clean dist-clean --check-built --check-prefix FORCE
 
 include $(RULESDIR)/arch-$(ARCH).mk
 
@@ -79,7 +79,7 @@ LDCONF_DECIDE = case "$(LDCONF)" in \
 		exit 1; \
 	fi
 
-install: --check-built
+install: --check-built --check-prefix
 	@ $(LDCONF_DECIDE)
 	@ install -d -m 0755 $(MMT_BASE) $(MMT_DPI) $(MMT_INC) $(MMT_PLUGINS) $(MMT_EXAMS) $(MMT_LIB)
 	@ install -m 0755 $(SDKLIB)/*.so.* $(MMT_LIB)/
@@ -129,37 +129,98 @@ install: --check-built
 	else \
 		echo "[MMT-]> Loader not registered (LDCONF=$(LDCONF); auto registers only as root): run consumers with LD_LIBRARY_PATH=$(MMT_LIB)"; \
 	fi
+# Record every entry laid down above in $(MMT_MANIFEST), merged with the one a
+# previous install left, so `uninstall` removes exactly those (issue #485).
+	@ umask 022 && { if [ -f $(MMT_MANIFEST) ]; then grep -v '^#' $(MMT_MANIFEST); fi; $(MMT_LIST_INSTALLED); } \
+		| LC_ALL=C sort -u > $(MMT_MANIFEST).tmp \
+		&& { echo "# mmt-dpi install manifest: paths relative to $(MMT_BASE), read by make uninstall"; cat $(MMT_MANIFEST).tmp; } > $(MMT_MANIFEST) \
+		&& rm -f $(MMT_MANIFEST).tmp && chmod 0644 $(MMT_MANIFEST)
 	@ echo "[MMT-]> Done! "
 
 #  - - - - - - - - -
 #  U N I N S T A L L
 #  - - - - - - - - -
 
-# Removes what `install` laid down for this MMT_BASE (same variables), then
-# every directory left empty, so a default round trip leaves neither
-# $(MMT_BASE) nor $(LDCONF_FILE). Files another product put under the prefix
-# survive: directories are removed with rmdir, never rm -rf, except the
-# SDK-owned include and examples trees. The drop-in is removed only when it
-# names this $(MMT_LIB) — never one registering another prefix (issue #485,
-# F-UX-007).
-uninstall:
-	@ case "$(MMT_BASE)" in ''|/) echo "ERROR: refusing to uninstall with MMT_BASE='$(MMT_BASE)'" >&2; exit 1 ;; esac
-	@ for d in $(MMT_DPI) $(MMT_LIB) $(MMT_INC) $(MMT_PLUGINS) $(MMT_EXAMS); do \
-		case "$$d" in $(MMT_BASE)/?*) ;; *) echo "ERROR: $$d is not under MMT_BASE=$(MMT_BASE) — refusing to uninstall it" >&2; exit 1 ;; esac; \
-	done
+# Removes exactly the entries `install` recorded in $(MMT_MANIFEST) — never a
+# whole directory tree: install merges into directories that may hold another
+# product's files (e.g. MMT_BASE=/usr/local), and those survive. Directories
+# are then removed with rmdir, deepest first, only when empty — the recorded
+# ones and the SDK directories, never anything above $(MMT_BASE). An install
+# that predates the manifest is reconstructed from this checkout's sdk/include
+# and sdk/examples when they exist; otherwise only the libmmt_* libraries and
+# plugins go and the include/examples trees are kept with a warning. The
+# drop-in is removed only when it names this $(MMT_LIB) — never one
+# registering another prefix (issue #485, F-UX-007).
+uninstall: --check-prefix
 	@ echo "[MMT-]> Removing MMT-DPI from $(MMT_BASE)"
-	$(QUIET) $(RM) $(MMT_LIB)/libmmt_*.so $(MMT_LIB)/libmmt_*.so.* $(MMT_LIB)/libmmt_*.a
-	$(QUIET) $(RM) $(addprefix $(MMT_PLUGINS)/,libmmt_tcpip.so $(LIBMOBILE).so $(LIBDICOM).so $(LIBBAPP).so)
-	$(QUIET) $(RM) $(MMT_INC) $(MMT_EXAMS)
-	$(QUIET) for d in $(MMT_LIB) $(MMT_DPI) $(MMT_PLUGINS) $(MMT_BASE); do \
-		if [ -d "$$d" ]; then rmdir "$$d" 2>/dev/null || echo "[MMT-]> Kept non-empty $$d"; fi; \
-	done
+	$(QUIET) set -e; base='$(MMT_BASE)'; list=`mktemp`; trap 'rm -f "$$list"' EXIT; \
+	if [ -f $(MMT_MANIFEST) ]; then \
+		grep -v '^#' $(MMT_MANIFEST) > "$$list" || true; \
+	else \
+		echo "[MMT-]> No install manifest ($(MMT_MANIFEST)): the install predates it"; \
+		{ (cd '$(MMT_LIB)' 2>/dev/null && ls -d libmmt_*.so libmmt_*.so.* libmmt_*.a 2>/dev/null) | sed 's|^|$(call mmt_rel,$(MMT_LIB))/|'; \
+		  for f in $(MMT_PLUGIN_FILES); do echo "$(call mmt_rel,$(MMT_PLUGINS))/$$f"; done; } > "$$list" || true; \
+		if [ -d $(SDKINC) ] && [ -d $(SDKXAM) ]; then \
+			echo "[MMT-]> Removing the headers and examples this checkout installs ($(SDKINC), $(SDKXAM))"; \
+			{ $(MMT_LIST_TREES); } >> "$$list"; \
+		else \
+			echo "[MMT-]> WARNING: kept $(MMT_INC) and $(MMT_EXAMS) — no file list for them; remove them by hand" >&2; \
+		fi; \
+	fi; \
+	while IFS= read -r rel; do \
+		case "$$rel" in ''|/*|.|..|./*|../*|*/.|*/..|*/./*|*/../*|*//*|*[!A-Za-z0-9._/+-]*) \
+			echo "ERROR: unsafe manifest entry '$$rel' — refusing to uninstall" >&2; exit 1 ;; esac; \
+	done < "$$list"; \
+	while IFS= read -r rel; do \
+		p="$$base/$$rel"; \
+		if [ -L "$$p" ] || { [ -e "$$p" ] && [ ! -d "$$p" ]; }; then rm -f -- "$$p"; fi; \
+	done < "$$list"; \
+	{ while IFS= read -r rel; do if [ -d "$$base/$$rel" ] && [ ! -L "$$base/$$rel" ]; then echo "$$rel"; fi; done < "$$list"; \
+	  for d in $(foreach d,$(MMT_INC) $(MMT_EXAMS) $(MMT_LIB) $(MMT_PLUGINS) $(MMT_DPI),$(call mmt_rel,$(d))); do echo "$$d"; done; } \
+	| LC_ALL=C sort -r -u | while IFS= read -r rel; do \
+		if [ -d "$$base/$$rel" ] && [ ! -L "$$base/$$rel" ]; then rmdir -- "$$base/$$rel" 2>/dev/null || echo "[MMT-]> Kept non-empty $$base/$$rel"; fi; \
+	done; \
+	rm -f $(MMT_MANIFEST); \
+	if [ -d "$$base" ]; then rmdir -- "$$base" 2>/dev/null || echo "[MMT-]> Kept non-empty $$base"; fi
 	@ removed=0; \
 	for f in $(LDCONF_FILE) $(LDCONF_DIR)/mmt.conf; do \
 		if [ -f "$$f" ] && [ "`cat $$f`" = "$(MMT_LIB)" ]; then rm -f "$$f" && removed=1 && echo "[MMT-]> Removed $$f"; fi; \
 	done; \
 	if [ "$$removed" = 1 ]; then $(LDCONFIG); fi
 	@ echo "[MMT-]> Done!"
+
+# install and uninstall run as root and act on user-overridable paths, so
+# every one is checked first: MMT_BASE and MMT_DPI/MMT_LIB/MMT_INC/
+# MMT_PLUGINS/MMT_EXAMS must be absolute, at most 256 characters, made of
+# [A-Za-z0-9._/-] only (no whitespace, quote or glob character), with no
+# empty, '.' or '..' component and no trailing slash — so '/', '//', '/.'
+# and '/opt/*' are refused — and each SDK directory must lie strictly under
+# MMT_BASE. Same rules as install.sh's validate_mmt_base (issue #485).
+--check-prefix:
+	@ base='$(MMT_BASE)'; sub=; \
+	for p in "$$base" '$(MMT_DPI)' '$(MMT_LIB)' '$(MMT_INC)' '$(MMT_PLUGINS)' '$(MMT_EXAMS)'; do \
+		why=; \
+		case "$$p" in /*) ;; *) why="is not an absolute path" ;; esac; \
+		case "$$p" in *[!A-Za-z0-9._/-]*) why="contains characters outside [A-Za-z0-9._/-]" ;; esac; \
+		case "$$p/" in *//*|*/./*|*/../*) why="has an empty, '.' or '..' component or a trailing slash" ;; esac; \
+		if [ $${#p} -gt 256 ]; then why="is longer than 256 characters"; fi; \
+		if [ -n "$$sub" ]; then case "$$p" in "$$base"/?*) ;; *) why="is not under MMT_BASE=$$base" ;; esac; fi; \
+		if [ -n "$$why" ]; then echo "ERROR: install path '$$p' $$why — refusing to $(MAKECMDGOALS)" >&2; exit 1; fi; \
+		sub=1; \
+	done
+
+# Install manifest (issue #485): one path per line, relative to $(MMT_BASE).
+MMT_MANIFEST     = $(MMT_BASE)/.mmt-dpi-manifest
+mmt_rel          = $(patsubst $(MMT_BASE)/%,%,$(1))
+MMT_LIB_LINKS    = libmmt_core.so libmmt_fuzz.so libmmt_security.so libmmt_tcpip.so $(LIBMOBILE).so $(LIBBAPP).so $(LIBDICOM).so
+MMT_PLUGIN_FILES = libmmt_tcpip.so $(LIBMOBILE).so $(LIBDICOM).so $(LIBBAPP).so
+# Shell snippets printing the entries `install` copies from this build.
+MMT_LIST_TREES   = (cd $(SDKINC) && find . -mindepth 1) | sed 's|^\./|$(call mmt_rel,$(MMT_INC))/|'; \
+	(cd $(SDKXAM) && find . -mindepth 1) | sed 's|^\./|$(call mmt_rel,$(MMT_EXAMS))/|'
+MMT_LIST_INSTALLED = (cd $(SDKLIB) && ls -d *.so.* *.a) | sed 's|^|$(call mmt_rel,$(MMT_LIB))/|'; \
+	for f in $(MMT_LIB_LINKS); do echo "$(call mmt_rel,$(MMT_LIB))/$$f"; done; \
+	for f in $(MMT_PLUGIN_FILES); do echo "$(call mmt_rel,$(MMT_PLUGINS))/$$f"; done; \
+	$(MMT_LIST_TREES)
 
 #  - - - - - - -
 #  B U I L D   D E B
@@ -388,4 +449,5 @@ test:
 # order it after the build when both are requested (issue #485).
 ifneq ($(filter sdk default,$(MAKECMDGOALS)),)
 install: | sdk
+--check-built: | sdk
 endif

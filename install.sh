@@ -236,6 +236,11 @@ validate_mmt_base() {
     if [[ "$p" == */ ]]; then
         echo "ERROR: MMT_BASE must not have trailing slash: $p" >&2; return 1
     fi
+    # An empty or '.' component would alias another directory (//, /.,
+    # /opt/./mmt): uninstall removes paths under the prefix (issue #485).
+    if [[ "$p/" == *//* || "$p/" == */./* ]]; then
+        echo "ERROR: MMT_BASE must not contain empty or . components: $p" >&2; return 1
+    fi
 }
 
 load_common_defs() {
@@ -508,12 +513,20 @@ will_register_loader() {
 # ---------------------------------------------------------------------------
 # Uninstall (issue #485, F-UX-007) — mirrors `make -C sdk uninstall`
 # ---------------------------------------------------------------------------
-# The build checkout is gone after an install, so the installer removes the
-# documented layout itself: the SDK files under <prefix>, every directory left
-# empty (rmdir — content another product put there survives), and the loader
-# drop-in when it names this prefix.
+# The build checkout is gone after an install, so the installer mirrors
+# `make uninstall` itself: it removes exactly the entries listed in
+# <prefix>/.mmt-dpi-manifest (written at install time) — never a whole
+# directory tree, so another product's files under the prefix survive — then
+# every SDK directory left empty (rmdir, deepest first), and the loader
+# drop-in when it names this prefix. An install that predates the manifest
+# loses only its libmmt_* libraries and plugins; its include and examples
+# trees are kept with a warning, since nothing records which files are ours.
+MANIFEST_NAME=".mmt-dpi-manifest"
+MMT_PLUGIN_SET="libmmt_tcpip libmmt_tmobile libmmt_tdicom libmmt_business_app"
+
 uninstall_mmt() {
-    local lib="$MMT_BASE/dpi/lib" run="" f removed=0
+    local lib="$MMT_BASE/dpi/lib" run="" f removed=0 rel p entries
+    local manifest="$MMT_BASE/$MANIFEST_NAME"
     step "Uninstalling mmt-dpi from $MMT_BASE"
 
     # Privilege is needed for a root-owned prefix, or to drop a loader
@@ -529,15 +542,45 @@ uninstall_mmt() {
     if [ ! -d "$MMT_BASE/dpi" ] && [ ! -d "$MMT_BASE/plugins" ] && [ ! -d "$MMT_BASE/examples" ]; then
         warn "No MMT-DPI install found under $MMT_BASE"
     fi
-    $run rm -f "$lib"/libmmt_*.so "$lib"/libmmt_*.so.* "$lib"/libmmt_*.a
-    $run rm -f "$MMT_BASE"/plugins/libmmt_tcpip.so "$MMT_BASE"/plugins/libmmt_tmobile.so \
-               "$MMT_BASE"/plugins/libmmt_tdicom.so "$MMT_BASE"/plugins/libmmt_business_app.so
-    $run rm -rf "$MMT_BASE/dpi/include" "$MMT_BASE/examples"
-    for f in "$lib" "$MMT_BASE/dpi" "$MMT_BASE/plugins" "$MMT_BASE"; do
-        if [ -d "$f" ]; then
-            $run rmdir "$f" 2>/dev/null || warn "Kept non-empty $f"
+    if [ -f "$manifest" ]; then
+        entries="$(grep -v '^#' "$manifest" || true)"
+    else
+        warn "No install manifest ($manifest): the install predates it — removing only the libmmt_* libraries and plugins"
+        warn "Kept $MMT_BASE/dpi/include and $MMT_BASE/examples — remove them by hand"
+        entries="$( (cd "$lib" 2>/dev/null && ls -d libmmt_*.so libmmt_*.so.* libmmt_*.a 2>/dev/null) | sed 's|^|dpi/lib/|'
+                    for f in $MMT_PLUGIN_SET; do echo "plugins/$f.so"; done )"
+    fi
+    # Refuse the whole list before touching anything if one entry could
+    # leave the prefix.
+    while IFS= read -r rel; do
+        case "$rel" in
+            '') ;;
+            /*|.|..|./*|../*|*/.|*/..|*/./*|*/../*|*//*|*[!A-Za-z0-9._/+-]*)
+                fatal "Unsafe manifest entry '$rel' in $manifest — refusing to uninstall" ;;
+        esac
+    done <<< "$entries"
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        p="$MMT_BASE/$rel"
+        if [ -L "$p" ] || { [ -e "$p" ] && [ ! -d "$p" ]; }; then
+            $run rm -f -- "$p"
+        fi
+    done <<< "$entries"
+    {
+        while IFS= read -r rel; do
+            [ -n "$rel" ] && [ -d "$MMT_BASE/$rel" ] && [ ! -L "$MMT_BASE/$rel" ] && echo "$rel"
+        done <<< "$entries"
+        printf '%s\n' dpi/include examples dpi/lib plugins dpi
+    } | LC_ALL=C sort -r -u | while IFS= read -r rel; do
+        p="$MMT_BASE/$rel"
+        if [ -d "$p" ] && [ ! -L "$p" ]; then
+            $run rmdir -- "$p" 2>/dev/null || warn "Kept non-empty $p"
         fi
     done
+    $run rm -f -- "$manifest"
+    if [ -d "$MMT_BASE" ]; then
+        $run rmdir -- "$MMT_BASE" 2>/dev/null || warn "Kept non-empty $MMT_BASE"
+    fi
 
     for f in "$LD_DROPIN" "$LD_DROPIN_LEGACY"; do
         if [ -f "$f" ] && [ "$(cat "$f")" = "$lib" ]; then
@@ -666,7 +709,35 @@ install_mmt() {
         $SUDO make ARCH="linux" MMT_BASE="$MMT_BASE" LDCONF="$LDCONF" install
     fi
 
+    # The pinned release tag's Makefile writes no install manifest: record
+    # what it copied from this build so --uninstall can remove exactly that.
+    if [ ! -f "$MMT_BASE/$MANIFEST_NAME" ]; then
+        local priv=""
+        [ "$ELEVATED" = "1" ] && priv="$SUDO"
+        write_manifest "$BUILD_DIR/mmt-dpi/sdk" "$priv"
+    fi
+
     success "Installation completed"
+}
+
+# write_manifest <sdk dir> [priv] — the same list `make install` records in
+# <prefix>/.mmt-dpi-manifest (sdk/Makefile MMT_LIST_INSTALLED): every entry
+# copied from <sdk dir>, relative to the prefix.
+write_manifest() {
+    local sdk="$1" priv="${2:-}" f
+    {
+        echo "# mmt-dpi install manifest: paths relative to $MMT_BASE, read by make uninstall"
+        {
+            (cd "$sdk/lib" && ls -d ./*.so.* ./*.a) | sed 's|^\./|dpi/lib/|'
+            for f in libmmt_core libmmt_fuzz libmmt_security $MMT_PLUGIN_SET; do
+                echo "dpi/lib/$f.so"
+            done
+            for f in $MMT_PLUGIN_SET; do echo "plugins/$f.so"; done
+            (cd "$sdk/include" && find . -mindepth 1) | sed 's|^\./|dpi/include/|'
+            (cd "$sdk/examples" && find . -mindepth 1) | sed 's|^\./|examples/|'
+        } | LC_ALL=C sort -u
+    } | $priv tee "$MMT_BASE/$MANIFEST_NAME" >/dev/null
+    $priv chmod 0644 "$MMT_BASE/$MANIFEST_NAME"
 }
 
 # ---------------------------------------------------------------------------

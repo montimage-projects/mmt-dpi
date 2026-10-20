@@ -371,12 +371,28 @@ documents link here.
   root install out; `LDCONF=1` forces registration; `LDCONF_DIR` and
   `LDCONFIG` relocate the drop-in and the command (the installer suite uses
   a staged directory and a fake `ldconfig`).
-- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:145-162`)
-  removes what `install` laid down for that prefix, every directory left
-  empty, and the drop-in when it names that prefix's `dpi/lib`; files
-  another product put under the prefix survive. `dist-clean` is kept as an
+- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:154-190`)
+  removes exactly the entries `install` recorded in
+  `<prefix>/.mmt-dpi-manifest` (one path per line, relative to the prefix,
+  merged across reinstalls), then the SDK directories left empty (`rmdir`,
+  deepest first — never `rm -rf` on a tree and never a directory above the
+  prefix), and the drop-in when it names that prefix's `dpi/lib`; files
+  another product put under the prefix — even inside `examples/` or
+  `dpi/include/` — survive. An install that predates the manifest is
+  reconstructed from the checkout's `sdk/include` and `sdk/examples` when
+  they exist; otherwise only the `libmmt_*` libraries and plugins go and the
+  include/examples trees are kept with a warning. `dist-clean` is kept as an
   alias. From the one-command installer:
-  `bash install.sh --uninstall [--prefix <dir>]`.
+  `bash install.sh --uninstall [--prefix <dir>]`, which applies the same
+  manifest rules (and writes the manifest itself after installing from the
+  pinned tag, whose Makefile predates it).
+- **Prefix guard.** `install` and `uninstall` refuse an unsafe layout before
+  touching anything: `MMT_BASE` and each of `MMT_DPI`, `MMT_LIB`, `MMT_INC`,
+  `MMT_PLUGINS`, `MMT_EXAMS` must be absolute, at most 256 characters of
+  `[A-Za-z0-9._/-]` (no whitespace or glob character), without an empty,
+  `.` or `..` component or a trailing slash (so `/`, `//`, `/.` and
+  `/opt/*` are refused), and each SDK directory must lie strictly under
+  `MMT_BASE`. `install.sh`'s `validate_mmt_base` applies the same rules.
 - The root leg (install as root → drop-in + `ldconfig -p`, the installed
   consumer with `LD_LIBRARY_PATH` unset, uninstall → nothing left) writes
   `/etc`, so it runs only in a disposable container:
@@ -385,7 +401,7 @@ documents link here.
 
 ### The `make test` trap
 
-`sdk/Makefile`'s `test` target (`sdk/Makefile:381-386`) compiles the
+`sdk/Makefile`'s `test` target (`sdk/Makefile:442-447`) compiles the
 `proto_attributes_iterator` example **from the installed prefix**:
 
 ```
@@ -509,7 +525,7 @@ next build of any profile deletes them, so harvest them first with
 
 - Object/header selection: `rules/common.mk:201-203, 225-228, 310-313`
 - Link rules and libxml2 wiring: `rules/common-linux.mk:6-12, 215-218, 226-230, 263-279`
-- Install symlinks for both engines: `sdk/Makefile:89-90, 210-211`
+- Install symlinks for both engines: `sdk/Makefile:89-90, 271-272`
 
 Usage (requires `libxml2-dev`):
 

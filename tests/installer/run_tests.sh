@@ -150,17 +150,43 @@ check "installer no longer prints the dist-clean uninstall" \
     bash -c "! grep -q 'make dist-clean' '${REPO_ROOT}/install.sh'"
 check "install.sh passes LDCONF to make install" \
     bash -c "[ \"\$(grep -c 'MMT_BASE=\"\$MMT_BASE\" LDCONF=\"\$LDCONF\" install' '${REPO_ROOT}/install.sh')\" -eq 2 ]"
-# A real --uninstall over a user-writable fake install: SDK files and the
-# directories they leave empty go, a foreign file under the prefix stays.
+# A real --uninstall over a user-writable fake install: the entries its
+# manifest lists and the directories they leave empty go; foreign files under
+# the prefix — even inside examples/ and dpi/include/ — stay.
 UI="${WORK}/ui-prefix"
 mkdir -p "${UI}/dpi/lib" "${UI}/dpi/include/sub" "${UI}/plugins" "${UI}/examples" "${UI}/probe"
 : > "${UI}/dpi/lib/libmmt_core.so.1.9.1"; ln -s libmmt_core.so.1.9.1 "${UI}/dpi/lib/libmmt_core.so"
 : > "${UI}/dpi/lib/libmmt_core.a"; : > "${UI}/dpi/include/sub/mmt_core.h"
 : > "${UI}/plugins/libmmt_tcpip.so"; : > "${UI}/examples/extract_all.c"; : > "${UI}/probe/keep.conf"
+printf '%s\n' '# manifest' dpi/include/sub dpi/include/sub/mmt_core.h dpi/lib/libmmt_core.a \
+    dpi/lib/libmmt_core.so dpi/lib/libmmt_core.so.1.9.1 examples/extract_all.c \
+    plugins/libmmt_tcpip.so > "${UI}/.mmt-dpi-manifest"
 check "install.sh --uninstall removes a user-local install" \
-    bash -c "bash '${REPO_ROOT}/install.sh' --uninstall --prefix '${UI}' && [ ! -e '${UI}/dpi' ] && [ ! -e '${UI}/plugins' ] && [ ! -e '${UI}/examples' ]"
+    bash -c "bash '${REPO_ROOT}/install.sh' --uninstall --prefix '${UI}' && [ ! -e '${UI}/dpi' ] && [ ! -e '${UI}/plugins' ] && [ ! -e '${UI}/examples' ] && [ ! -e '${UI}/.mmt-dpi-manifest' ]"
 check "install.sh --uninstall keeps foreign files under the prefix" \
     test -f "${UI}/probe/keep.conf"
+mkdir -p "${UI}/dpi/include" "${UI}/examples"
+: > "${UI}/dpi/include/mmt_core.h"; : > "${UI}/examples/extract_all.c"
+: > "${UI}/dpi/include/foreign.h"; : > "${UI}/examples/foreign.c"
+printf '%s\n' dpi/include/mmt_core.h examples/extract_all.c > "${UI}/.mmt-dpi-manifest"
+check "install.sh --uninstall keeps foreign files in examples/ and dpi/include/" \
+    bash -c "bash '${REPO_ROOT}/install.sh' --uninstall --prefix '${UI}' && [ -f '${UI}/dpi/include/foreign.h' ] && [ -f '${UI}/examples/foreign.c' ] && [ ! -e '${UI}/dpi/include/mmt_core.h' ] && [ ! -e '${UI}/examples/extract_all.c' ]"
+rm -rf "${UI}"; mkdir -p "${UI}/dpi/lib" "${UI}/dpi/include" "${UI}/examples"
+: > "${UI}/dpi/lib/libmmt_core.so.1.9.1"; : > "${UI}/dpi/include/mmt_core.h"; : > "${UI}/examples/extract_all.c"
+check "install.sh --uninstall without a manifest removes libraries, keeps include/examples" \
+    bash -c "bash '${REPO_ROOT}/install.sh' --uninstall --prefix '${UI}' && [ ! -e '${UI}/dpi/lib' ] && [ -f '${UI}/dpi/include/mmt_core.h' ] && [ -f '${UI}/examples/extract_all.c' ]"
+rm -rf "${UI}"; mkdir -p "${UI}/examples" "${WORK}/outside"; : > "${WORK}/outside/keep"
+printf '%s\n' examples/../../outside/keep > "${UI}/.mmt-dpi-manifest"
+check_fail "install.sh --uninstall refuses a manifest entry leaving the prefix" \
+    bash "${REPO_ROOT}/install.sh" --uninstall --prefix "${UI}"
+check "refused manifest uninstall deleted nothing" \
+    bash -c "[ -f '${WORK}/outside/keep' ] && [ -f '${UI}/.mmt-dpi-manifest' ]"
+for bad in '//' '/.' '/opt/./mmt' '/opt/*'; do
+    check_fail "install.sh --uninstall refuses MMT_BASE='${bad}'" \
+        bash "${REPO_ROOT}/install.sh" --uninstall --prefix "${bad}" --dry-run
+done
+check "install.sh writes a manifest when the pinned Makefile did not" \
+    bash -c "awk '/^install_mmt/,/^}/' '${REPO_ROOT}/install.sh' | grep -q 'write_manifest'"
 check "dnf and yum branches enable CRB first" \
     bash -c "[ \"\$(awk '/^install_deps_linux/,/^}/' '${REPO_ROOT}/install.sh' | grep -c 'enable_el_builder_repo \(dnf\|yum\)')\" -eq 2 ]"
 
@@ -291,12 +317,18 @@ check "LDCONF=1 writes the drop-in naming the library dir" \
 check "loader drop-in is mode 0644" \
     bash -c "[ \"\$(stat -c %a '${DROPIN}')\" = 644 ]"
 check "registration runs ldconfig" test -s "${WORK}/ldconfig.calls"
+check "make install writes the install manifest" \
+    bash -c "grep -qx 'dpi/lib/libmmt_core.so' '${PREFIX2}/.mmt-dpi-manifest' && grep -qx 'examples/extract_all.c' '${PREFIX2}/.mmt-dpi-manifest'"
 mkdir -p "${PREFIX2}/probe"; : > "${PREFIX2}/probe/keep.conf"
+: > "${PREFIX2}/examples/foreign.c"; : > "${PREFIX2}/dpi/include/foreign.h"
 check "make uninstall succeeds" \
     "${SDKM[@]}" MMT_BASE="${PREFIX2}" "${STAGE[@]}" uninstall
-check "uninstall removes the SDK layout" \
-    bash -c "[ ! -e '${PREFIX2}/dpi' ] && [ ! -e '${PREFIX2}/plugins' ] && [ ! -e '${PREFIX2}/examples' ]"
+check "uninstall removes the SDK files" \
+    bash -c "[ ! -e '${PREFIX2}/dpi/lib' ] && [ ! -e '${PREFIX2}/plugins' ] && [ ! -e '${PREFIX2}/.mmt-dpi-manifest' ] && [ \"\$(find '${PREFIX2}/examples' '${PREFIX2}/dpi' -type f | wc -l)\" -eq 2 ]"
 check "uninstall keeps foreign files under the prefix" test -f "${PREFIX2}/probe/keep.conf"
+check "uninstall keeps foreign files in examples/ and dpi/include/" \
+    bash -c "[ -f '${PREFIX2}/examples/foreign.c' ] && [ -f '${PREFIX2}/dpi/include/foreign.h' ]"
+rm -rf "${PREFIX2}/examples" "${PREFIX2}/dpi"
 check "uninstall removes the drop-in and reruns ldconfig" \
     bash -c "[ ! -e '${DROPIN}' ] && [ \"\$(wc -l < '${WORK}/ldconfig.calls')\" -eq 2 ]"
 rm -rf "${PREFIX2}/probe"
@@ -309,6 +341,19 @@ check "uninstall keeps a drop-in naming another prefix" \
     bash -c "[ \"\$(cat '${DROPIN}')\" = /some/other/lib ]"
 check_fail "uninstall refuses MMT_BASE=/" \
     "${SDKM[@]}" MMT_BASE=/ "${STAGE[@]}" uninstall
+# Prefix guard: every refusal happens before anything is removed. A canary
+# directory the bad paths point at must survive each attempt.
+CANARY="${WORK}/canary"; mkdir -p "${CANARY}"; : > "${CANARY}/keep"
+mkdir -p "${PREFIX2}"
+for bad in "MMT_BASE=//" "MMT_BASE=/." "MMT_BASE=${WORK}/c*" "MMT_BASE=${PREFIX2}/" \
+           "MMT_INC=${PREFIX2}/../canary" "MMT_EXAMS=${CANARY}" "MMT_EXAMS=${PREFIX2}" \
+           "MMT_INC=${PREFIX2}/./dpi/include"; do
+    case "${bad}" in MMT_BASE=*) args=("${bad}") ;; *) args=(MMT_BASE="${PREFIX2}" "${bad}") ;; esac
+    check_fail "uninstall refuses ${bad#"${WORK}"/}" \
+        "${SDKM[@]}" "${args[@]}" "${STAGE[@]}" uninstall
+done
+check "refused uninstalls deleted nothing" test -f "${CANARY}/keep"
+rmdir "${PREFIX2}"
 check "dist-clean is an alias for uninstall" \
     grep -q '^dist-clean: uninstall$' "${REPO_ROOT}/sdk/Makefile"
 
