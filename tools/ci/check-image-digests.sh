@@ -71,10 +71,13 @@ for f in files:
         print(f"✗ workflow not found: {f}", file=sys.stderr)
         sys.exit(2)
 
+# A YAML key at line start (optionally a `- ` list item) or inside an inline
+# `{ … }` mapping — never the tail of another key such as `cache-image:`.
+KEY_PREFIX = r'(?:^[ \t]*(?:-[ \t]+)?|[{,][ \t]*)'
 KEY_QUOTED = re.compile(
-    r'(?:^|[\s{,-])(?:image|container)[ \t]*:[ \t]*["\']([^"\']+)["\']')
+    KEY_PREFIX + r'(?:image|container)[ \t]*:[ \t]*["\']([^"\']+)["\']')
 KEY_BARE = re.compile(
-    r'(?:^|[\s{,-])(?:image|container)[ \t]*:[ \t]*([^"\'\s,#{}]+)')
+    KEY_PREFIX + r'(?:image|container)[ \t]*:[ \t]*([^"\'\s,#{}]+)')
 USES_DOCKER = re.compile(r'uses[ \t]*:[ \t]*["\']?docker://([^"\'\s#]+)')
 DOCKER_CMD = re.compile(r'\bdocker\s+(run|create|pull)\b(.*)')
 # docker run/create options that consume the following word.
@@ -86,6 +89,13 @@ VALUE_OPTS = {
     "--ulimit", "-m", "--memory", "--cpus", "-h", "--hostname",
     "--add-host", "--pull", "--shm-size", "--ipc", "--pid", "--group-add",
     "--volumes-from", "--log-driver", "--log-opt", "--runtime", "--gpus",
+    "--restart", "--stop-timeout", "--stop-signal", "--dns", "--dns-search",
+    "--dns-option", "--cidfile", "-a", "--attach", "--expose", "--health-cmd",
+    "--health-interval", "--health-retries", "--health-timeout", "-c",
+    "--cpu-shares", "--cpuset-cpus", "--storage-opt", "--sysctl",
+    "--isolation", "--label-file", "--mac-address", "--ip", "--ip6",
+    "--memory-swap", "--pids-limit", "--userns", "--uts", "--cgroupns",
+    "--cgroup-parent", "--blkio-weight", "--oom-score-adj", "--detach-keys",
 }
 
 
@@ -164,7 +174,7 @@ errors += len(bad_digest)
 
 # The pinned set must be recorded in the tracked baseline file that the
 # scheduled refresh job resolves against upstream.
-recorded = set()
+recorded, baseline_read = set(), True
 try:
     for line in open(baseline_path, encoding="utf-8"):
         line = line.split("#", 1)[0].strip()
@@ -173,9 +183,10 @@ try:
 except OSError:
     print(f"  ✗ {baseline_path} not found")
     errors += 1
+    baseline_read = False
 
 pinned = sorted(r for r in refs if "@sha256:" in r)
-if recorded:
+if baseline_read:
     missing = [r for r in pinned if r not in recorded]
     stale = sorted(r for r in recorded if r not in refs) if full_scan else []
     for r in missing:

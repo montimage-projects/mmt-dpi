@@ -26,7 +26,7 @@
 #                      exit 1 when some pin could not be repinned
 #
 # The scheduled .github/workflows/base-image-refresh.yml runs --check daily
-# and, on drift, --write in a job that opens or updates the repin PR.
+# and, on drift, --write in a job that proposes the repin as one PR or issue.
 #
 # Exit codes: 0 = all pins current (--check) / repins written or none needed
 # (--write), 1 = a violation, 2 = helper broken or a registry unreachable.
@@ -38,8 +38,10 @@
 #   IMAGE_INSPECT=<cmd>   command run as `<cmd> <ref>` that prints the
 #                         manifest JSON of `docker buildx imagetools inspect
 #                         <ref> --format '{{json .Manifest}}'` and exits
-#                         non-zero when <ref> does not resolve (default: that
-#                         docker command; the self-test stubs it)
+#                         non-zero when <ref> does not resolve, with
+#                         "not found" on stderr when the registry says so
+#                         (default: that docker command; the self-test stubs
+#                         it)
 
 set -euo pipefail
 
@@ -50,7 +52,7 @@ MODE="check"
 case "${1:-}" in
     ""|--check) MODE="check" ;;
     --write) MODE="write" ;;
-    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,44p' "$0"; exit 0 ;;
     *) echo "✗ unknown argument: $1 (use --check or --write)" >&2; exit 2 ;;
 esac
 
@@ -77,8 +79,13 @@ REQUIRED = ("linux/amd64", "linux/arm64")
 PIN = re.compile(r'^(?P<name>[^\s@]+):(?P<tag>[^\s:@/]+)@(?P<digest>sha256:[0-9a-f]{64})$')
 
 
+class Unreachable(Exception):
+    """The registry could not answer (network, rate limit, auth)."""
+
+
 def inspect(ref):
-    """Return (digest, platforms) for ref, or None when it does not resolve."""
+    """Return (digest, platforms) for ref, None when the registry reports it
+    not found, or raise Unreachable for any other failure."""
     if inspect_cmd:
         argv = shlex.split(inspect_cmd) + [ref]
     else:
@@ -91,7 +98,9 @@ def inspect(ref):
         print(f"✗ inspector failed to run for {ref}: {exc}", file=sys.stderr)
         sys.exit(2)
     if out.returncode != 0:
-        return None
+        if "not found" in out.stderr.lower():
+            return None
+        raise Unreachable((out.stderr.strip().splitlines() or ["no output"])[-1])
     try:
         manifest = json.loads(out.stdout)
         digest = manifest["digest"]
@@ -125,14 +134,20 @@ violations, repins, unreachable = 0, {}, 0
 for m in entries:
     name, tag, pinned = m["name"], m["tag"], m["digest"]
     old = m.group(0)
-    current = inspect(f"{name}:{tag}")
+    try:
+        current = inspect(f"{name}:{tag}")
+        if current is not None and current[0] != pinned:
+            still_there = inspect(f"{name}@{pinned}") is not None
+    except Unreachable as exc:
+        print(f"  ✗ unreachable  {name}:{tag} — registry error: {exc}")
+        unreachable += 1
+        continue
     if current is None:
         print(f"  ✗ unreachable  {name}:{tag} — the tag does not resolve "
-              "(registry down, or the tag was removed)")
+              "(was it removed upstream?)")
         unreachable += 1
         continue
     digest, platforms = current
-    still_there = digest == pinned or inspect(f"{name}@{pinned}") is not None
     lacking = [p for p in REQUIRED if p not in platforms]
     if digest == pinned:
         print(f"  ✓ ok       {old}")
@@ -175,7 +190,7 @@ if violations:
     print(f"✗ {violations} base image pin(s) out of date", file=sys.stderr)
     print("To fix:  bash tools/ci/refresh-base-images.sh --write (the "
           "scheduled base-image-refresh", file=sys.stderr)
-    print("         workflow opens this repin as a pull request)",
+    print("         workflow proposes this repin as a pull request or issue)",
           file=sys.stderr)
     sys.exit(1)
 print(f"✓ all {len(entries)} base image pin(s) match their upstream tag")

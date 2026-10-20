@@ -16,6 +16,9 @@
 #   pinned but unrecorded image                                -> 1
 #   recorded entry no workflow uses                            -> 1
 #   explicit file argument skips the unused-entry check        -> 0
+#   baseline with comments only                                -> 1
+#   action input `cache-image:` is not an image                -> 0
+#   docker run value options (--restart no) are skipped        -> 1, real image named
 #   this checkout                                              -> 0
 # refresh-base-images.sh -> expected exit:
 #   every tag still at its pin                                 -> 0
@@ -23,6 +26,7 @@
 #   tag moved, old digest gone (missing — the quay.io case)    -> 1
 #   new digest lacks linux/arm64                               -> 1, not written
 #   tag does not resolve at all                                -> 2
+#   registry error on the pinned digest (not "not found")      -> 2, not missing
 #   --write repins baseline + workflow, then both gates pass   -> 0
 #
 # Usage: bash tools/ci/tests/test-image-pins.sh
@@ -144,6 +148,21 @@ expect 1 "recorded entry no workflow uses fails" digests
 expect 0 "explicit file argument skips the unused-entry check" \
     digests .github/workflows/release-packages.yml
 
+reset_fixture
+printf '# comments only\ndigest-source: x\n' > "${FX}/tools/ci/base-images.txt"
+expect 1 "baseline with no entries records nothing" digests
+
+reset_fixture
+printf 'jobs:\n  x:\n    steps:\n      - uses: some/action@v1\n        with:\n          cache-image: foo\n' \
+    > "${FX}/.github/workflows/input.yml"
+expect 0 "an action input named *-image is not an image" digests
+
+reset_fixture
+printf 'jobs:\n  x:\n    steps:\n      - run: docker run --rm --restart no --stop-timeout 5 debian:12 true\n' \
+    > "${FX}/.github/workflows/opts.yml"
+expect 1 "docker run value options are skipped" digests
+expect_out "names the real image, not an option value" "floating image reference: debian:12"
+
 expect 0 "this checkout passes" bash "${DIGESTS}"
 
 # --- refresh-base-images.sh with a stub registry ----------------------------
@@ -152,6 +171,7 @@ cat > "${WORK}/inspect" <<'EOF'
 #!/usr/bin/env bash
 f="${REGISTRY}/$(printf '%s' "$1" | tr '/:@' '___')"
 [ -f "$f" ] || { echo "ERROR: $1: not found" >&2; exit 1; }
+if [ "$(cat "$f")" = TRANSIENT ]; then echo "ERROR: 429 Too Many Requests" >&2; exit 1; fi
 cat "$f"
 EOF
 chmod +x "${WORK}/inspect"
@@ -205,6 +225,12 @@ expect 1 "refused repin left the baseline untouched" \
 reset_registry
 rm "$(regfile "ubuntu:24.04")"
 expect 2 "unresolvable tag is inconclusive" refresh --check
+
+reset_registry
+serve "ubuntu:24.04" "${C}"
+echo TRANSIENT > "$(regfile "ubuntu@${A}")"
+expect 2 "registry error on the pinned digest is inconclusive, not missing" refresh --check
+expect_out "reports the registry error" "unreachable  ubuntu:24.04 — registry error"
 
 reset_fixture
 reset_registry
