@@ -260,7 +260,7 @@ REG="${WORK}/regressions"
 reset_reg() { rm -rf "${REG}"; cp -r "${REAL_REGRESSIONS}" "${REG}"; }
 EXTRA_ARGS=( --replay-only --regressions "${REG}" )
 
-reset_reg; printf 'x' >> "$(ls "${REG}"/*.pcap | head -n 1)"
+reset_reg; reg_pcaps=( "${REG}"/*.pcap ); printf 'x' >> "${reg_pcaps[0]}"
 expect_rc "reproducer drifted from its sha256 -> exit 2" 2
 expect_grep "digest mismatch reported" "sha256 .* != manifest"
 
