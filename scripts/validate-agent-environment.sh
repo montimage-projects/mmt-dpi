@@ -385,6 +385,27 @@ if [ "$anchor_errors" -eq 0 ]; then
     ok "every #anchor linked into $DOC_REL resolves to a heading"
 fi
 
+# -----------------------------------------------------------------------------
+# 4. Working-tree, gate and access notes (issue #480)
+# -----------------------------------------------------------------------------
+echo ""
+echo "-- working-tree, gate and access notes --"
+
+check "records that the #475 Debian work lives outside main" \
+      "grep -q '#475 Debian work' '$DOC' && grep -qF 'PR #476' '$DOC'"
+check "names the classification gate with a scratch MMT_PREFIX" \
+      "grep -qE 'MMT_PREFIX=.*tools/phase0/ci/check_classification\.sh' '$DOC'"
+check "names the precision gate with a scratch MMT_PREFIX" \
+      "grep -qE 'MMT_PREFIX=.*tools/phase0/ci/check_precision\.sh' '$DOC'"
+check "states the baseline-regeneration rule" \
+      "grep -qF 'Baseline-regeneration rule' '$DOC' && grep -qF 'classification.actual.txt' '$DOC'"
+check "names --with-harnesses as the pre-push tier" \
+      "grep -qE 'Pre-push tier.*bash tests/run_all_tests.sh --with-harnesses' '$DOC'"
+check "states the gh admin requirement" \
+      "grep -qF 'gh api repos/montimage-projects/mmt-dpi --jq .permissions.admin' '$DOC'"
+check "states that no .env exists or is needed" \
+      "grep -qF 'No \`.env\` file exists' '$DOC' && [ -z \"\$(git -C '$ROOT' ls-files '.env*' 2>/dev/null)\" ]"
+
 echo ""
 if [ "$ERRORS" -eq 0 ]; then
     echo "Result: PASS (all checks passed)"
