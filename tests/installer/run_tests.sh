@@ -14,7 +14,14 @@
 #   * the offline ZIP install/uninstall round trip leaves no residue under a
 #     temporary prefix (runnable unprivileged);
 #   * the patched examples initialise their argument storage, reject an unset
-#     mode, and use a flag + pcap_breakloop in the signal handler.
+#     mode, and use a flag + pcap_breakloop in the signal handler;
+#   * issue #485 (F-CI-104, F-UX-007, F-SEC-005, F-CI-116): `make install`
+#     consumes built artifacts only, registers the loader by privilege
+#     (LDCONF=auto|0|1), `make uninstall` / `install.sh --uninstall` leave no
+#     residue, and the installer drops its LD_LIBRARY_PATH advice once the
+#     loader is registered. Loader legs use a staged LDCONF_DIR and a fake
+#     ldconfig — the suite never writes /etc (the real root leg is
+#     tools/ci/tests/run-root-install.sh, run in a container by CI).
 #
 # Usage: tests/installer/run_tests.sh
 set -euo pipefail
@@ -124,6 +131,36 @@ check_fail "piped install.sh still rejects a metachar prefix" \
     bash -c "cd '${DECOY}' && bash -s -- --prefix '/tmp/x;id' --dry-run < '${REPO_ROOT}/install.sh'"
 # EL8/EL9 keep libpcap-devel in a disabled repo: both RHEL-family branches
 # must enable CRB / PowerTools before installing (issue #484, F-CI-106).
+# Loader registration + uninstall (issue #485).
+check "--uninstall --dry-run prints the uninstall plan" \
+    bash -c "bash '${REPO_ROOT}/install.sh' --uninstall --prefix '${WORK}/un' --dry-run | grep -q 'Uninstall plan'"
+check "user-local prefix plan does not register the loader" \
+    bash -c "MMT_BASE='${WORK}/ulocal' bash '${REPO_ROOT}/install.sh' --dry-run | grep -q 'Loader.*not registered'"
+if [ "$(id -u)" -ne 0 ]; then
+    check "root-owned prefix plan registers the loader" \
+        bash -c "MMT_BASE=/usr/local/mmt bash '${REPO_ROOT}/install.sh' --dry-run | grep -q 'Loader.*mmt-dpi.conf + ldconfig'"
+fi
+check "LDCONF=0 plan does not register the loader" \
+    bash -c "MMT_BASE=/usr/local/mmt LDCONF=0 bash '${REPO_ROOT}/install.sh' --dry-run | grep -q 'Loader.*not registered'"
+check_fail "install.sh rejects LDCONF=bogus" \
+    env LDCONF=bogus bash "${REPO_ROOT}/install.sh" --dry-run
+check "LD_LIBRARY_PATH advice only when the loader is not registered" \
+    bash -c "awk '/^post_install/,/^}/' '${REPO_ROOT}/install.sh' | grep -B2 'export LD_LIBRARY_PATH' | grep -q 'registered\" = \"0'"
+check "installer no longer prints the dist-clean uninstall" \
+    bash -c "! grep -q 'make dist-clean' '${REPO_ROOT}/install.sh'"
+check "install.sh passes LDCONF to make install" \
+    bash -c "[ \"\$(grep -c 'MMT_BASE=\"\$MMT_BASE\" LDCONF=\"\$LDCONF\" install' '${REPO_ROOT}/install.sh')\" -eq 2 ]"
+# A real --uninstall over a user-writable fake install: SDK files and the
+# directories they leave empty go, a foreign file under the prefix stays.
+UI="${WORK}/ui-prefix"
+mkdir -p "${UI}/dpi/lib" "${UI}/dpi/include/sub" "${UI}/plugins" "${UI}/examples" "${UI}/probe"
+: > "${UI}/dpi/lib/libmmt_core.so.1.9.1"; ln -s libmmt_core.so.1.9.1 "${UI}/dpi/lib/libmmt_core.so"
+: > "${UI}/dpi/lib/libmmt_core.a"; : > "${UI}/dpi/include/sub/mmt_core.h"
+: > "${UI}/plugins/libmmt_tcpip.so"; : > "${UI}/examples/extract_all.c"; : > "${UI}/probe/keep.conf"
+check "install.sh --uninstall removes a user-local install" \
+    bash -c "bash '${REPO_ROOT}/install.sh' --uninstall --prefix '${UI}' && [ ! -e '${UI}/dpi' ] && [ ! -e '${UI}/plugins' ] && [ ! -e '${UI}/examples' ]"
+check "install.sh --uninstall keeps foreign files under the prefix" \
+    test -f "${UI}/probe/keep.conf"
 check "dnf and yum branches enable CRB first" \
     bash -c "[ \"\$(awk '/^install_deps_linux/,/^}/' '${REPO_ROOT}/install.sh' | grep -c 'enable_el_builder_repo \(dnf\|yum\)')\" -eq 2 ]"
 
@@ -218,6 +255,62 @@ check "extract_all loop observes the stop flag" \
     grep -q 'stop_flag' "${REPO_ROOT}/src/examples/extract_all.c"
 check "simple_traffic_reporting uses bounded hierarchy API" \
     grep -q 'proto_hierarchy_to_str_with_size' "${REPO_ROOT}/src/examples/simple_traffic_reporting.c"
+
+# --- 7. make install / uninstall contract (issue #485) ----------------------
+echo "--- make install consumes artifacts; loader by privilege; uninstall ---"
+SDKM=(make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}")
+FAKE_LDCONFIG="${WORK}/bin/ldconfig"
+mkdir -p "${WORK}/bin"
+printf '#!/bin/sh\necho ran >> "%s"\n' "${WORK}/ldconfig.calls" > "${FAKE_LDCONFIG}"
+chmod +x "${FAKE_LDCONFIG}"
+STAGE=(LDCONF_DIR="${WORK}/etc" LDCONFIG="${FAKE_LDCONFIG}")
+DROPIN="${WORK}/etc/mmt-dpi.conf"
+COMPILER_RE='\[COMPILE\]|(^|[[:space:]/])(gcc|g\+\+|cc|c\+\+|clang)[[:space:]]'
+
+check "make -n install after a build prints no compiler invocation" \
+    bash -c "! \"\$@\" -n MMT_BASE='${PREFIX2}' install 2>&1 | grep -Eq '${COMPILER_RE}'" _ "${SDKM[@]}"
+check "rebuild with the same prefix compiles nothing" \
+    bash -c "! \"\$@\" -j'${JOBS}' MMT_BASE='${PREFIX2}' 2>&1 | grep -q '\[COMPILE\]'" _ "${SDKM[@]}"
+check_fail "install to a prefix the build was not made for is refused" \
+    "${SDKM[@]}" MMT_BASE="${WORK}/other-prefix" "${STAGE[@]}" install
+check "refused install created nothing" test ! -e "${WORK}/other-prefix"
+check_fail "LDCONF=bogus is refused" \
+    "${SDKM[@]}" MMT_BASE="${PREFIX2}" "${STAGE[@]}" LDCONF=bogus install
+if [ "$(id -u)" -ne 0 ]; then
+    check "non-root install (LDCONF=auto) writes no loader drop-in" \
+        bash -c "\"\$@\" MMT_BASE='${PREFIX2}' install && [ ! -e '${DROPIN}' ] && [ ! -e '${WORK}/ldconfig.calls' ]" _ "${SDKM[@]}" "${STAGE[@]}"
+fi
+# `make -n` cannot see the old defect (it deleted plugins_engine.o in a
+# recipe, which -n skips), so a real install must compile nothing either.
+check "make install (real run) compiles nothing" \
+    bash -c "! \"\$@\" MMT_BASE='${PREFIX2}' LDCONF=0 install 2>&1 | grep -q '\[COMPILE\]'" _ "${SDKM[@]}" "${STAGE[@]}"
+check "LDCONF=0 writes no loader drop-in" \
+    bash -c "\"\$@\" MMT_BASE='${PREFIX2}' LDCONF=0 install && [ ! -e '${DROPIN}' ]" _ "${SDKM[@]}" "${STAGE[@]}"
+check "LDCONF=1 writes the drop-in naming the library dir" \
+    bash -c "\"\$@\" MMT_BASE='${PREFIX2}' LDCONF=1 install && [ \"\$(cat '${DROPIN}')\" = '${PREFIX2}/dpi/lib' ]" _ "${SDKM[@]}" "${STAGE[@]}"
+check "loader drop-in is mode 0644" \
+    bash -c "[ \"\$(stat -c %a '${DROPIN}')\" = 644 ]"
+check "registration runs ldconfig" test -s "${WORK}/ldconfig.calls"
+mkdir -p "${PREFIX2}/probe"; : > "${PREFIX2}/probe/keep.conf"
+check "make uninstall succeeds" \
+    "${SDKM[@]}" MMT_BASE="${PREFIX2}" "${STAGE[@]}" uninstall
+check "uninstall removes the SDK layout" \
+    bash -c "[ ! -e '${PREFIX2}/dpi' ] && [ ! -e '${PREFIX2}/plugins' ] && [ ! -e '${PREFIX2}/examples' ]"
+check "uninstall keeps foreign files under the prefix" test -f "${PREFIX2}/probe/keep.conf"
+check "uninstall removes the drop-in and reruns ldconfig" \
+    bash -c "[ ! -e '${DROPIN}' ] && [ \"\$(wc -l < '${WORK}/ldconfig.calls')\" -eq 2 ]"
+rm -rf "${PREFIX2}/probe"
+# A full round trip leaves no prefix; a drop-in registering another prefix
+# survives.
+mkdir -p "${WORK}/etc"; echo /some/other/lib > "${DROPIN}"
+check "round trip leaves neither the prefix nor its drop-in" \
+    bash -c "\"\$@\" MMT_BASE='${PREFIX2}' LDCONF=0 install && \"\$@\" MMT_BASE='${PREFIX2}' uninstall && [ ! -e '${PREFIX2}' ]" _ "${SDKM[@]}" "${STAGE[@]}"
+check "uninstall keeps a drop-in naming another prefix" \
+    bash -c "[ \"\$(cat '${DROPIN}')\" = /some/other/lib ]"
+check_fail "uninstall refuses MMT_BASE=/" \
+    "${SDKM[@]}" MMT_BASE=/ "${STAGE[@]}" uninstall
+check "dist-clean is an alias for uninstall" \
+    grep -q '^dist-clean: uninstall$' "${REPO_ROOT}/sdk/Makefile"
 
 echo
 if [ "${FAIL}" -gt 0 ]; then

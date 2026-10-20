@@ -9,30 +9,30 @@ ifdef MMT_BASE
   $(info Change default install directory to $(MMT_BASE))
 else
   MMT_BASE             := /opt/mmt
-  NEED_ROOT_PERMISSION := 1
 endif
 
 default: sdk
-.PHONY: sdk install clean dist-clean
+.PHONY: sdk install uninstall clean dist-clean --check-built FORCE
 
 include $(RULESDIR)/arch-$(ARCH).mk
 
-# This target is to deal with the issue when user uses
-#   2 differrent values of INSTALL_DIR for "make" and "make install"
-# Ex: make; sudo make install INSTALL_DIR=/tmp/mmt
-#   - the first "make" will set in the codes PLUGINS_REPOSITORY_OPT to /opt/mmt/plugins
-#   - while the second "make install" will install to /tmp/mmt
-# Thus we need to recompile the codes that use PLUGINS_REPOSITORY_OPT to update the new directory.
-# The following target will remove the object files of the codes, thus it will trigger to recompile them.
-# So, in the example above, the PLUGINS_REPOSITORY_OPT will be update to /tmp/mmt/plugins.
---refresh-plugin-engine:
-	$(QUIET) $(RM) $(SRCDIR)/mmt_core/src/plugins_engine.o
+# The plugin directory is baked into plugins_engine.o (PLUGINS_REPOSITORY_OPT,
+# rules/common.mk), so that object depends on a stamp holding the value it was
+# compiled with. The stamp is rewritten only when MMT_PLUGINS changes, which
+# recompiles exactly that object — a rebuild with the same prefix compiles
+# nothing (issue #485, F-CI-116; this replaces an unconditional delete of
+# plugins_engine.o on every invocation, `make install` included).
+PLUGINS_PATH_STAMP := $(SRCDIR)/mmt_core/src/plugins_engine.path
+$(PLUGINS_PATH_STAMP): FORCE
+	$(QUIET) if [ "`cat $@ 2>/dev/null`" != "$(MMT_PLUGINS)" ]; then echo "$(MMT_PLUGINS)" > $@; fi
+$(SRCDIR)/mmt_core/src/plugins_engine.o: $(PLUGINS_PATH_STAMP)
+FORCE:
 
 #  - - -
 #  S D K
 #  - - -
 
-sdk: --refresh-plugin-engine libraries includes tools documentation examples
+sdk: libraries includes tools documentation examples
 
 
 #  - - - - - - -
@@ -45,7 +45,42 @@ sdk: --refresh-plugin-engine libraries includes tools documentation examples
 # group/world-writable library in the loader path is a local
 # privilege-escalation primitive. The find(1) assertion at the end refuses to
 # leave a writable library behind.
-install: sdk $(MMT_BASE) $(MMT_DPI) $(MMT_INC) $(MMT_PLUGINS) $(MMT_EXAMS) $(MMT_LIB)
+#
+# Issue #485 (F-CI-104, F-SEC-005, F-CI-116):
+#   * `install` consumes the artifacts of a prior `make -C sdk` and never
+#     compiles — `sudo make install` must not run the compiler as root.
+#     --check-built refuses a missing build, or one whose baked-in plugin
+#     directory is not this install's $(MMT_PLUGINS).
+#   * the loader is registered by privilege, not by whether MMT_BASE was
+#     given: LDCONF=auto (default) writes $(LDCONF_FILE) and runs
+#     $(LDCONFIG) when installing as root; LDCONF=0 opts out, LDCONF=1 forces
+#     it (LDCONF_DIR/LDCONFIG relocate both, e.g. for a staged test).
+LDCONF      ?= auto
+LDCONF_DIR  ?= /etc/ld.so.conf.d
+LDCONFIG    ?= ldconfig
+LDCONF_FILE := $(LDCONF_DIR)/mmt-dpi.conf
+# Shell snippet: sets $$register to 1 when the loader drop-in is to be managed.
+LDCONF_DECIDE = case "$(LDCONF)" in \
+	    0) register=0 ;; \
+	    1) register=1 ;; \
+	    auto) if [ "`id -u`" -eq 0 ]; then register=1; else register=0; fi ;; \
+	    *) echo "ERROR: LDCONF must be auto, 0 or 1 (got '$(LDCONF)')" >&2; exit 1 ;; \
+	esac
+
+--check-built:
+	@ if [ ! -f $(SDKLIB)/libmmt_core.so.$(VERSION) ]; then \
+		echo "ERROR: no SDK build under $(SDKLIB) — run 'make -C sdk MMT_BASE=$(MMT_BASE)' (as your user) before 'make install'" >&2; \
+		exit 1; \
+	fi
+	@ built="`cat $(PLUGINS_PATH_STAMP) 2>/dev/null`"; \
+	if [ "$$built" != "$(MMT_PLUGINS)" ]; then \
+		echo "ERROR: the SDK under $(SDKLIB) was built for plugin directory '$$built', but this install targets '$(MMT_PLUGINS)'." >&2; \
+		echo "       Rebuild with the install prefix: make -C sdk clean && make -C sdk MMT_BASE=$(MMT_BASE)" >&2; \
+		exit 1; \
+	fi
+
+install: --check-built
+	@ $(LDCONF_DECIDE)
 	@ install -d -m 0755 $(MMT_BASE) $(MMT_DPI) $(MMT_INC) $(MMT_PLUGINS) $(MMT_EXAMS) $(MMT_LIB)
 	@ install -m 0755 $(SDKLIB)/*.so.* $(MMT_LIB)/
 	@ install -m 0644 $(SDKLIB)/*.a    $(MMT_LIB)/
@@ -85,11 +120,46 @@ install: sdk $(MMT_BASE) $(MMT_DPI) $(MMT_INC) $(MMT_PLUGINS) $(MMT_EXAMS) $(MMT
 		echo "ERROR: group/world-writable file under $(MMT_LIB) — refusing to leave it in the loader path" >&2; \
 		exit 1; \
 	fi
-ifdef NEED_ROOT_PERMISSION
-	@ umask 022 && echo "$(MMT_LIB)" > /etc/ld.so.conf.d/mmt-dpi.conf && chmod 0644 /etc/ld.so.conf.d/mmt-dpi.conf
-	@ ldconfig
-endif
+	@ $(LDCONF_DECIDE); \
+	if [ "$$register" = 1 ]; then \
+		umask 022 && install -d -m 0755 $(LDCONF_DIR) \
+		&& echo "$(MMT_LIB)" > $(LDCONF_FILE) && chmod 0644 $(LDCONF_FILE) \
+		&& $(LDCONFIG) \
+		&& echo "[MMT-]> Registered $(MMT_LIB) with the dynamic loader ($(LDCONF_FILE))"; \
+	else \
+		echo "[MMT-]> Loader not registered (LDCONF=$(LDCONF); auto registers only as root): run consumers with LD_LIBRARY_PATH=$(MMT_LIB)"; \
+	fi
 	@ echo "[MMT-]> Done! "
+
+#  - - - - - - - - -
+#  U N I N S T A L L
+#  - - - - - - - - -
+
+# Removes what `install` laid down for this MMT_BASE (same variables), then
+# every directory left empty, so a default round trip leaves neither
+# $(MMT_BASE) nor $(LDCONF_FILE). Files another product put under the prefix
+# survive: directories are removed with rmdir, never rm -rf, except the
+# SDK-owned include and examples trees. The drop-in is removed only when it
+# names this $(MMT_LIB) — never one registering another prefix (issue #485,
+# F-UX-007).
+uninstall:
+	@ case "$(MMT_BASE)" in ''|/) echo "ERROR: refusing to uninstall with MMT_BASE='$(MMT_BASE)'" >&2; exit 1 ;; esac
+	@ for d in $(MMT_DPI) $(MMT_LIB) $(MMT_INC) $(MMT_PLUGINS) $(MMT_EXAMS); do \
+		case "$$d" in $(MMT_BASE)/?*) ;; *) echo "ERROR: $$d is not under MMT_BASE=$(MMT_BASE) — refusing to uninstall it" >&2; exit 1 ;; esac; \
+	done
+	@ echo "[MMT-]> Removing MMT-DPI from $(MMT_BASE)"
+	$(QUIET) $(RM) $(MMT_LIB)/libmmt_*.so $(MMT_LIB)/libmmt_*.so.* $(MMT_LIB)/libmmt_*.a
+	$(QUIET) $(RM) $(addprefix $(MMT_PLUGINS)/,libmmt_tcpip.so $(LIBMOBILE).so $(LIBDICOM).so $(LIBBAPP).so)
+	$(QUIET) $(RM) $(MMT_INC) $(MMT_EXAMS)
+	$(QUIET) for d in $(MMT_LIB) $(MMT_DPI) $(MMT_PLUGINS) $(MMT_BASE); do \
+		if [ -d "$$d" ]; then rmdir "$$d" 2>/dev/null || echo "[MMT-]> Kept non-empty $$d"; fi; \
+	done
+	@ removed=0; \
+	for f in $(LDCONF_FILE) $(LDCONF_DIR)/mmt.conf; do \
+		if [ -f "$$f" ] && [ "`cat $$f`" = "$(MMT_LIB)" ]; then rm -f "$$f" && removed=1 && echo "[MMT-]> Removed $$f"; fi; \
+	done; \
+	if [ "$$removed" = 1 ]; then $(LDCONFIG); fi
+	@ echo "[MMT-]> Done!"
 
 #  - - - - - - -
 #  B U I L D   D E B
@@ -285,7 +355,7 @@ zip: sdk $(SDKLIB) $(SDKINC) $(SDKXAM)
 
 clean:
 	$(QUIET) $(RM) $(CORE_OBJECTS) $(TCPIP_OBJECTS) $(FUZZ_OBJECTS) $(SECURITY_OBJECTS) $(LIBMOBILE_OBJECTS) $(LIBBAPP_OBJECTS) $(LIBDICOM_OBJECTS)
-	$(QUIET) $(RM) $(SDKLIB) $(SDKBIN) $(SDKINC) $(SDKDOC) $(SDKXAM) $(BUILD_DIR) rpmbuild mmt-dpi.spec
+	$(QUIET) $(RM) $(SDKLIB) $(SDKBIN) $(SDKINC) $(SDKDOC) $(SDKXAM) $(BUILD_DIR) rpmbuild mmt-dpi.spec $(PLUGINS_PATH_STAMP)
 	$(QUIET) $(RM) $(TOPDIR)/*.log $(TOPDIR)/*.tmp $(TOPDIR)/*.bak $(TOPDIR)/coverage.info $(TOPDIR)/coverage.json $(TOPDIR)/lcov.info
 	$(QUIET) $(RM) $(TOPDIR)/cppcheck*.xml $(TOPDIR)/cppcheck_output.xml $(TOPDIR)/cppcheck-report.xml $(TOPDIR)/PVS-Studio.log $(TOPDIR)/pvs.log
 	$(QUIET) $(RM) $(TOPDIR)/mmt-dpi_*.deb $(TOPDIR)/mmt-dpi_*.rpm $(TOPDIR)/mmt-dpi_*.zip
@@ -301,13 +371,8 @@ clean:
 # D I S T - C L E A N
 # - - - - - - - - - -
 
-dist-clean:
-	@ echo "[MMT-]> Going to remove MMT"
-	$(QUIET) $(RM) $(MMT_DPI)
-ifdef NEED_ROOT_PERMISSION
-	$(QUIET) $(RM) /etc/ld.so.conf.d/mmt-dpi.conf /etc/ld.so.conf.d/mmt.conf 2>/dev/null; true
-endif
-	@ echo "[MMT-]> Done!"
+# Historical name for `uninstall`, kept so existing instructions still work.
+dist-clean: uninstall
 
 # - - - - - - - - - -
 # T E S T
