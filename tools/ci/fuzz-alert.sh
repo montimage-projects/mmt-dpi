@@ -23,7 +23,11 @@
 set -euo pipefail
 
 TITLE="Scheduled fuzz run failed"
-LOG_LINES=60
+LOG_LINES=40
+MAX_LOGS=3
+# GitHub rejects an issue or comment body over 65,536 characters; keep a
+# margin so a run with many large ASan reports still files its issue.
+MAX_BODY=60000
 
 [ $# -ge 2 ] || { echo "usage: $0 <artifacts-dir> <run-url> [--dry-run]" >&2; exit 2; }
 ART="$1"; RUN_URL="$2"; DRY=0
@@ -52,7 +56,7 @@ trap 'rm -f "${BODY}"' EXIT
         echo "No reproducer was recorded: the job failed outside the mutation loop"
         echo "(build, compile or harness breakage) — see the run log."
     fi
-    for log in "${logs[@]}"; do
+    for log in "${logs[@]:0:${MAX_LOGS}}"; do
         echo "### \`$(basename "${log%.log}")\`"
         echo ""
         echo '```'
@@ -60,7 +64,15 @@ trap 'rm -f "${BODY}"' EXIT
         echo '```'
         echo ""
     done
+    if [ "${#logs[@]}" -gt "${MAX_LOGS}" ]; then
+        echo "$(( ${#logs[@]} - MAX_LOGS )) more reproducer log(s) in the artifact."
+    fi
 } > "${BODY}"
+if [ "$(wc -c < "${BODY}")" -gt "${MAX_BODY}" ]; then
+    head -c "${MAX_BODY}" "${BODY}" > "${BODY}.cut"
+    printf '\n```\n\n(truncated — full logs in the artifact)\n' >> "${BODY}.cut"
+    mv "${BODY}.cut" "${BODY}"
+fi
 
 existing=""
 if [ "${DRY}" -eq 0 ]; then

@@ -343,7 +343,6 @@ for f in "${REG_FILES[@]}"; do
     esac
     log="${WORK}/run.log"
     run_driver "${bin}" "${f}" "${log}" "${leaks}" && rc=0 || rc=$?
-    runs=$((runs + 1))
     if record_verdict "regression ${f##*/}" "regression-${f##*/}" "${f}" "${rc}" "${f}" \
             "committed regression (bash tools/ci/run-fuzz.sh --replay-only)"; then
         reg_findings=$((reg_findings + 1))
@@ -410,7 +409,7 @@ elapsed=$(( $(date +%s) - (deadline - BUDGET) ))
     echo "regressions replayed: ${#REG_FILES[@]}  regression findings: ${reg_findings}"
 } > "${ARTIFACTS}/SUMMARY.txt"
 
-say "[4/4] ${runs} mutated inputs in ${elapsed}s, ${findings} finding(s), ${refusals} parser refusal(s), ${suppressed_count} suppressed"
+say "[4/4] ${runs} mutated inputs in ${elapsed}s (+ ${#REG_FILES[@]} regression replay(s)), ${findings} finding(s), ${refusals} parser refusal(s), ${suppressed_count} suppressed"
 if [ "${findings}" -gt 0 ]; then
     echo "✗ fuzz gate FAIL — ${findings} crash(es); reproducers in ${ARTIFACTS}" >&2
     exit 1

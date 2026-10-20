@@ -78,6 +78,14 @@ OPEN=""; mkdir -p "${WORK}/empty"
 check "no reproducer (build break) -> still opens an issue" alert "${WORK}/empty"
 check "  ... saying no reproducer was recorded" grep -q 'No reproducer was recorded' "${WORK}/body"
 
+mkdir -p "${WORK}/many"
+for i in $(seq 1 10); do
+    for _ in $(seq 1 40); do printf '%0300d\n' "${i}"; done > "${WORK}/many/crash-${i}.log"
+done
+for _ in $(seq 1 400); do printf '%0300d\n' 0; done > "${WORK}/many/SUMMARY.txt"
+check "10 large reproducer logs -> still opens an issue" alert "${WORK}/many"
+check "  ... body stays under GitHub's 65,536-char limit" bash -c "[ \$(wc -c < '${WORK}/body') -lt 65536 ]"
+
 check "missing arguments -> exit 2" bash -c "bash '${ALERT}' >/dev/null 2>&1; [ \$? -eq 2 ]"
 
 echo ""
