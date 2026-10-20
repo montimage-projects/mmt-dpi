@@ -431,6 +431,29 @@ check "the never-commit rule names dist/packages/, and dist/packages/ is ignored
 check "no agent file forbids committing all of dist/ (dist/ZIP/ is tracked source)" \
       "! grep -qF '\`dist/\`' '$AGENTS' && ! grep -qF '\`dist/\`' '$ROOT/CLAUDE.md'"
 
+# -----------------------------------------------------------------------------
+# 6. CLAUDE.md is a thin @AGENTS.md wrapper (issue #482)
+# -----------------------------------------------------------------------------
+echo ""
+echo "-- CLAUDE.md wrapper --"
+
+CLAUDE="$ROOT/CLAUDE.md"
+check "CLAUDE.md exists and its first line is @AGENTS.md" \
+      "[ -f '$CLAUDE' ] && [ \"\$(head -1 '$CLAUDE')\" = '@AGENTS.md' ]"
+check "CLAUDE.md carries no commands or hard-rules block of its own" \
+      "! grep -qE '^#+ *(Critical commands|Commands|Hard rules|Constraints|Done when)' '$CLAUDE' && ! grep -qF 'make -C sdk' '$CLAUDE' && ! grep -qF 'run_all_tests.sh' '$CLAUDE'"
+# Every substantive line (not blank, not an @import, not an HTML comment) of
+# CLAUDE.md must be absent from AGENTS.md, so no rule is stated twice.
+dup_lines="$(sed -e '/^<!--/,/-->/d' -e '/^@/d' -e '/^[[:space:]]*$/d' "$CLAUDE" \
+    | while IFS= read -r line; do
+          grep -qxF -- "$line" "$AGENTS" && printf '%s\n' "$line"
+      done || true)"
+if [ -z "$dup_lines" ]; then
+    ok "CLAUDE.md repeats no line of AGENTS.md"
+else
+    fail "CLAUDE.md repeats AGENTS.md lines: $(printf '%s' "$dup_lines" | head -3 | tr '\n' '|')"
+fi
+
 echo ""
 if [ "$ERRORS" -eq 0 ]; then
     echo "Result: PASS (all checks passed)"
