@@ -14,6 +14,7 @@
 #   RELEASE_TAG absent locally                             -> 0 (skipped)
 #   RELEASE_TAG absent locally, REQUIRE_RELEASE_TAG=1      -> 2
 #   --write-pin repairs a stale pin                        -> 0, then gate 0
+#   --write-pin with an unknown or malformed tag           -> 2
 #   version gate: tag == v$VERSION / != / empty argument   -> 0 / 1 / 2
 #   this checkout (when its RELEASE_TAG is fetched)        -> 0
 #
@@ -93,6 +94,7 @@ else
     echo "  ✗ --write-pin did not write ${TAGGED}"; FAILED=1
 fi
 expect 2 "--write-pin refuses an unknown tag" --write-pin v9.9.9
+expect 2 "--write-pin refuses a non-vX.Y.Z tag" --write-pin 'v1/2&3'
 
 expect 0 "version gate: tag equals v\$VERSION" v1.2.3
 expect 1 "version gate: tag differs from v\$VERSION" v1.2.4

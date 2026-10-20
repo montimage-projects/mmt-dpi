@@ -56,10 +56,11 @@ read_pin() {
 
 if [ "${1:-}" = "--write-pin" ]; then
   TAG="${2:-}"
-  case "$TAG" in
-    v*) ;;
-    *) echo "✗ usage: check-release-tag.sh --write-pin v<x.y.z>" >&2; exit 2 ;;
-  esac
+  # Strict vX.Y.Z: the tag is substituted into a sed replacement below.
+  if [[ ! "$TAG" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+    echo "✗ usage: check-release-tag.sh --write-pin v<x.y.z>" >&2
+    exit 2
+  fi
   SHA="$(peel "$TAG")"
   if [ -z "$SHA" ]; then
     echo "✗ tag $TAG is not available locally — git fetch --tags first" >&2
