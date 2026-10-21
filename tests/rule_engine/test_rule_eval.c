@@ -142,7 +142,7 @@ static const scenario_t scenarios[] = {
      * frames. check_for_timeout() returns 0 (VALID) for a node with no
      * delay/counter and check_time() passes it on as non-SKIP2, so once a
      * son is valid verify_and_timeout() treats the next frame as an expiry
-     * and the node fails (tips_eval.c:681-714). */
+     * and the node fails (tips_eval.c:681-714, 1133-1148). */
     { "AND not satisfied: sons met on different frames (current behaviour)", "and.xml",
       { F(PORT_A, 60, 0), F(PORT_B, 60, 500), F(PORT_X, 120, 1000),
         F(PORT_X, 60, 3000) }, 4, 0, 1 },
@@ -154,8 +154,9 @@ static const scenario_t scenarios[] = {
      * its NOT timer armed. On ANY next frame the no-delay timer reads as
      * expired (the same check_for_timeout() 0 == VALID as AND), so NOT
      * holds before its son is evaluated, and the right branch A fails on
-     * that frame — the B content of the second frame is irrelevant. */
-    { "NOT not satisfied: any second frame expires the no-delay NOT timer (current behaviour)", "not.xml",
+     * that frame — the second frame's content is irrelevant as long as it
+     * is not an A. */
+    { "NOT not satisfied: a non-A second frame expires the no-delay NOT timer (current behaviour)", "not.xml",
       { F(PORT_X, 60, 0), F(PORT_B, 60, 1000) }, 2, 0, 1, 1 },
     /* the negated event on a fresh instance: NOT fails, action() returns
      * ELIMINATE and nothing is reported */
@@ -284,14 +285,14 @@ static void run_scenario(const scenario_t *s, const char *dir)
     else
         snprintf(path, sizeof path, "%s", s->fixture);
     memset(errbuf, 0, sizeof errbuf);
-    if (!init_extraction()) { printf("FAIL - %s: init_extraction\n", s->name); exit(1); }
+    if (!init_extraction()) { printf("FAIL - %s: init_extraction\n", s->name); exit(3); }
     mmt_handler_t *mmt = mmt_init_handler(DLT_EN10MB, 0, errbuf);
-    if (mmt == NULL) { printf("FAIL - %s: mmt_init_handler: %s\n", s->name, errbuf); exit(1); }
+    if (mmt == NULL) { printf("FAIL - %s: mmt_init_handler: %s\n", s->name, errbuf); exit(3); }
 
     init_sec_lib(mmt, path, BOTH, on_verdict, NULL);
     if (top_rule == NULL || top_rule->next != NULL) {
         printf("FAIL - %s: %s must load exactly one property\n", s->name, s->fixture);
-        exit(1);
+        exit(3);
     }
     /* each fixture's description is its file name: proves the intended
      * rule was loaded, not merely some rule */
@@ -301,7 +302,7 @@ static void run_scenario(const scenario_t *s, const char *dir)
         if (s->exp_satisfied >= 0) {
             printf("FAIL - %s: %s loaded property '%s'\n", s->name, s->fixture,
                    top_rule->description ? top_rule->description : "(null)");
-            exit(1);
+            exit(3);
         }
     }
     g_expected_prop = top_rule->property_id;
@@ -343,7 +344,10 @@ static void run_scenario(const scenario_t *s, const char *dir)
     fflush(stdout);
     mmt_close_handler(mmt);
     close_extraction();
-    exit(bad);  /* exit(), not _exit(): gcov counters are flushed at exit */
+    /* exit(), not _exit(): gcov counters are flushed at exit. An asserted
+     * mismatch (already reported above) exits 3, so the parent only adds a
+     * line for an exit the engine itself took. */
+    exit(bad ? 3 : 0);
 }
 
 int main(int argc, char **argv)
@@ -393,6 +397,8 @@ int main(int argc, char **argv)
             printf("FAIL - %s: child killed by signal %d%s\n", s->name, WTERMSIG(status),
                    WTERMSIG(status) == SIGALRM ? " (timeout)" : "");
             failures++;
+        } else if (WIFEXITED(status) && WEXITSTATUS(status) == 3) {
+            failures++;  /* the child printed its own FAIL line */
         } else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
             /* the child may have died in an engine exit() before printing */
             printf("FAIL - %s: child exited with status %d\n", s->name,
