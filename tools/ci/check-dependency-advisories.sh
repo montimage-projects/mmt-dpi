@@ -486,7 +486,8 @@ def ratings_of_ghsa(adv):
     if lab:
         out.append((lab, "GHSA"))
     # Repository advisories may carry only the older `cvss` object.
-    v3 = ((adv.get("cvss_severities") or {}).get("cvss_v3") or adv.get("cvss") or {})
+    v3 = next((v for v in (((adv.get("cvss_severities") or {}).get("cvss_v3")), adv.get("cvss"))
+               if isinstance(v, dict) and v.get("vector_string")), {})
     s = cvss3_score(v3.get("vector_string")) if v3.get("vector_string") else None
     if s is not None:
         out.append((score_label(s), f"CVSS {s}"))
@@ -510,7 +511,7 @@ def resolve_osv_rating(rec):
     return worst(ratings), ratings
 
 
-def distro_triage(rec, ecosystem):
+def distro_triage(rec, ecosystem, package=None):
     """The distro's own "no security impact on this release" triage, or None.
 
     Debian records it per release as `urgency: unimportant`
@@ -519,7 +520,8 @@ def distro_triage(rec, ecosystem):
     the distro security team decided it, and an upstream CVSS score merged in
     from an alias does not override that decision."""
     for aff in rec.get("affected") or []:
-        if (aff.get("package") or {}).get("ecosystem") != ecosystem:
+        pkg = aff.get("package") or {}
+        if pkg.get("ecosystem") != ecosystem or (package and pkg.get("name") != package):
             continue
         urgency = str((aff.get("ecosystem_specific") or {}).get("urgency") or "").strip().lower()
         if ecosystem.startswith("Debian:") and urgency == "unimportant":
@@ -1015,7 +1017,7 @@ def measure(only, today):
                         "aliases": sorted(set(rec.get("aliases") or []) | set(rec.get("upstream") or [])),
                         "severity": label, "ratings": [f"{l} ({s})" for l, s in ratings],
                         "disposition": classify_distro(qver, fixes, True, family), "fixed": fixes,
-                        "triage": distro_triage(rec, ecosystem)})
+                        "triage": distro_triage(rec, ecosystem, qname)})
         for eco, date in sorted(db_dates.items()):
             rep["scanners"].append({"surface": "native", "scanner": f"OSV {OSV_API}/v1/query ({eco})",
                                     "database_date": date, "queried": now_utc()})
@@ -1212,9 +1214,13 @@ def self_test():
     check("direct deps", parse_direct_deps("GEM\n  specs:\n    a (1)\n\nDEPENDENCIES\n  jekyll (~> 4.3)\n"
                                            "  jekyll-seo-tag\n  local!\n\nBUNDLED WITH\n   2.6.9\n")
           == ["jekyll", "jekyll-seo-tag", "local"])
-    deb = {"affected": [{"package": {"ecosystem": "Debian:12"}, "ecosystem_specific": {"urgency": "unimportant"}}]}
-    check("debian unimportant", distro_triage(deb, "Debian:12") == "Debian urgency unimportant"
-          and distro_triage(deb, "Debian:13") is None)
+    deb = {"affected": [{"package": {"name": "glibc", "ecosystem": "Debian:12"},
+                         "ecosystem_specific": {"urgency": "unimportant"}},
+                        {"package": {"name": "libxml2", "ecosystem": "Debian:12"},
+                         "ecosystem_specific": {"urgency": "high"}}]}
+    check("debian unimportant", distro_triage(deb, "Debian:12", "glibc") == "Debian urgency unimportant"
+          and distro_triage(deb, "Debian:13", "glibc") is None
+          and distro_triage(deb, "Debian:12", "libxml2") is None)
     check("ubuntu negligible", distro_triage({"severity": [{"type": "Ubuntu", "score": "negligible"}]},
                                              "Ubuntu:22.04:LTS") == "Ubuntu priority negligible"
           and distro_triage({"severity": [{"type": "Ubuntu", "score": "low"}]}, "Ubuntu:22.04:LTS") is None)
@@ -1235,12 +1241,26 @@ def self_test():
     ALIAS_FAILURES.clear()
     _OSV_CACHE.clear()
     # Fail closed: an unreachable scanner must yield exit 2, never a PASS.
+    # Hermetic tree: the lockfile and one pinned action, no disposition file,
+    # so neither the live dispositions nor the clock can change the verdict.
+    import shutil as _sh
+    tree = tempfile.mkdtemp(prefix="advisories-failclosed.")
+    os.makedirs(os.path.join(tree, "docs"))
+    os.makedirs(os.path.join(tree, ".github", "workflows"))
+    with open(os.path.join(tree, "docs", "Gemfile.lock"), "w", encoding="utf-8") as fh:
+        fh.write(lock + "DEPENDENCIES\n  jekyll\n")
+    with open(os.path.join(tree, ".github", "workflows", "ci.yml"), "w", encoding="utf-8") as fh:
+        fh.write("    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n")
     env = dict(os.environ, OSV_API="http://127.0.0.1:9", GHSA_API="http://127.0.0.1:9",
-               OSV_DB_URL="http://127.0.0.1:9", RUBYGEMS_API="http://127.0.0.1:9")
-    for surface in ("gems", "actions"):
-        res = subprocess.run(["bash", SCRIPT, "--only", surface], capture_output=True, text=True,
-                             env=env, timeout=300)
-        check(f"fail closed ({surface})", res.returncode == 2 and "NOT ASSESSED" in res.stdout)
+               OSV_DB_URL="http://127.0.0.1:9", RUBYGEMS_API="http://127.0.0.1:9", ROOT_DIR=tree)
+    env.pop("ADVISORY_PROBE_FIXTURE", None)
+    try:
+        for surface in ("gems", "actions"):
+            res = subprocess.run(["bash", SCRIPT, "--only", surface], capture_output=True, text=True,
+                                 env=env, timeout=300)
+            check(f"fail closed ({surface})", res.returncode == 2 and "NOT ASSESSED" in res.stdout)
+    finally:
+        _sh.rmtree(tree, ignore_errors=True)
     for name, ok in checks:
         print(f"{'✓' if ok else '✗'} {name}")
     bad = [n for n, ok in checks if not ok]
