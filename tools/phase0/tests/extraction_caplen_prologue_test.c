@@ -763,16 +763,17 @@ static void test_sctp_chunk_chain(void) {
         c[0] = 3;                                /* SACK */
         c[3] = CHUNK;                            /* chunk length 16 */
     }
-    /* F-BUG-104: META/ETH/IP/SCTP then SACK chunks walk the chunk
-     * classifier to index 15, where the direct len write used to set
-     * len = 17 > PROTO_PATH_SIZE. */
+    /* F-BUG-104 smoke leg: META/ETH/IP/SCTP then SACK chunks fill the path
+     * through the engine. The engine's classification_max_depth stops the
+     * walk before index 15, so this leg cannot reach the overflow — the
+     * direct index-15 classifier calls below are the regression test. */
     memset(&p, 0, sizeof(p));
     p.want = PROTO_SCTP_SACK;
     CHECK(run_frame(1 /* DLT_EN10MB */, frame, sizeof(frame), sizeof(frame), &p)
           && p.packets == 1 && p.saw_want,
           "17-chunk SCTP frame processed and SACK chunks classified");
     CHECK(p.max_len <= PROTO_PATH_SIZE,
-          "17-chunk SCTP frame: hierarchy length stays within PROTO_PATH_SIZE");
+          "17-chunk SCTP frame (smoke): hierarchy length stays within PROTO_PATH_SIZE");
 
     /* The engine stops the classify walk at classification_max_depth
      * (PROTO_PATH_SIZE - 1), so drive the SCTP and chunk classifiers
