@@ -41,7 +41,7 @@ INTERPOSER="${SCRIPT_DIR}/libfi_alloc.so"
 echo "  repo root : ${REPO_ROOT}"
 
 # --- 1. unit-level sweep (source-compiled, every profile) -------------------
-echo "  [1/2] building + running fi-core (allocator/hashmap sweeps)"
+echo "  [1/3] building + running fi-core (allocator/hashmap sweeps)"
 # memory.c is the only translation unit whose libc allocation calls are
 # remapped to the counting front-end; mmt_malloc/mmt_free inside it keep
 # their public names so hashmap.c exercises them unchanged.
@@ -75,13 +75,13 @@ export TSAN_OPTIONS="${TSAN_OPTIONS:+${TSAN_OPTIONS}:}allocator_may_return_null=
 
 # --- 2. engine-level sweep (LD_PRELOAD, not under sanitizer profiles) -------
 if [[ "${SDK_BUILD_PROFILE:-}" =~ ^(asan|tsan)$ ]]; then
-    echo "  [2/2] fi-engine skipped: SDK_BUILD_PROFILE=${SDK_BUILD_PROFILE}" \
+    echo "  [2/3] fi-engine and plugin-init cases skipped: SDK_BUILD_PROFILE=${SDK_BUILD_PROFILE}" \
          "(sanitizer runtimes own malloc; the unit layer above still ran)"
     echo "Fault-injection tests: PASSED"
     exit 0
 fi
 
-echo "  [2/2] building SDK + running fi-engine (LD_PRELOAD sweeps)"
+echo "  [2/3] building SDK + running fi-engine (LD_PRELOAD sweeps)"
 PREFIX="${MMT_FI_PREFIX:-$(mktemp -d "${TMPDIR:-/tmp}/fi.XXXXXX")}"
 if [ -z "${MMT_FI_PREFIX:-}" ]; then
     trap 'rm -rf "${PREFIX}"' EXIT
@@ -113,5 +113,62 @@ trap 'rm -rf "${WORK}"; [ -z "${MMT_FI_PREFIX:-}" ] && rm -rf "${PREFIX}" || tru
     LD_PRELOAD="${INTERPOSER}" \
     LD_LIBRARY_PATH="${SCRIPT_DIR}:${PREFIX}/dpi/lib" \
     "${BIN_ENGINE}")
+
+# --- 3. plugin load/init failures reach init_extraction() (issue #503) ------
+# Same profiles as layer 2. A stub plugin whose init_proto() fails, or that
+# exports none, must make init_extraction() return failure; a relative or
+# missing MMT_DPI_PLUGINS_DIR is refused; a ./plugins in the working
+# directory is never loaded. Each case is one process: the protocol registry
+# is process-global.
+echo "  [3/3] plugin load/init failure propagation"
+BIN_PLUGIN="${SCRIPT_DIR}/test_fi_plugin_init"
+"${CC}" -Wall -Wextra -std=gnu11 -g -O1 \
+    -I"${PREFIX}/dpi/include" \
+    -o "${BIN_PLUGIN}" "${SCRIPT_DIR}/test_fi_plugin_init.c" \
+    -L"${PREFIX}/dpi/lib" -lmmt_core -ldl
+
+# The installed plugins plus one stub sorted after them (fi_plugin.c): its
+# init_proto() fails in FAIL_DIR, it exports none in NOSYM_DIR.
+FAIL_DIR="${WORK}/plugins-init-fails"
+NOSYM_DIR="${WORK}/plugins-no-init"
+mkdir -p "${FAIL_DIR}" "${NOSYM_DIR}" "${WORK}/plugins"
+for so in "${PREFIX}"/plugins/*.so; do
+    ln -s "${so}" "${FAIL_DIR}/"
+    ln -s "${so}" "${NOSYM_DIR}/"
+done
+"${CC}" -Wall -Wextra -std=c11 -fPIC -shared \
+    -o "${FAIL_DIR}/libzz_fi_plugin.so" "${SCRIPT_DIR}/fi_plugin.c"
+"${CC}" -Wall -Wextra -std=c11 -fPIC -shared -DFI_NO_INIT_PROTO \
+    -o "${NOSYM_DIR}/libzz_fi_plugin.so" "${SCRIPT_DIR}/fi_plugin.c"
+# A failing plugin in the working directory must be ignored: only the
+# compiled-in directory or MMT_DPI_PLUGINS_DIR is ever scanned.
+cp "${FAIL_DIR}/libzz_fi_plugin.so" "${WORK}/plugins/"
+
+plugin_case() {
+    local desc="$1" want="$2"; shift 2
+    if (cd "${WORK}" && env -u MMT_DPI_PLUGINS_DIR "$@" \
+            LD_LIBRARY_PATH="${PREFIX}/dpi/lib" "${BIN_PLUGIN}" "${want}"); then
+        echo "    ✓ ${desc}"
+    else
+        echo "    ✗ ${desc}"
+        plugin_failures=$((plugin_failures + 1))
+    fi
+}
+plugin_failures=0
+plugin_case "compiled-in plugin directory loads; ./plugins is ignored" ok
+plugin_case "MMT_DPI_PLUGINS_DIR selects the plugin directory" ok \
+    MMT_DPI_PLUGINS_DIR="${PREFIX}/plugins"
+plugin_case "a plugin whose init_proto() fails fails init_extraction()" fail \
+    MMT_DPI_PLUGINS_DIR="${FAIL_DIR}"
+plugin_case "a plugin without init_proto() fails init_extraction()" fail \
+    MMT_DPI_PLUGINS_DIR="${NOSYM_DIR}"
+plugin_case "a relative MMT_DPI_PLUGINS_DIR is refused" fail \
+    MMT_DPI_PLUGINS_DIR=plugins
+plugin_case "a missing MMT_DPI_PLUGINS_DIR is refused" fail \
+    MMT_DPI_PLUGINS_DIR="${WORK}/no-such-dir"
+if [ "${plugin_failures}" -gt 0 ]; then
+    echo "Fault-injection tests: FAILED (${plugin_failures} plugin case(s))"
+    exit 1
+fi
 
 echo "Fault-injection tests: PASSED"

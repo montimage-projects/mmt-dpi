@@ -936,7 +936,7 @@ bool unregister_protocol_by_name(char* proto_name) {
 
 int init_plugins() {
     if (!load_plugins()) {
-        mmt_stderr_log( "Error while loading plugins, Exiting\n");
+        mmt_stderr_log( "Error while loading plugins\n");
         return 0;
     }
 
@@ -1300,7 +1300,7 @@ bool init_extraction()
         return 0;
     }
 
-    init_plugins();
+    if (!init_plugins()) return 0; // Issue #503: a plugin load/init failure fails init_extraction()
     mmt_configured_handlers_map = init_map_space(pointer_comp_fn_pt, pointer_hash_fn);
     if (mmt_configured_handlers_map == NULL) {
         // Issue #200 (F-BUG-003): same unchecked-nothrow-new guard as above.
