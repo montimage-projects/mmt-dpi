@@ -139,8 +139,10 @@ static const scenario_t scenarios[] = {
     { "AND not satisfied: B frame too short, then the timeout", "and.xml",
       { F(PORT_A, 60, 0), F(PORT_B, 60, 1000), F(PORT_X, 60, 3000) }, 3, 0, 1 },
     /* Quirk pinned: the AND node's sons cannot complete on different
-     * frames — once one son is valid, check_time() on the AND node (no
-     * delay of its own) reports expiry at once and the node fails. */
+     * frames. check_for_timeout() returns 0 (VALID) for a node with no
+     * delay/counter and check_time() passes it on as non-SKIP2, so once a
+     * son is valid verify_and_timeout() treats the next frame as an expiry
+     * and the node fails (tips_eval.c:681-714). */
     { "AND not satisfied: sons met on different frames (current behaviour)", "and.xml",
       { F(PORT_A, 60, 0), F(PORT_B, 60, 500), F(PORT_X, 120, 1000),
         F(PORT_X, 60, 3000) }, 4, 0, 1 },
@@ -148,11 +150,17 @@ static const scenario_t scenarios[] = {
     /* ---- NOT as the left branch: not B, then A (SAME situation) */
     { "NOT satisfied: A frame (the negated B absent)", "not.xml",
       { F(PORT_A, 60, 0) }, 1, 1, 0 },
-    /* The instance created by the X frame stays pending (its NOT timer is
-     * armed); on the B frame that timer reports expiry so NOT holds, and
-     * the right branch A fails on the same frame. */
-    { "NOT not satisfied: B frame after a pending instance", "not.xml",
+    /* Quirk pinned: the instance created by the X frame stays pending with
+     * its NOT timer armed. On ANY next frame the no-delay timer reads as
+     * expired (the same check_for_timeout() 0 == VALID as AND), so NOT
+     * holds before its son is evaluated, and the right branch A fails on
+     * that frame — the B content of the second frame is irrelevant. */
+    { "NOT not satisfied: any second frame expires the no-delay NOT timer (current behaviour)", "not.xml",
       { F(PORT_X, 60, 0), F(PORT_B, 60, 1000) }, 2, 0, 1, 1 },
+    /* the negated event on a fresh instance: NOT fails, action() returns
+     * ELIMINATE and nothing is reported */
+    { "NOT no verdict: negated event B present (current behaviour)", "not.xml",
+      { F(PORT_B, 60, 0) }, 1, 0, 0 },
 
     /* ---- BEFORE window [-5, -1] s: B must precede A by 1 to 5 s */
     { "BEFORE window satisfied: B 3 s before A", "before_window.xml",
@@ -222,7 +230,7 @@ static int g_cb_respected;
 static int g_cb_not_respected;
 static int g_cb_other;
 static int g_cb_bad_prop;
-static int g_expected_prop;
+static int g_expected_prop;   /* the loaded ROOT rule's property_id */
 
 static void on_verdict(int prop_id, char *verdict, char *type, char *cause,
                        char *history, struct timeval ts, void *user_args)
@@ -285,6 +293,17 @@ static void run_scenario(const scenario_t *s, const char *dir)
         printf("FAIL - %s: %s must load exactly one property\n", s->name, s->fixture);
         exit(1);
     }
+    /* each fixture's description is its file name: proves the intended
+     * rule was loaded, not merely some rule */
+    if (top_rule->description == NULL ||
+        strncmp(top_rule->description, s->fixture, strlen(top_rule->description)) != 0 ||
+        strcmp(s->fixture + strlen(top_rule->description), ".xml") != 0) {
+        if (s->exp_satisfied >= 0) {
+            printf("FAIL - %s: %s loaded property '%s'\n", s->name, s->fixture,
+                   top_rule->description ? top_rule->description : "(null)");
+            exit(1);
+        }
+    }
     g_expected_prop = top_rule->property_id;
 
     for (i = 0; i < s->npkts; i++) {
@@ -337,11 +356,18 @@ int main(int argc, char **argv)
         p.name = "probe";
         p.fixture = argv[2];
         p.exp_satisfied = -1;
-        for (n = 3; n < argc && p.npkts < MAX_PKTS; n++) {
+        if (argc - 3 > MAX_PKTS) {
+            fprintf(stderr, "too many frames (at most %d)\n", MAX_PKTS);
+            return 2;
+        }
+        for (n = 3; n < argc; n++) {
             unsigned port, len;
             long ms;
-            if (sscanf(argv[n], "%u:%u@%ld", &port, &len, &ms) != 3 || len < 42 || len > 256) {
-                fprintf(stderr, "bad frame '%s' (want port:len@ms, 42 <= len <= 256)\n", argv[n]);
+            int used = 0;
+            if (sscanf(argv[n], "%u:%u@%ld%n", &port, &len, &ms, &used) != 3 ||
+                argv[n][used] != '\0' || port > 65535 || len < 42 || len > 256 || ms < 0) {
+                fprintf(stderr, "bad frame '%s' (want port:len@ms, port <= 65535, "
+                        "42 <= len <= 256, ms >= 0)\n", argv[n]);
                 return 2;
             }
             p.pkts[p.npkts].port = (uint16_t)port;
@@ -368,6 +394,9 @@ int main(int argc, char **argv)
                    WTERMSIG(status) == SIGALRM ? " (timeout)" : "");
             failures++;
         } else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            /* the child may have died in an engine exit() before printing */
+            printf("FAIL - %s: child exited with status %d\n", s->name,
+                   WIFEXITED(status) ? WEXITSTATUS(status) : -1);
             failures++;
         }
     }
