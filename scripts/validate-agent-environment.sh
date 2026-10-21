@@ -201,6 +201,7 @@ tests/run_all_tests.sh:258-262	json_file=	select\(	coverage restricts emitted re
 tests/run_all_tests.sh:319-333	Instrumented files	scope:	coverage summary exposes measured scope	instrumented_sources
 tests/coverage/floor.json:2-10	"library_line_pct": 80.0	  ]	coverage floor and required sources	"instrumented_files": 29
 rules/common.mk:187-206	^SRCDIR	^SDKXAM	artifacts remain in checkout	SDKLIB
+src/mmt_core/src/plugins_engine.c:50-53	secure_getenv\(PLUGINS_DIR_ENV\)	return PLUGINS_REPOSITORY_OPT;	plugins load from the compiled-in directory or MMT_DPI_PLUGINS_DIR only
 CITATIONS
 
 registered="$(printf '%s' "$registered" | grep -v '^$' | sort -u)"

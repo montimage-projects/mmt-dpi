@@ -450,7 +450,10 @@ the plugin directory it was compiled with (`sdk/Makefile:25-29`): a build
 with a different `MMT_BASE` recompiles exactly that object, a rebuild with
 the same one compiles nothing, and `make install` — which never builds —
 refuses a mismatch. Keep `MMT_BASE` identical across build/install
-invocations so compilation and installation use one path.
+invocations so compilation and installation use one path. It is the only
+directory the plugins load from — the working directory is never scanned —
+unless the absolute directory in `MMT_DPI_PLUGINS_DIR` overrides it at run
+time (`src/mmt_core/src/plugins_engine.c:50-53`, issue #503).
 
 ## 5. Sanitizer Build Profiles
 
