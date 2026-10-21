@@ -125,8 +125,9 @@ trap 'rm -rf "${work}"' EXIT
 sed -n '/^```bash$/,/^```$/{/^```/d;p}' "$FRAGMENT" > "${work}/steps.sh"
 # shellcheck disable=SC2016  # literal Markdown fences, not expansions
 sed -n '/^```text$/,/^```$/{/^```/d;p}' "$FRAGMENT" > "${work}/expected.txt"
-[ -s "${work}/steps.sh" ] && [ -s "${work}/expected.txt" ] \
-    || { echo "✗ ${FRAGMENT} lost its bash or text block" >&2; exit 1; }
+if [ ! -s "${work}/steps.sh" ] || [ ! -s "${work}/expected.txt" ]; then
+    echo "✗ ${FRAGMENT} lost its bash or text block" >&2; exit 1
+fi
 if [ "$site_base" != "$SITE_URL" ]; then
     sed -i "s#${SITE_URL}#${site_base}#g" "${work}/steps.sh"
 fi

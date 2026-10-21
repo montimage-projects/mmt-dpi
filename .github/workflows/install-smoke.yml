@@ -122,6 +122,9 @@ jobs:
         # Step-level, so a best-effort failure leaves the job (and the report
         # job's needs.smoke.result) green while the step still shows red.
         continue-on-error: ${{ matrix.tier == 'best-effort' }}
+        # Below the job's 45 minutes, so a hung best-effort leg times out
+        # here, where continue-on-error absorbs it, not as a red job.
+        timeout-minutes: 40
         env:
           IMAGE: ${{ matrix.image }}
           SOURCE: ${{ steps.source.outputs.source }}
