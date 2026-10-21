@@ -76,15 +76,15 @@ export TSAN_OPTIONS="${TSAN_OPTIONS:+${TSAN_OPTIONS}:}allocator_may_return_null=
 
 # Issue #505: the HTTP stream-parser constructor (a static inline in
 # http_parser_integration.h) against the same fiu-remapped memory.c, linked
-# with the vendored llhttp it initialises.
+# with the vendored llhttp it initialises -- built without gcov flags so it stays out of the unit coverage cohort.
 TCPIP_LIB="${REPO_ROOT}/src/mmt_tcpip/lib"
-fi_http_objs=()
+fi_http_objs=(); vendor_cflags=()
+for f in "${extra_cflags[@]}"; do [[ "${f}" =~ ^(--coverage|-fprofile-arcs|-ftest-coverage)$ ]] || vendor_cflags+=("${f}"); done
 for src in llhttp.c llhttp_api.c llhttp_http.c; do
     obj="${SCRIPT_DIR}/test_fi_$(basename "${src}" .c).o"
-    "${CC}" "${extra_cflags[@]}" -std=gnu11 -g -I"${TCPIP_LIB}" \
+    "${CC}" "${vendor_cflags[@]}" -std=gnu11 -g -I"${TCPIP_LIB}" \
         -c "${TCPIP_LIB}/${src}" -o "${obj}"
-    fi_http_objs+=("${obj}")
-done
+    fi_http_objs+=("${obj}"); done
 "${CC}" "${extra_cflags[@]}" -Wall -Wextra -std=gnu11 -g \
     -I"${CORE_PRIV}" -I"${CORE_PUB}" -I"${TCPIP_LIB}" -I"${SCRIPT_DIR}" \
     -c "${SCRIPT_DIR}/test_fi_http.c" -o "${SCRIPT_DIR}/test_fi_http.o"
