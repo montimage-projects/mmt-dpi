@@ -417,7 +417,7 @@ int * str_get_indexes_n(char *str, size_t str_len, char *str1, size_t str1_len){
         /* Issue #505 (F-BUG-013): adjacent matches leave an empty gap, for
          * which str_sub_n() returns NULL — strcat(…, NULL) crashed. */
         if(str_substr != NULL){
-            strcat(new_string,str_substr);
+            strncat(new_string, str_substr, (size_t)new_string_len - 1 - strlen(new_string));
             free(str_substr);
         }
         current_index ++;
