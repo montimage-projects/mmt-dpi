@@ -156,6 +156,8 @@ void process_outofmemory_force_sessions_timeout(mmt_handler_t * mmt_handler, ipa
     uint32_t timeout_slot_to_free = mmt_handler->last_expiry_timeout;
     uint32_t count = 0;
     uint32_t scanned = 0;
+    uint32_t first_skipped = 0;
+    int skipped = 0;
     while (count < MMT_OOM_SWEEP_BUDGET && scanned < MMT_OOM_SWEEP_BUDGET) {
         mmt_session_t * timed_out_session = get_timed_out_session_list(mmt_handler, timeout_slot_to_free);
         mmt_session_t * safe_to_delete_session;
@@ -167,6 +169,10 @@ void process_outofmemory_force_sessions_timeout(mmt_handler_t * mmt_handler, ipa
              * sessions of the packet in flight must survive this sweep. */
             if (safe_to_delete_session->live_children > 0 ||
                     is_packet_session(ipacket, safe_to_delete_session)) {
+                if (!skipped) {
+                    skipped = 1;
+                    first_skipped = timeout_slot_to_free;
+                }
                 continue;
             }
             /* Issue #500 (F-BUG-003): unlink each session before freeing it —
@@ -181,7 +187,14 @@ void process_outofmemory_force_sessions_timeout(mmt_handler_t * mmt_handler, ipa
         timeout_slot_to_free++;
         scanned++;
     }
-    mmt_handler->last_expiry_timeout = timeout_slot_to_free;
+    /* Issues #499/#500: resume the next sweep at the first milestone this one
+     * skipped (milestones are walked in ascending order), not past it — the
+     * end-of-packet process_timedout_sessions() then revisits it, where
+     * force_sessions_timeout() expires a parent whose children this sweep
+     * freed, or re-arms it with defer_parent_expiry(). Advancing past it left
+     * an overdue skipped session linked below last_expiry_timeout forever. */
+    mmt_handler->last_expiry_timeout =
+        (skipped && first_skipped < timeout_slot_to_free) ? first_skipped : timeout_slot_to_free;
 }
 
 void process_timedout_sessions(mmt_handler_t * mmt_handler, uint32_t current_seconds) {

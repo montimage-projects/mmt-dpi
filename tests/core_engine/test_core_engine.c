@@ -1419,6 +1419,55 @@ static void test_tunnel_parent_lifetime(void) {
     g_classify_to_b = 0;
 }
 
+/* Issues #499/#500: the forced out-of-memory sweep skips a tunnel parent
+ * with live children; once it has freed the child, the parent must still be
+ * revisited by the next timer sweep instead of staying linked below
+ * last_expiry_timeout forever. */
+static void test_oom_sweep_revisits_skipped_parent(void) {
+    fprintf(stderr, "  test: forced sweep revisits a tunnel parent it skipped (#499/#500)\n");
+    char errbuf[256];
+    const uint32_t key = 0x82828282u;
+
+    mmt_handler_t *h = mmt_init_handler(TEST_STACK_ID, 0, errbuf);
+    CHECK(h != NULL, "handler init for forced-sweep parent test");
+    if (h == NULL) return;
+    CHECK(set_default_session_timed_out(h, TEST_TIMEOUT) == 1, "timeout set");
+    CHECK(register_session_timeout_handler(h, tun_expiry_handler, NULL) == 1, "expiry handler");
+    g_tun_nexpired = g_tun_parent_dead = g_tun_parent_unpinned = 0;
+
+    /* As in test_tunnel_parent_lifetime: the child's longer delay makes the
+     * refresh raise the parent onto the child's milestone, ahead of it. */
+    g_classify_to_b = 1;
+    tun_packet(h, key, 10000);
+    mmt_session_t *parent = tun_lookup(h, TEST_PROTO_A, key);
+    mmt_session_t *child = tun_lookup(h, TEST_PROTO_B, key);
+    CHECK(parent != NULL && child != NULL && child->parent_session == parent &&
+          parent->live_children == 1, "tunnel parent pinned by its child");
+    if (parent == NULL || child == NULL) { mmt_close_handler(h); g_classify_to_b = 0; return; }
+    set_session_timeout_delay(child, 60);
+    tun_packet(h, key, 10001);
+    g_classify_to_b = 0;
+    uint32_t m = parent->session_timeout_milestone;
+    CHECK(child->session_timeout_milestone == m && get_timed_out_session_list(h, m) == parent &&
+          parent->next == child, "parent ahead of its child on one milestone");
+    CHECK(h->last_expiry_timeout <= m, "the milestone is still ahead of the sweep");
+    uint64_t parent_id = parent->session_id, child_id = child->session_id;
+
+    /* The forced sweep skips the pinned parent and frees the child. */
+    process_outofmemory_force_sessions_timeout(h, NULL);
+    CHECK(g_tun_nexpired == 1 && g_tun_expired[0] == child_id, "forced sweep expired the child");
+    CHECK(parent->live_children == 0, "the child released its parent");
+    CHECK(h->last_expiry_timeout <= m, "the sweep resumes at the skipped milestone");
+
+    /* The next timer sweep, past the milestone, now expires the parent. */
+    process_timedout_sessions(h, m + 10);
+    CHECK(g_tun_nexpired == 2 && g_tun_expired[1] == parent_id,
+          "the released parent expired on the next sweep");
+    CHECK(g_tun_parent_dead == 0 && g_tun_parent_unpinned == 0,
+          "the child expired before its parent");
+    mmt_close_handler(h);
+}
+
 static void test_alloc_no_prefix(void) {
     fprintf(stderr, "  test: allocator passes natural sizes to libc (F-PERF-015)\n");
 
@@ -1975,6 +2024,7 @@ int main(void) {
     test_children_stats_extension();
     test_timeout_span_overflow();
     test_tunnel_parent_lifetime();
+    test_oom_sweep_revisits_skipped_parent();
     test_alloc_no_prefix();
     test_helpers();
     test_attr_report_output();
