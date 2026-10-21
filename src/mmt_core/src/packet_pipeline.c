@@ -872,8 +872,8 @@ static inline uint32_t next_attribute_element(const mmt_handler_t * mmt_handler,
     return j;
 }
 
-/* Issue #501: iteration budget of a dispatch loop. Re-deriving the next
- * slot means a callback that removes and re-adds entries (e.g. a handler
+/* Issue #501: iteration budget of a handler dispatch loop. Re-deriving the
+ * next slot means a callback that removes and re-adds handlers (e.g. a handler
  * re-registering itself) could make the loop revisit them forever, so each
  * loop runs at most as many iterations as the list's high-water length
  * since the dispatch started: entries added past the start length still
@@ -963,8 +963,9 @@ void proto_process_attribute_handlers(ipacket_t * ipacket, unsigned index) {
      * bracket closes. */
     uint32_t proto = ipacket->proto_hierarchy->proto_path[index];
     attr_dispatch_enter(mmt_handler);
-    uint32_t e_high = mmt_handler->proto_registered_attribute_handlers_len[proto], e_budget = e_high;
-    for (uint32_t e = 0; e < mmt_handler->proto_registered_attribute_handlers_len[proto] && e_budget > 0; e_budget--) {
+    /* No budget here: next_attribute_element() moves to a strictly greater
+     * field_id every iteration, so the walk ends on field order alone. */
+    for (uint32_t e = 0; e < mmt_handler->proto_registered_attribute_handlers_len[proto]; ) {
         attribute_internal_t * attribute = mmt_handler->proto_registered_attribute_handlers[proto][e].attribute;
         internal_extract_attribute(ipacket, attribute, index);
         if (attribute->status == ATTRIBUTE_SET) {
@@ -980,7 +981,6 @@ void proto_process_attribute_handlers(ipacket_t * ipacket, unsigned index) {
             attribute->status = ATTRIBUTE_CONSUMED;
         }
         e = next_attribute_element(mmt_handler, proto, e, attribute);
-        dispatch_budget_update(mmt_handler->proto_registered_attribute_handlers_len[proto], &e_high, &e_budget);
     }
     attr_dispatch_leave(mmt_handler);
 }

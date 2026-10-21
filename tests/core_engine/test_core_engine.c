@@ -2016,6 +2016,10 @@ static void test_direction_bound(void) {
 #define DS_ATTR_Q     36
 #define DS_ATTR_R     37
 #define DS_ATTR_AXB   38 /* event scope: handlers [A, X, B], X re-registers */
+#define DS_ATTR_MP    40 /* packet scope: MP < MQ < MS < MR by field_id; MQ's */
+#define DS_ATTR_MQ    42 /* callback moves MP's handler to the new field MS */
+#define DS_ATTR_MS    43
+#define DS_ATTR_MR    45
 #define DS_CHURN_CAP  1000 /* the churn handlers stop here so a regression fails, not hangs */
 
 static mmt_handler_t *g_ds_handler;
@@ -2092,6 +2096,19 @@ static void ds_count2(const ipacket_t *ipacket, attribute_t *attribute, void *us
     (*(int *) user_args)++;
 }
 
+/* Moves the ds_count handler from DS_ATTR_MP (already run) to the new field
+ * DS_ATTR_MS: the element count stays the same while the walk must still
+ * reach both MS and the bystander MR. */
+static int g_ds_mover_calls, g_ds_n_mp, g_ds_n_ms, g_ds_n_mr;
+static void ds_mover(const ipacket_t *ipacket, attribute_t *attribute, void *user_args) {
+    (void) ipacket; (void) attribute; (void) user_args;
+    g_ds_mover_calls++;
+    if (is_registered_attribute_handler(g_ds_handler, TEST_PROTO_A, DS_ATTR_MP, ds_count)) {
+        unregister_attribute_handler(g_ds_handler, TEST_PROTO_A, DS_ATTR_MP, ds_count);
+        register_attribute_handler(g_ds_handler, TEST_PROTO_A, DS_ATTR_MS, ds_count, NULL, &g_ds_n_ms);
+    }
+}
+
 /* fire_attribute_event() with a pointer to a stack local, as the HTTP parser
  * callbacks (http_parser_integration.c) and the IPv4/IPv6 RTT events
  * (proto_ip.c, proto_ipv6.c) do: the local dies when this returns. */
@@ -2118,6 +2135,10 @@ static void test_attr_dispatch_safety(void) {
         { DS_ATTR_Q,   "ce_ds_q",   SCOPE_PACKET },
         { DS_ATTR_R,   "ce_ds_r",   SCOPE_PACKET },
         { DS_ATTR_AXB, "ce_ds_axb", SCOPE_EVENT },
+        { DS_ATTR_MP,  "ce_ds_mp",  SCOPE_PACKET },
+        { DS_ATTR_MQ,  "ce_ds_mq",  SCOPE_PACKET },
+        { DS_ATTR_MS,  "ce_ds_ms",  SCOPE_PACKET },
+        { DS_ATTR_MR,  "ce_ds_mr",  SCOPE_PACKET },
     };
     for (size_t i = 0; i < sizeof(ds_attrs) / sizeof(ds_attrs[0]); i++) {
         attribute_metadata_t meta;
@@ -2322,6 +2343,26 @@ static void test_attr_dispatch_safety(void) {
           unregister_attribute_handler(h, TEST_PROTO_A, DS_ATTR_AXB, ds_reregister) == 1 &&
           unregister_attribute_handler(h, TEST_PROTO_A, DS_ATTR_AXB, ds_count2) == 1,
           "unregister [A, X, B]");
+
+    /* A callback moves a handler from an element already run to a new
+     * field between itself and a bystander: the element count is
+     * unchanged, yet the new field and the bystander must each run once. */
+    CHECK(register_attribute_handler(h, TEST_PROTO_A, DS_ATTR_MP, ds_count, NULL, &g_ds_n_mp) == 1 &&
+          register_attribute_handler(h, TEST_PROTO_A, DS_ATTR_MQ, ds_mover, NULL, NULL) == 1 &&
+          register_attribute_handler(h, TEST_PROTO_A, DS_ATTR_MR, ds_count, NULL, &g_ds_n_mr) == 1,
+          "register MP, MQ (mover) and MR");
+    g_ds_mover_calls = g_ds_n_mp = g_ds_n_ms = g_ds_n_mr = 0;
+    make_packet(&hdr, pkt, sizeof(pkt), 0xDBDBDBDBu, 3007, 0);
+    CHECK(packet_process(h, &hdr, pkt) == 1, "mover packet processed");
+    CHECK(g_ds_n_mp == 1 && g_ds_mover_calls == 1, "MP and the mover ran once");
+    CHECK(g_ds_n_ms == 1, "the field added between the mover and the bystander ran once");
+    CHECK(g_ds_n_mr == 1, "the bystander after the mover ran once");
+    CHECK(h->attr_free_pending == NULL && h->attr_dispatch_depth == 0,
+          "mover dispatch flushed its deferred free");
+    CHECK(unregister_attribute_handler(h, TEST_PROTO_A, DS_ATTR_MQ, ds_mover) == 1 &&
+          unregister_attribute_handler(h, TEST_PROTO_A, DS_ATTR_MS, ds_count) == 1 &&
+          unregister_attribute_handler(h, TEST_PROTO_A, DS_ATTR_MR, ds_count) == 1,
+          "unregister MQ, MS and MR");
 
     mmt_close_handler(h);
     g_ds_handler = NULL;
