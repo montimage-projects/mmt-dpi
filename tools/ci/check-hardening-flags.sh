@@ -120,15 +120,25 @@ check_so() {
 }
 
 # The control-flow property note is only assertable where the toolchain can
-# merge one: on x86 (-fcf-protection/CET) every input including the crt stubs
-# carries IBT/SHSTK, so the .so must show it. On AArch64 the crti/crtn stubs
-# ship without the note and the AND-merge drops it — stamping it anyway with
-# -z force-bti SIGILLs under a BTI-enforcing loader (the stubs have no landing
-# pads). Re-run the same probe the makefile uses and gate the check on it.
+# merge one into a shared object: the linker AND-merges the GNU property of
+# every input, including the crt startup stubs, so one stub without the note
+# drops it from the .so however the MMT objects were compiled. On AArch64 the
+# crti/crtn stubs ship without the note — stamping it anyway with -z force-bti
+# SIGILLs under a BTI-enforcing loader (the stubs have no landing pads). On
+# x86, Debian 12's crt objects carry no IBT/SHSTK property either, although
+# -fcf-protection compiles. So a compile probe is not enough: link a trivial
+# -shared -fcf-protection object the way the libraries are linked and assert
+# the note on the checked objects only when that probe carries it.
 CF_PROBE_OK=0
-if printf 'int main(void){return 0;}\n' | "${CC:-cc}" -x c -fcf-protection -Werror - -o /dev/null >/dev/null 2>&1; then
+CF_PROBE_DIR="$(mktemp -d)"
+trap 'rm -rf "$CF_PROBE_DIR"' EXIT
+printf 'int mmt_cf_probe(int x){return x + 1;}\n' >"$CF_PROBE_DIR/probe.c"
+if "${CC:-cc}" -shared -fPIC -fcf-protection -Werror -o "$CF_PROBE_DIR/libprobe.so" \
+        "$CF_PROBE_DIR/probe.c" >/dev/null 2>&1 \
+   && readelf -nW "$CF_PROBE_DIR/libprobe.so" 2>/dev/null | grep -qE 'IBT|SHSTK|BTI|PAC'; then
     CF_PROBE_OK=1
 fi
+rm -rf "$CF_PROBE_DIR"
 
 FORTIFIED=0
 for so in "${sos[@]}"; do
@@ -145,7 +155,7 @@ for so in "${sos[@]}"; do
     if [ "$CF_PROBE_OK" -eq 1 ]; then
         check_so "control-flow property"  "$so" 'IBT|SHSTK|BTI|PAC'   "-nW"
     else
-        echo "  · control-flow property note not assertable on this target (see rules/common-linux.mk)"
+        echo "  · control-flow property note not assertable on this toolchain (see rules/common-linux.mk)"
     fi
     # Fortified libc imports (__memcpy_chk, __snprintf_chk, ...): counted for
     # the set-level floor below; __stack_chk_fail/__stack_chk_guard are the

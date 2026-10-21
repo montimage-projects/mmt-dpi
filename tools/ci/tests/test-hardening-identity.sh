@@ -33,7 +33,9 @@ CHECKER="${REPO_ROOT}/tools/ci/check-hardening-flags.sh"
 [ -f "${CHECKER}" ] || { echo "✗ missing ${CHECKER}" >&2; exit 2; }
 GCC="$(command -v gcc || true)"
 GXX="$(command -v g++ || true)"
-[ -n "${GCC}" ] && [ -n "${GXX}" ] || { echo "✗ gcc and g++ are required" >&2; exit 2; }
+if [ -z "${GCC}" ] || [ -z "${GXX}" ]; then
+    echo "✗ gcc and g++ are required" >&2; exit 2
+fi
 command -v readelf >/dev/null 2>&1 || { echo "✗ readelf is required" >&2; exit 2; }
 
 WORK="$(mktemp -d)"
@@ -145,8 +147,9 @@ int fx_copy(const char *src, size_t n)
     return buf[0] + buf[n > 1 ? 1 : 0];
 }
 EOF
-# The positive fixture carries whatever control-flow note the checker's own
-# probe asserts on this target (it gates the check on -fcf-protection).
+# The positive fixture is linked like the checker's own link probe, so it
+# carries the control-flow note exactly when the checker asserts it (the
+# checker gates the check on a -shared -fcf-protection link probe).
 CF=""
 if printf 'int main(void){return 0;}\n' | "${GCC}" -x c -fcf-protection -Werror - -o /dev/null >/dev/null 2>&1; then
     CF="-fcf-protection"
