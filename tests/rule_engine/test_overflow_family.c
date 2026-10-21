@@ -248,6 +248,9 @@ static char fi_hl_bytes[512];
  * fi_str_field; every other non-META attribute stays the header line. */
 static uint32_t fi_str_proto, fi_str_field;
 static void *fi_str_rec;
+/* and a pointer-typed string (MMT_STRING_DATA_POINTER) at fi_ptr_proto.fi_ptr_field */
+static uint32_t fi_ptr_proto, fi_ptr_field;
+static void *fi_ptr_val;
 
 static void fi_track(void *p)
 {
@@ -401,6 +404,8 @@ void *get_attribute_extracted_data(const ipacket_t *ipacket, uint32_t proto_id, 
         if (proto_id == 1) return &fi_tvp;
         if (fi_str_rec != NULL && proto_id == fi_str_proto && field_id == fi_str_field)
             return fi_str_rec;
+        if (fi_ptr_val != NULL && proto_id == fi_ptr_proto && field_id == fi_ptr_field)
+            return fi_ptr_val;
         return &fi_hl;
     }
     if (real_extract_fn == NULL) fi_resolve();
@@ -573,7 +578,9 @@ static void test_store_history_alloc_failure(void)
  * (and the cause) into the verdict JSON raw — a quote ended the JSON string
  * early and a control byte made the document invalid. The values below
  * carry a quote, a backslash and control bytes; the history must hold them
- * escaped. With OVERFLOW_JSON_OUT set, the verdict document the callback
+ * escaped. The third one is a 1504-byte control-byte string whose escaped
+ * form (9024 bytes) is longer than store_history()'s 8192-byte formatting
+ * buffer: it must be appended whole, not cut. With OVERFLOW_JSON_OUT set, the verdict document the callback
  * would get ("{" history "}") is written there for run_tests.sh's jq pass. */
 static void test_store_history_escapes_strings(void)
 {
@@ -581,11 +588,11 @@ static void test_store_history_escapes_strings(void)
     static const char str_raw[] = "tok\"en\x1f";
     char cause[] = "cause \"q\"\x02";
     rule root, curr;
-    tuple attrs[2];
+    tuple attrs[3];
     mmt_string_data_t *rec;
-    char *hl_buf, *doc;
+    char *hl_buf, *doc, *long_str;
     const unsigned char *c;
-    long hproto, hfield, sproto, sfield;
+    long hproto, hfield, sproto, sfield, pproto, pfield;
     int raw_ctl = 0;
     size_t n;
 
@@ -593,8 +600,10 @@ static void test_store_history_escapes_strings(void)
     hfield = get_attribute_id_by_protocol_id_and_attribute_name((uint32_t)hproto, "Host");
     sproto = get_protocol_id_by_name("quic_ietf");
     sfield = get_attribute_id_by_protocol_id_and_attribute_name((uint32_t)sproto, "token");
-    if (!(hproto > 0 && hfield > 0 && sproto > 0 && sfield > 0)) {
-        printf("FAIL - cannot resolve http.Host / quic_ietf.token\n");
+    pproto = get_protocol_id_by_name("ftp");
+    pfield = get_attribute_id_by_protocol_id_and_attribute_name((uint32_t)pproto, "user_name");
+    if (!(hproto > 0 && hfield > 0 && sproto > 0 && sfield > 0 && pproto > 0 && pfield > 0)) {
+        printf("FAIL - cannot resolve http.Host / quic_ietf.token / ftp.user_name\n");
         failures++;
         return;
     }
@@ -609,17 +618,27 @@ static void test_store_history_escapes_strings(void)
     attrs[1].protocol_id = sproto;
     attrs[1].field_id = sfield;
     attrs[1].data_type_id = MMT_STRING_LONG_DATA;
+    attrs[1].next = &attrs[2];
+    attrs[2].protocol_id = pproto;
+    attrs[2].field_id = pfield;
+    attrs[2].data_type_id = MMT_STRING_DATA_POINTER;
     root.list_of_tuples_to_print = &attrs[0];
 
     /* header line: exactly its bytes, no terminator */
     hl_buf = malloc(sizeof hl_raw - 1);
     rec = calloc(1, sizeof *rec);
-    if (hl_buf == NULL || rec == NULL) {
+    long_str = malloc(STRING_DATA_LEN + 1);
+    if (hl_buf == NULL || rec == NULL || long_str == NULL) {
         printf("FAIL - allocation for the escaping test\n");
         failures++;
-        free(hl_buf); free(rec);
+        free(hl_buf); free(rec); free(long_str);
         return;
     }
+    memset(long_str, 0x01, STRING_DATA_LEN);
+    long_str[STRING_DATA_LEN] = '\0';
+    fi_ptr_proto = (uint32_t)pproto;
+    fi_ptr_field = (uint32_t)pfield;
+    fi_ptr_val = long_str;
     memcpy(hl_buf, hl_raw, sizeof hl_raw - 1);
     fi_hl.ptr = hl_buf;
     fi_hl.len = (uint16_t)(sizeof hl_raw - 1);
@@ -638,6 +657,7 @@ static void test_store_history_escapes_strings(void)
     fi_fake_extract = 0;
     fi_tracking = 0;
     fi_str_rec = NULL;
+    fi_ptr_val = NULL;
 
     CHECK(curr.json_history != NULL, "store_history records a history for string attributes");
     if (curr.json_history != NULL) {
@@ -650,6 +670,15 @@ static void test_store_history_escapes_strings(void)
               "string-record quote and control byte are escaped");
         CHECK(strstr(curr.json_history, "\"description\":\"cause \\\"q\\\"\\u0002\"") != NULL,
               "the cause is escaped");
+        {
+            /* 1504 escaped 0x01 bytes, then the closing quote and brace */
+            const char *v = strstr(curr.json_history, "\\u0001\\u0001");
+            size_t run = 0;
+            while (v != NULL && strncmp(v + run * 6, "\\u0001", 6) == 0) run++;
+            CHECK(run == STRING_DATA_LEN && v != NULL &&
+                  strncmp(v + run * 6, "\"},", 3) == 0,
+                  "a value escaped past the 8192-byte formatting buffer is appended whole");
+        }
         /* the document rule_is_satisfied_or_not() hands the callback */
         n = strlen(curr.json_history);
         if (n > 0 && curr.json_history[n - 1] == ',') curr.json_history[n - 1] = '\0';
@@ -668,6 +697,7 @@ static void test_store_history_escapes_strings(void)
     }
     free(hl_buf);
     free(rec);
+    free(long_str);
 }
 
 /* F-BUG-210 (#510): get_data_from_pcap() copied each operand by length into

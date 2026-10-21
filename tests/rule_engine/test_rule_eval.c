@@ -243,13 +243,17 @@ static const scenario_t scenarios[] = {
      * first verdict. */
     { "keep_state satisfied: A then B", "keep_state.xml",
       { F(PORT_A, 60, 0), F(PORT_B, 60, 500) }, 2, 1, 0 },
+    /* run_tests.sh also checks the second verdict's history (the one
+     * stamped 1.7 s): the kept event_1 plus the new event_2, once each */
     { "keep_state satisfied twice: the kept A matches a second B", "keep_state.xml",
-      { F(PORT_A, 60, 0), F(PORT_B, 60, 500), F(PORT_B, 60, 1000) }, 3, 2, 0 },
+      { F(PORT_A, 60, 0), F(PORT_B, 60, 500), F(PORT_B, 60, 1700) }, 3, 2, 0 },
     { "keep_state not satisfied: the kept A's window still ends 2 s after A", "keep_state.xml",
       { F(PORT_A, 60, 0), F(PORT_B, 60, 500), F(PORT_B, 60, 4000) }, 3, 1, 1 },
     /* Quirk pinned: copy_instance() also keeps the state of an instance
      * that expired, timer included, so the copy expires again on every
-     * later frame — one not_satisfied per frame after the window. */
+     * later frame — one not_satisfied per frame after the window.
+     * Restricting the copy to satisfied verdicts is a follow-up of #510
+     * (it changes tips.c, which #511/#512 rework). */
     { "keep_state expired copy reports on every later frame (current behaviour)", "keep_state.xml",
       { F(PORT_A, 60, 0), F(PORT_B, 60, 500), F(PORT_X, 60, 4000),
         F(PORT_X, 60, 5000) }, 4, 1, 2 },

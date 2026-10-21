@@ -250,6 +250,9 @@ static char *filter_json_history(const char *hist, int buff_ids[100])
     }
     if (*q != '}') break;
     q++;
+    /* members are comma-separated: anything else is a malformed tail, and
+     * stopping here keeps strlen(hist) + 2 a hard bound on the output */
+    if (*q != ',' && *q != '\0') break;
     if (id > 0 && id <= SHRT_MAX && event_found(buff_ids, (short) id) == YES) {
       memcpy(out + o, start, (size_t) (q - start));
       o += (size_t) (q - start);

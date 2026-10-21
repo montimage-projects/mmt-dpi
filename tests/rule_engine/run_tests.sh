@@ -328,7 +328,19 @@ if ! jq -e -s --arg d1 "${DESC1}" --arg d2 "${DESC2}" \
     echo "✗ json_escape.xml descriptions did not round-trip through the verdict JSON" >&2
     cat "${HIST_LOG}" >&2; exit 1
 fi
-echo "  $(jq -s length "${HIST_LOG}") verdict histories parsed by jq (escaped descriptions round-trip)"
+# keep_state.xml's second verdict (B at +1.7 s): copy_instance() kept A's
+# event_1 member and the new B added event_2 — each exactly once.
+KEPT_LINE="$(grep -F '"timestamp":1700000001.700000' "${HIST_LOG}" || true)"
+if [ "$(printf '%s\n' "${KEPT_LINE}" | grep -c .)" -ne 1 ] ||
+   [ "$(printf '%s' "${KEPT_LINE}" | grep -o '"event_1"' | wc -l)" -ne 1 ] ||
+   [ "$(printf '%s' "${KEPT_LINE}" | grep -o '"event_2"' | wc -l)" -ne 1 ] ||
+   ! printf '%s' "${KEPT_LINE}" | jq -e '(keys == ["event_1", "event_2"]) and
+        .event_1.description == "A" and .event_1.timestamp == 1700000000 and
+        .event_2.description == "B"' >/dev/null; then
+    echo "✗ keep_state: the kept history is not A's event_1 plus the new event_2 — got:" >&2
+    printf '%s\n' "${KEPT_LINE}" >&2; exit 1
+fi
+echo "  $(jq -s length "${HIST_LOG}") verdict histories parsed by jq (escaped descriptions round-trip, keep_state history kept)"
 
 echo
 echo "✓ Rule-engine tests passed"

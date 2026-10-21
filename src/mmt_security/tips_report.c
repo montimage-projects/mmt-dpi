@@ -84,6 +84,7 @@
 #include "types_defs.h"
 #define _STDC_FORMAT_MARCROS
 #include <inttypes.h>
+#include <math.h>
 
     static long long corr_mess = 0;
 
@@ -141,6 +142,27 @@ char * convert_string_to_json_compatible (char * p, int size){
     if (result == NULL) return NULL;
     json_escape_into(result, (size_t) size * 6 + 1, p, (size_t) size);
     return result;
+}
+
+static void json_grow_append(char **buf, size_t *cap, const char *src);
+
+/* {"<proto>.<att>":"<value>[: <value2>]"}, appended in pieces: an escaped
+ * payload or header can be longer than store_history()'s fixed json_buff1,
+ * where snprintf() would cut the closing quote and brace off (#510). */
+static void json_append_string_attr(char **buf, size_t *cap, const char *proto,
+        const char *att, const char *value, const char *value2)
+{
+    json_grow_append(buf, cap, "{\"");
+    json_grow_append(buf, cap, proto != NULL ? proto : "(null)");
+    json_grow_append(buf, cap, ".");
+    json_grow_append(buf, cap, att != NULL ? att : "(null)");
+    json_grow_append(buf, cap, "\":\"");
+    json_grow_append(buf, cap, value != NULL ? value : "");
+    if (value2 != NULL) {
+        json_grow_append(buf, cap, ": ");
+        json_grow_append(buf, cap, value2);
+    }
+    json_grow_append(buf, cap, "\"},");
 }
 
 static void json_grow_append(char **buf, size_t *cap, const char *src) {
@@ -252,8 +274,12 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                     break;
                 }
                 case MMT_DATA_FLOAT:
-                    snprintf(json_buff1, json_cap1, "{\"%s.%s\":%f},", proto_name,
-                            att_name, (double) *(float*) (data1));
+                    /* %f prints nan/inf, which are not JSON values (#510) */
+                    if (isfinite(*(float*) (data1)))
+                        snprintf(json_buff1, json_cap1, "{\"%s.%s\":%f},", proto_name,
+                                att_name, (double) *(float*) (data1));
+                    else
+                        snprintf(json_buff1, json_cap1, "{\"%s.%s\":null},", proto_name, att_name);
                     json_grow_append(&json_buff, &json_cap, json_buff1);
                     break;
                 case MMT_DATA_MAC_ADDR:
@@ -408,8 +434,7 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
 									  /* NULL on non-positive size or OOM — a NULL %s
 									   * argument is undefined; skip the attribute */
 									  if (new_data_pointer != NULL) {
-										  snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%s\"},", proto_name, att_name, (char*) (new_data_pointer));
-										  json_grow_append(&json_buff, &json_cap, json_buff1);
+										  json_append_string_attr(&json_buff, &json_cap, proto_name, att_name, new_data_pointer, NULL);
 										  xfree (new_data_pointer);
 									  }
 								  }
@@ -423,8 +448,7 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                         char *esc = convert_string_to_json_compatible((char *) data1,
                                 (int) strnlen((char *) data1, STRING_DATA_LEN));
                         if (esc != NULL) {
-                            snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%s\"},", proto_name, att_name, esc);
-                            json_grow_append(&json_buff, &json_cap, json_buff1);
+                            json_append_string_attr(&json_buff, &json_cap, proto_name, att_name, esc, NULL);
                             xfree(esc);
                         }
                     }
@@ -439,9 +463,8 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                         char *esc2 = convert_string_to_json_compatible(
                                 ghl->hvalue != NULL ? (char *) ghl->hvalue : "",
                                 (int) (ghl->hvalue != NULL ? strlen(ghl->hvalue) : 0));
-                        snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%s: %s\"},", proto_name, att_name,
+                        json_append_string_attr(&json_buff, &json_cap, proto_name, att_name,
                                 esc != NULL ? esc : "", esc2 != NULL ? esc2 : "");
-                        json_grow_append(&json_buff, &json_cap, json_buff1);
                         if (esc != NULL) xfree(esc);
                         if (esc2 != NULL) xfree(esc2);
                     }
