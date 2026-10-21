@@ -37,8 +37,9 @@
  *
  * Issue #507 (F-BUG-220): the decoders return their error code directly; the
  * process-global errorCodeDecoder every decoding thread wrote is gone. Two
- * threads decoding malformed IEs concurrently must each get their own error
- * back, and a SANITIZE=tsan run reports no race.
+ * threads decoding malformed IEs concurrently must each get their error code
+ * back. The old global was written but never returned on these paths, so the
+ * regression oracle is SANITIZE=tsan: it reported the write-write race.
  *
  * Verifies crafted Attach-Accept/Request tail cases (ielen 0..10 at buffer end)
  * pass without AddressSanitizer errors.
@@ -723,7 +724,7 @@ static void test_concurrent_decode_errors(void) {
         total += (long)r;
     }
     CHECK("two decoding threads started", started == 2);
-    CHECK("each concurrent decode returns its own DECODE_BUFFER_TOO_SHORT", total == 0);
+    CHECK("each concurrent decode returns DECODE_BUFFER_TOO_SHORT (race oracle: SANITIZE=tsan)", total == 0);
 }
 
 int main(void) {

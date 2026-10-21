@@ -154,7 +154,7 @@ tables are shared by every handler, and the S1AP protocol-cleanup callback
 — for all handlers, not just the one being closed.
 
 Attribute extraction parses each S1AP packet once into a per-thread cache
-(issue #507). The cache is keyed by the handler, the per-handler `packet_id`
+(issue #507, `_extraction_att()` in `src/mmt_mobile/proto_s1ap.c`). The cache is keyed by the handler, the per-handler `packet_id`
 and a generation counter the store bumps each time it is cleared, and it holds
 copies of the packet's entities taken under `mutex`, never pointers into the
 shared list — so a thread driving several handlers, or a handler outliving
@@ -162,7 +162,7 @@ another one's close, never reads another packet's data or a freed entity.
 
 The NAS decoders under `src/mmt_mobile/nas/` keep no global state: each one
 returns its error code (issue #507 removed the process-global
-`errorCodeDecoder` every decoding thread wrote).
+`errorCodeDecoder` every decoding thread wrote; see `src/mmt_mobile/nas/util/decoder.h`).
 
 ## Per-handler state (not shared)
 

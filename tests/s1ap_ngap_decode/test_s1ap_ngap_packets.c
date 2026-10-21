@@ -263,7 +263,10 @@ static void test_s1ap_two_handlers(void) {
 	expect_s1ap_enb(b, "S1AP handler B packet 2 (same id as A's)", '1');
 
 	/* closing B runs the S1AP cleanup, which frees the entity store the
-	 * cached packet 2 points into */
+	 * cached packet 2 points into. C differs from B here, so the handler
+	 * part of the cache key causes the miss; the store generation is the
+	 * guard when the allocator hands C B's address (never under ASan's
+	 * quarantine), so this sequence does not single it out. */
 	mmt_close_handler(b);
 	c = s1ap_handler();
 	/* C's packet 1 carries no S1AP, so its packet 2 is the first one that
