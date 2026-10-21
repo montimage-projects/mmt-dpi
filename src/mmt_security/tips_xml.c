@@ -114,6 +114,7 @@ rule * create_rule()
     a_rule->t.next = NULL;
     a_rule->description = NULL; //Only if ROOT or ROOT_INSTANCE node
     a_rule->funct_name = NULL; //Only if XFUNCT leaf node
+    a_rule->funct = NULL; //Only if XFUNCT leaf node: funct_name resolved at load
     a_rule->if_satisfied = NULL; //Only if ROOT or ROOT_INSTANCE node
     a_rule->if_not_satisfied = NULL; //Only if ROOT or ROOT_INSTANCE node
     a_rule->already_satisfied = NO; //Only if ROOT_INSTANCE node
@@ -636,7 +637,15 @@ int funct_get_info_param( mmt_handler_t *mmt, enum_yes reg_tuple, char * input, 
         return -1;
     }
     //not NULL: a next param exists
-    if (*end == ',') *next = end + 1;
+    if (*end == ',') {
+        const char *after = end + 1;
+        while (*after == ' ') after++;
+        if (*after == ')' || *after == ',') {
+            (void)fprintf(stderr, "Error 3f: Empty parameter in function call: %s\n", input);
+            return -1;
+        }
+        *next = end + 1;
+    }
     return 0;
 }
 
@@ -717,7 +726,13 @@ static int create_boolean_expression(mmt_handler_t *mmt, enum_yes first_time, ru
         append_son(a_rule, new_rule);
         return create_boolean_expression(mmt, NO, new_rule, temp2);
     } else if (*temp == ')') {
-        //go up one
+        //go up one; a surplus ')' that ends the expression is tolerated, as
+        //it always was (the old parser stopped on the empty rest)
+        if (a_rule == expr_root || a_rule->father == NULL) {
+            char *rest = temp + 1;
+            while (isspace(*rest)) rest++;
+            if (*rest == '\0') return 0;
+        }
         return climb_with_operator(mmt, a_rule, -1, temp + 1);
     } else if (*temp == '\0') {
         //do nothing

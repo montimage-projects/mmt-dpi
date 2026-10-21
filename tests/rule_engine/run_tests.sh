@@ -272,6 +272,7 @@ declare -A LOAD_ERRORS=(
     [unknown_attribute]="Error 9a: Unknown attribute NOPROTO.nofield"
     [funct_five_params]="Error 3e: Embedded function echo_port takes 5 parameters"
     [funct_missing]="Error 3h: Embedded function no_such_function not found"
+    [funct_trailing_comma]="Error 3f: Empty parameter"
 )
 for fixture in "${SCRIPT_DIR}"/malformed/*.xml; do
     name="$(basename "${fixture}" .xml)"

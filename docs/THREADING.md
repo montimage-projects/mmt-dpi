@@ -176,9 +176,9 @@ its whole state in process globals: the rule list `top_rule`, the options
   handler on the `mmt_handler_t` it is given. It succeeds at most once per
   process: a second call returns `-1` ("Error 105") without allocating
   anything or touching the loaded rules (issue #512,
-  `src/mmt_security/tips.c:274-313`). The engine is claimed with an atomic
-  compare-and-swap, so of two threads that race to initialise it exactly one
-  wins.
+  `engine_state` and `init_sec_lib()` in `src/mmt_security/tips.c`). The
+  engine is claimed with an atomic compare-and-swap, so of two threads that
+  race to initialise it exactly one wins.
 - A load that fails — unreadable or malformed rule file, missing embedded
   function — returns `-1`, frees everything it built and releases the claim,
   so the process may call `init_sec_lib()` again.

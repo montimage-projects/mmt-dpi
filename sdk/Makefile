@@ -469,6 +469,6 @@ endif
 ifdef ENABLESEC
 REACTION_DIR_STAMP := $(SRCDIR)/mmt_security/tips_report.path
 $(REACTION_DIR_STAMP): FORCE
-	$(QUIET) if [ "`cat $@ 2>/dev/null`" != "$(MMT_SEC_REACTION_DIR)" ]; then echo "$(MMT_SEC_REACTION_DIR)" > $@; fi
+	$(QUIET) if [ "`cat $@ 2>/dev/null`" != "$(MMT_SEC_REACTION_DIR_DEFAULT)" ]; then echo "$(MMT_SEC_REACTION_DIR_DEFAULT)" > $@; fi
 $(SRCDIR)/mmt_security/tips_report.o: $(REACTION_DIR_STAMP)
 endif

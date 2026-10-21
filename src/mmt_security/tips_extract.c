@@ -1019,15 +1019,17 @@ void * compute(compare_value v1, compare_value v2, enum_operation operator)
                 xfree(ull0);
                 return NULL;
             }
+            /* in 64 bits, like the integer path above: the result is typed
+             * MMT_U64_DATA */
             if (operator == ADD)
-                *(uint64_t *) ul0 = (uint32_t) (ul1 + ul2);
+                *(uint64_t *) ul0 = (uint64_t) ul1 + ul2;
             else if (operator == SUB)
-                *(uint64_t *) ul0 = (uint32_t) (ul1 - ul2);
+                *(uint64_t *) ul0 = (uint64_t) ul1 - ul2;
             else if (operator == DIV) {
                 if (ul2 == 0) { xfree(ul0); xfree(ull0); return NULL; }
                 *(uint64_t *) ul0 = ul1 / ul2;
             } else if (operator == MUL)
-                *(uint64_t *) ul0 = (uint32_t) (ul1 * ul2);
+                *(uint64_t *) ul0 = (uint64_t) ul1 * ul2;
             return (void *)ul0;
             break;
         case MMT_U64_DATA:
