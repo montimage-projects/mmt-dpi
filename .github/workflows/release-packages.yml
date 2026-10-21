@@ -95,6 +95,11 @@ jobs:
             echo "packaging=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Fail closed: a diff that cannot run aborts the job (packages-gate
+          # then fails) instead of reading as "no packaging change", and
+          # --no-renames lists a file moved out of a packaging path under its
+          # old name too, as the former workflow-level paths filter did.
+          files=$(git diff --no-renames --name-only HEAD^1 HEAD)
           packaging=false
           while IFS= read -r f; do
             case "$f" in
@@ -107,7 +112,7 @@ jobs:
                 echo "packaging path changed: $f"
                 packaging=true ;;
             esac
-          done < <(git diff --name-only HEAD^1 HEAD)
+          done <<< "$files"
           echo "packaging=${packaging}" >> "$GITHUB_OUTPUT"
 
   build:
