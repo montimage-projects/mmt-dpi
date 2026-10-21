@@ -858,6 +858,20 @@ static inline uint32_t next_attribute_element(const mmt_handler_t * mmt_handler,
     return e;
 }
 
+/* Issue #501: iteration budget of a dispatch loop. Re-deriving the next
+ * slot means a callback that removes and re-adds entries (e.g. a handler
+ * re-registering itself) could make the loop revisit them forever, so each
+ * loop runs at most as many iterations as the list's high-water length
+ * since the dispatch started: entries added past the start length still
+ * get their turn, a churn that keeps the length unchanged cannot extend
+ * the walk, and the high-water length is bounded by the distinct entries. */
+static inline void dispatch_budget_update(uint32_t len, uint32_t * high, uint32_t * budget) {
+    if (len > *high) {
+        *budget += len - *high;
+        *high = len;
+    }
+}
+
 /**
  * Fires an attribute detection event. If the attribute is registered, this function will extract its value.
  * If the attribute has any registered handlers, they will be called. This function will do nothing if the
@@ -882,11 +896,13 @@ void fire_attribute_event(ipacket_t * ipacket, uint32_t proto_id, uint32_t attri
          * data is re-set per handler so a nested event on the same
          * attribute cannot leave the rest of this dispatch without it. */
         attr_dispatch_enter(mmt_handler);
-        for (int h = 0; h < attr->handlers_count; ) {
+        uint32_t high = (uint32_t) attr->handlers_count, budget = high;
+        for (int h = 0; h < attr->handlers_count && budget > 0; budget--) {
             attribute_handler_function called = attr->attribute_handlers[h].handler_fct;
             attr->data = data;
             called(ipacket, (attribute_t *) attr, attr->attribute_handlers[h].args);
             h = next_attribute_handler(attr, h, called);
+            dispatch_budget_update((uint32_t) attr->handlers_count, &high, &budget);
         }
         attr->status = ATTRIBUTE_CONSUMED;
         /* Issue #501 (F-BUG-008): the payload belongs to the caller — often
@@ -931,18 +947,22 @@ void proto_process_attribute_handlers(ipacket_t * ipacket, unsigned index) {
      * bracket closes. */
     uint32_t proto = ipacket->proto_hierarchy->proto_path[index];
     attr_dispatch_enter(mmt_handler);
-    for (uint32_t e = 0; e < mmt_handler->proto_registered_attribute_handlers_len[proto]; ) {
+    uint32_t e_high = mmt_handler->proto_registered_attribute_handlers_len[proto], e_budget = e_high;
+    for (uint32_t e = 0; e < mmt_handler->proto_registered_attribute_handlers_len[proto] && e_budget > 0; e_budget--) {
         attribute_internal_t * attribute = mmt_handler->proto_registered_attribute_handlers[proto][e].attribute;
         internal_extract_attribute(ipacket, attribute, index);
         if (attribute->status == ATTRIBUTE_SET) {
-            for (int h = 0; h < attribute->handlers_count; ) {
+            uint32_t high = (uint32_t) attribute->handlers_count, budget = high;
+            for (int h = 0; h < attribute->handlers_count && budget > 0; budget--) {
                 attribute_handler_function called = attribute->attribute_handlers[h].handler_fct;
                 called(ipacket, (attribute_t *) attribute, attribute->attribute_handlers[h].args);
                 h = next_attribute_handler(attribute, h, called);
+                dispatch_budget_update((uint32_t) attribute->handlers_count, &high, &budget);
             }
             attribute->status = ATTRIBUTE_CONSUMED;
         }
         e = next_attribute_element(mmt_handler, proto, e, attribute);
+        dispatch_budget_update(mmt_handler->proto_registered_attribute_handlers_len[proto], &e_high, &e_budget);
     }
     attr_dispatch_leave(mmt_handler);
 }
