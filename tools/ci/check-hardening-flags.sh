@@ -15,17 +15,30 @@
 #   - examples built with -fPIE and linked -pie
 #   - a $(warning …) fires when the hardening block is disabled
 #
-# With --built the script additionally inspects the shared objects already
-# built under sdk/lib/ and asserts the flags actually landed on the shipped
-# binaries (this is the CI-side proof the makefile greps cannot give):
+# With --built the script additionally inspects built shared objects and
+# asserts the flags actually landed on the shipped binaries (this is the
+# CI-side proof the makefile greps cannot give). Without DIR it checks the
+# host build under sdk/lib/; with DIRs it checks the regular *.so / *.so.*
+# files in them (symlinks skipped) — release-packages.yml passes the
+# directories an installed package populated, so the check covers the
+# libraries that ship, not only an unshipped host build (issue #508):
 #   - GNU_STACK program header without the E flag (non-executable stack)
-#   - GNU_RELRO segment + BIND_NOW dynamic flags (full RELRO)
+#   - GNU_RELRO segment + BIND_NOW dynamic flags (full RELRO) — the
+#     discriminator between a hardened build and one whose hardening block
+#     was skipped (distribution compilers do not add BIND_NOW to a .so)
 #   - a control-flow GNU property: IBT/SHSTK on x86, BTI/PAC on AArch64
 #     (whatever the MMT_CF_PROTECTION probe selected for this target)
+#   - a _FORTIFY_SOURCE floor: the checked set imports at least one
+#     fortified libc entry point (__<name>_chk, __stack_chk_* excluded).
+#     Necessary, not sufficient: a compiler that fortifies by default (Ubuntu
+#     GCC) passes it even without the hardening block; a library with no
+#     fortifiable call site legitimately imports none, so per-file counts are
+#     informational. The makefile side of FORTIFY is pinned by
+#     tools/ci/tests/test-hardening-identity.sh.
 #
 # Exit codes: 0 = all flags present, 1 = a flag is missing, 2 = helper broken.
 #
-# Usage: bash tools/ci/check-hardening-flags.sh [--built]
+# Usage: bash tools/ci/check-hardening-flags.sh [--built [DIR...]]
 
 set -euo pipefail
 
@@ -34,7 +47,12 @@ cd "$ROOT"
 
 ERRORS=0
 BUILT=0
-[ "${1:-}" = "--built" ] && BUILT=1
+SO_DIRS=()
+if [ "${1:-}" = "--built" ]; then
+    BUILT=1
+    shift
+    SO_DIRS=("$@")
+fi
 
 check() {
     local desc="$1" pattern="$2"
@@ -77,8 +95,19 @@ fi
 command -v readelf >/dev/null 2>&1 || { echo "✗ readelf not found" >&2; exit 2; }
 
 shopt -s nullglob
-sos=(sdk/lib/*.so.*)
-[ "${#sos[@]}" -gt 0 ] || { echo "✗ no sdk/lib/*.so.* — build the SDK first" >&2; exit 2; }
+sos=()
+if [ "${#SO_DIRS[@]}" -eq 0 ]; then
+    sos=(sdk/lib/*.so.*)
+    [ "${#sos[@]}" -gt 0 ] || { echo "✗ no sdk/lib/*.so.* — build the SDK first" >&2; exit 2; }
+else
+    for dir in "${SO_DIRS[@]}"; do
+        [ -d "$dir" ] || { echo "✗ not a directory: $dir" >&2; exit 2; }
+        for f in "$dir"/*.so "$dir"/*.so.*; do
+            [ -f "$f" ] && [ ! -L "$f" ] && sos+=("$f")
+        done
+    done
+    [ "${#sos[@]}" -gt 0 ] || { echo "✗ no shared objects under: ${SO_DIRS[*]}" >&2; exit 2; }
+fi
 
 check_so() {
     local desc="$1" file="$2" pattern="$3" opt="$4"
@@ -101,6 +130,7 @@ if printf 'int main(void){return 0;}\n' | "${CC:-cc}" -x c -fcf-protection -Werr
     CF_PROBE_OK=1
 fi
 
+FORTIFIED=0
 for so in "${sos[@]}"; do
     # Non-executable stack: the GNU_STACK header line must not carry E.
     if readelf -lW "$so" | awk '/GNU_STACK/ {print $7}' | grep -qE '^RW$'; then
@@ -117,7 +147,21 @@ for so in "${sos[@]}"; do
     else
         echo "  · control-flow property note not assertable on this target (see rules/common-linux.mk)"
     fi
+    # Fortified libc imports (__memcpy_chk, __snprintf_chk, ...): counted for
+    # the set-level floor below; __stack_chk_fail/__stack_chk_guard are the
+    # stack protector's, not FORTIFY's.
+    n="$(readelf -W --dyn-syms "$so" 2>/dev/null | awk '{print $8}' \
+        | grep -E '^__[A-Za-z0-9_]+_chk(@|$)' | grep -cvE '^__stack_chk_' || true)"
+    echo "  · fortified libc imports: $(basename "$so"): $n"
+    FORTIFIED=$((FORTIFIED + n))
 done
+
+if [ "$FORTIFIED" -gt 0 ]; then
+    echo "  ✓ _FORTIFY_SOURCE floor: $FORTIFIED fortified libc import(s) across ${#sos[@]} object(s)"
+else
+    echo "  ✗ _FORTIFY_SOURCE floor: no fortified libc import (__*_chk) in any checked object"
+    ERRORS=$((ERRORS + 1))
+fi
 
 if [ "$ERRORS" -ne 0 ]; then
     echo "✗ $ERRORS hardening assertion(s) failed on built .so files" >&2
