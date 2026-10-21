@@ -165,8 +165,7 @@ jobs:
             -e CI \
             -v "$PWD":/work -w /work \
             "${{ matrix.distro.image }}" \
-            bash -c 'bash tools/ci/build-package.sh "$1" "$2" &&
-              bash tools/ci/check-hardening-flags.sh --built /opt/mmt/dpi/lib /opt/mmt/plugins' \
+            bash -c 'bash tools/ci/build-package.sh "$1" "$2" && bash tools/ci/check-hardening-flags.sh --built /opt/mmt/dpi/lib /opt/mmt/plugins' \
             _ "${{ matrix.distro.name }}" "${{ matrix.distro.pkg }}"
 
       - name: Locate the built package
