@@ -825,14 +825,24 @@ static inline void attr_dispatch_leave(mmt_handler_t * mmt_handler) {
 }
 
 /* Issue #501: index of the handler to run after `called`, which ran at slot
- * h. A callback may have unregistered handlers (memmove closes the slot) or
- * registered one (inserted at index 0), so the next slot is re-derived from
- * where `called` sits now (handler functions are unique per attribute); if
- * `called` itself left, the following handler has shifted into slot h. */
+ * h with `succ` (NULL when `called` was the last one) right after it. A
+ * callback may have unregistered handlers (memmove closes the slot) or
+ * registered one (inserted at index 0, possibly `called` itself again), so
+ * the walk continues from where `succ` sits now (handler functions are
+ * unique per attribute); if `succ` left, from where `called` sits, and if
+ * both left, the following handler has shifted into slot h. */
 static inline int next_attribute_handler(const struct attribute_internal_struct * attr, int h,
-        attribute_handler_function called) {
-    if (h < attr->handlers_count && attr->attribute_handlers[h].handler_fct == called) {
+        attribute_handler_function called, attribute_handler_function succ) {
+    if (succ == NULL) {
+        return attr->handlers_count;
+    }
+    if (h + 1 < attr->handlers_count && attr->attribute_handlers[h + 1].handler_fct == succ) {
         return h + 1;
+    }
+    for (int j = 0; j < attr->handlers_count; j++) {
+        if (attr->attribute_handlers[j].handler_fct == succ) {
+            return j;
+        }
     }
     for (int j = 0; j < attr->handlers_count; j++) {
         if (attr->attribute_handlers[j].handler_fct == called) {
@@ -842,7 +852,12 @@ static inline int next_attribute_handler(const struct attribute_internal_struct 
     return h;
 }
 
-/* Issue #501: same re-derivation for the per-protocol handler elements. */
+/* Issue #501: index of the per-protocol handler element to run after
+ * `attribute`, which ran at slot e. The elements stay sorted by field_id
+ * (one per field of the protocol), so the walk continues at the first
+ * element past that field: a slot released and re-created for the same
+ * field mid-dispatch counts as the entry just run, and an element added
+ * past it still gets its turn. */
 static inline uint32_t next_attribute_element(const mmt_handler_t * mmt_handler, uint32_t proto, uint32_t e,
         const struct attribute_internal_struct * attribute) {
     const attribute_handler_element_t * elems = mmt_handler->proto_registered_attribute_handlers[proto];
@@ -850,12 +865,11 @@ static inline uint32_t next_attribute_element(const mmt_handler_t * mmt_handler,
     if (e < n && elems[e].attribute == attribute) {
         return e + 1;
     }
-    for (uint32_t j = 0; j < n; j++) {
-        if (elems[j].attribute == attribute) {
-            return j + 1;
-        }
+    uint32_t j = 0;
+    while (j < n && elems[j].attribute->field_id <= attribute->field_id) {
+        j++;
     }
-    return e;
+    return j;
 }
 
 /* Issue #501: iteration budget of a dispatch loop. Re-deriving the next
@@ -899,9 +913,11 @@ void fire_attribute_event(ipacket_t * ipacket, uint32_t proto_id, uint32_t attri
         uint32_t high = (uint32_t) attr->handlers_count, budget = high;
         for (int h = 0; h < attr->handlers_count && budget > 0; budget--) {
             attribute_handler_function called = attr->attribute_handlers[h].handler_fct;
+            attribute_handler_function succ = (h + 1 < attr->handlers_count)
+                    ? attr->attribute_handlers[h + 1].handler_fct : NULL;
             attr->data = data;
             called(ipacket, (attribute_t *) attr, attr->attribute_handlers[h].args);
-            h = next_attribute_handler(attr, h, called);
+            h = next_attribute_handler(attr, h, called, succ);
             dispatch_budget_update((uint32_t) attr->handlers_count, &high, &budget);
         }
         attr->status = ATTRIBUTE_CONSUMED;
@@ -955,8 +971,10 @@ void proto_process_attribute_handlers(ipacket_t * ipacket, unsigned index) {
             uint32_t high = (uint32_t) attribute->handlers_count, budget = high;
             for (int h = 0; h < attribute->handlers_count && budget > 0; budget--) {
                 attribute_handler_function called = attribute->attribute_handlers[h].handler_fct;
+                attribute_handler_function succ = (h + 1 < attribute->handlers_count)
+                        ? attribute->attribute_handlers[h + 1].handler_fct : NULL;
                 called(ipacket, (attribute_t *) attribute, attribute->attribute_handlers[h].args);
-                h = next_attribute_handler(attribute, h, called);
+                h = next_attribute_handler(attribute, h, called, succ);
                 dispatch_budget_update((uint32_t) attribute->handlers_count, &high, &budget);
             }
             attribute->status = ATTRIBUTE_CONSUMED;
