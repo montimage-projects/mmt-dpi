@@ -298,6 +298,19 @@ else
     fail "workflow ruby-version: $(printf '%s' "$wf_rubies" | tr '\n' ' ' | sed 's/ $//') differs from the documented Ruby $doc_ruby"
 fi
 
+# Docs-site Bundler (issue #520): the major the doc names is the one the lock's
+# BUNDLED WITH pins (ruby/setup-ruby installs exactly that release).
+# shellcheck disable=SC2016  # backticks are Markdown syntax inside the pattern
+doc_bundler="$(grep -oE '`BUNDLED WITH` \([0-9]+\.' "$DOC" | head -1 | grep -oE '[0-9]+' || true)"
+lock_bundler="$(awk '/^BUNDLED WITH$/ { getline; print $1; exit }' "$ROOT/docs/Gemfile.lock" 2>/dev/null || true)"
+if [ -z "$doc_bundler" ] || [ -z "$lock_bundler" ]; then
+    fail "docs-site Bundler not stated in the doc (\`BUNDLED WITH\` (N.x)) or not pinned by docs/Gemfile.lock"
+elif [ "${lock_bundler%%.*}" = "$doc_bundler" ]; then
+    ok "docs/Gemfile.lock BUNDLED WITH $lock_bundler is the documented Bundler $doc_bundler"
+else
+    fail "docs/Gemfile.lock BUNDLED WITH $lock_bundler differs from the documented Bundler $doc_bundler"
+fi
+
 # -----------------------------------------------------------------------------
 # 3. Single source of truth
 # -----------------------------------------------------------------------------
