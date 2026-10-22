@@ -193,6 +193,11 @@ jobs:
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
           git ca-certificates curl shellcheck g++ make python3
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    # The checkout is owned by the runner UID but the container runs as
+    # root: without this, git ls-files dies on "dubious ownership" and
+    # shellcheck would be handed no files.
+    - name: Mark the checkout as a safe git directory
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: Build the pinned cppcheck release from source
       run: bash tools/ci/install-cppcheck.sh
     - name: shellcheck (all tracked shell scripts, blocking)

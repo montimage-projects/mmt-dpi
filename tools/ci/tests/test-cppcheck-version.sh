@@ -19,8 +19,10 @@
 # It also checks where the pinned release comes from (issue #518): the
 # major.minor of CPPCHECK_VERSION in tools/ci/install-cppcheck.sh must equal
 # the pin, its checksum must be a sha256, and the `lint` job of
-# .github/workflows/c-cpp.yml must run in a digest-pinned container and build
-# cppcheck with that installer — so the pin, the installer and the CI image
+# .github/workflows/c-cpp.yml must run in a digest-pinned container, mark its
+# checkout as a safe git directory (the container runs as root, so git
+# ls-files would otherwise hand shellcheck no files) and build cppcheck with
+# that installer — so the pin, the installer and the CI image
 # cannot drift apart silently.
 #
 # Usage: bash tools/ci/tests/test-cppcheck-version.sh
@@ -115,6 +117,9 @@ check "installer tarball is pinned by a sha256" \
     grep -Eq '^[0-9a-f]{64}$' <<< "${checksum}"
 check "lint job runs in a digest-pinned container" \
     grep -Eq '^      image: "?[^" ]+@sha256:[0-9a-f]{64}"?$' <<< "${lint_job}"
+# shellcheck disable=SC2016 # the workflow's literal $GITHUB_WORKSPACE
+check "lint job marks the root-container checkout safe for git" \
+    grep -qF 'safe.directory "$GITHUB_WORKSPACE"' <<< "${lint_job}"
 check "lint job builds cppcheck with install-cppcheck.sh" \
     grep -q 'bash tools/ci/install-cppcheck.sh' <<< "${lint_job}"
 # Backslash continuations joined, so a package on a continuation line of
