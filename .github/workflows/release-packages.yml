@@ -162,8 +162,11 @@ jobs:
       # The matrix pin above must be mirrored verbatim in the tracked
       # tools/ci/base-images.txt — fail fast here rather than building on an
       # unrecorded image (issue #217; check-image-digests.sh gates the same).
+      # Trailing comments (`# retire-by:`, issue #516) are stripped first.
       - name: Verify pinned base image is recorded
-        run: grep -Fx "${{ matrix.distro.image }}" tools/ci/base-images.txt
+        env:
+          IMAGE: ${{ matrix.distro.image }}
+        run: sed 's/[[:space:]]*#.*$//' tools/ci/base-images.txt | grep -Fx -- "$IMAGE"
 
       # -e CI forwards the runner's CI=true marker into the container so a
       # missing git history there is the hard error rules/common.mk intends
@@ -297,7 +300,9 @@ jobs:
           fetch-depth: 0   # GIT_VERSION + SOURCE_DATE_EPOCH derive from the commit
 
       - name: Verify pinned base image is recorded
-        run: grep -Fx "${{ matrix.image }}" tools/ci/base-images.txt
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: sed 's/[[:space:]]*#.*$//' tools/ci/base-images.txt | grep -Fx -- "$IMAGE"
 
       - name: Double-build and diff sha256 in ${{ matrix.image }}
         run: |
