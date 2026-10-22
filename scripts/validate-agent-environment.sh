@@ -285,11 +285,21 @@ fi
 
 # Docs-site Ruby (issue #517): the PR gate and the Pages build must run the
 # Ruby release the doc states, so no workflow can drift away from the others.
-doc_ruby="$(grep -oE 'use Ruby \*\*[0-9]+\.[0-9]+\*\*' "$DOC" | head -1 | grep -oE '[0-9]+\.[0-9]+' || true)"
-wf_rubies="$(grep -hoE 'ruby-version: *"?[0-9][0-9.]*"?' "$ROOT"/.github/workflows/*.yml 2>/dev/null \
-    | grep -oE '[0-9][0-9.]*' | sort -u || true)"
+doc_ruby="$(tr '\n' ' ' < "$DOC" | grep -oE 'use Ruby \*\*[0-9]+\.[0-9]+\*\*' | head -1 | grep -oE '[0-9]+\.[0-9]+' || true)"
+# Workflows and composite actions; a ruby-version: that is not a literal
+# release (an expression, a file reference) cannot be compared, so it fails.
+ruby_lines="$(cat "$ROOT"/.github/workflows/*.y*ml "$ROOT"/.github/actions/*/action.y*ml 2>/dev/null \
+    | grep -E '^[[:space:]]*ruby-version:' || true)"
+wf_rubies="$(printf '%s\n' "$ruby_lines" \
+    | sed -nE "s/^[[:space:]]*ruby-version:[[:space:]]*[\"']?([0-9][0-9.]*)[\"']?[[:space:]]*(#.*)?\$/\1/p" \
+    | sort -u || true)"
+ruby_odd="$(printf '%s\n' "$ruby_lines" \
+    | grep -vE "^[[:space:]]*ruby-version:[[:space:]]*[\"']?[0-9][0-9.]*[\"']?[[:space:]]*(#.*)?\$" \
+    | grep . || true)"
 if [ -z "$doc_ruby" ]; then
     fail "states no docs-site Ruby release (expected: use Ruby **X.Y**)"
+elif [ -n "$ruby_odd" ]; then
+    fail "ruby-version: not a literal release: $(printf '%s' "$ruby_odd" | sed -E 's/^[[:space:]]+//' | tr '\n' ';')"
 elif [ -z "$wf_rubies" ]; then
     fail "no ruby-version: found in .github/workflows/*.yml"
 elif [ "$wf_rubies" = "$doc_ruby" ]; then
@@ -301,7 +311,7 @@ fi
 # Docs-site Bundler (issue #520): the major the doc names is the one the lock's
 # BUNDLED WITH pins (ruby/setup-ruby installs exactly that release).
 # shellcheck disable=SC2016  # backticks are Markdown syntax inside the pattern
-doc_bundler="$(grep -oE '`BUNDLED WITH` \([0-9]+\.' "$DOC" | head -1 | grep -oE '[0-9]+' || true)"
+doc_bundler="$(tr '\n' ' ' < "$DOC" | grep -oE '`BUNDLED WITH` \([0-9]+\.' | head -1 | grep -oE '[0-9]+' || true)"
 lock_bundler="$(awk '/^BUNDLED WITH$/ { getline; print $1; exit }' "$ROOT/docs/Gemfile.lock" 2>/dev/null || true)"
 if [ -z "$doc_bundler" ] || [ -z "$lock_bundler" ]; then
     fail "docs-site Bundler not stated in the doc (\`BUNDLED WITH\` (N.x)) or not pinned by docs/Gemfile.lock"
