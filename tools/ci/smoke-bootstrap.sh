@@ -3,8 +3,8 @@
 # smoke-bootstrap.sh — the release bootstrap installs the native package, and
 # refuses a tampered one (issue #498, F-CI-112).
 #
-# Runs as root inside a fresh distribution container (the `bootstrap` job of
-# .github/workflows/install-smoke.yml):
+# Runs as root inside a fresh distribution container (the `smoke` job of
+# .github/workflows/bootstrap-smoke.yml):
 #   [1/4] install curl (the one-liner's only prerequisite) natively;
 #   [2/4] run the one-liner: `curl -fsSL <install.sh> | sh`;
 #   [3/4] the package registered libmmt_core with the loader

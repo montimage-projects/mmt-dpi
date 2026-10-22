@@ -8,7 +8,7 @@
 # rendered bootstrap is sourced with MMT_BOOTSTRAP_SOURCE_ONLY=1 to drive its
 # distribution detection, row lookup and digest check. The full chain —
 # download, sha256, Sigstore attestation, native install — runs against a
-# published release in the `bootstrap` job of install-smoke.yml
+# published release in the `smoke` job of .github/workflows/bootstrap-smoke.yml
 # (tools/ci/smoke-bootstrap.sh), including the tampered-asset legs.
 #
 # Usage: bash tools/ci/tests/test-release-bootstrap.sh

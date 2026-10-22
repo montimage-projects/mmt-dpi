@@ -12,7 +12,7 @@
 # the full chain runs — only the download base differs
 # (MMT_BOOTSTRAP_BASE_URL=file://<dir>).
 #
-# Three directories under <out-dir>:
+# Four directories under <out-dir>:
 #   good/                as the release job would publish it
 #   reject-sha/          good/ with one byte appended to every alias package
 #                        after rendering: the embedded sha256 no longer
