@@ -66,10 +66,13 @@ jobs:
     steps:
     # git first, so actions/checkout makes a real clone (without git it
     # downloads a tarball with no history, and the suites read the tree with
-    # git).
+    # git). archive.ubuntu.com fails an index fetch while a mirror syncs ("File
+    # has unexpected size") and this is a required check: retry the update,
+    # and make every later apt call in the container retry its fetches too.
     - name: Install git for the checkout
       run: |
-        apt-get update -qq
+        echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
+        for i in 1 2 3; do apt-get update -qq && break; [ "$i" = 3 ] && exit 1; sleep 30; done
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git ca-certificates
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     # The build dependency set of the release containers, plus the tools the
