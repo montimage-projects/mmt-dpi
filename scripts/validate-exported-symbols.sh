@@ -28,13 +28,17 @@
 # src/mmt_core/public_include/*.h and src/mmt_core/private_include/*.h
 # (comments and preprocessor lines ignored). The check fails when
 # `nm -D --defined-only` of the built library lists more than that count + 5
-# symbols, or any symbol outside the set (the loader's _init/_fini aside).
+# symbols, or any symbol outside the set (the loader's _init/_fini aside), and
+# also when a name of the set is missing from that list — an MMTAPI
+# declaration whose definition was compiled hidden (its translation unit did
+# not see the MMTAPI declaration) would otherwise vanish silently.
 #
 # Needs the built library; when sdk/lib/libmmt_core.so* is absent the script
 # builds just that target (make -C sdk <abs path to libmmt_core.so>).
 #
-# Exit codes: 0 = in sync / written, 1 = table drifted or export budget
-#             exceeded, 2 = validator broken.
+# Exit codes: 0 = in sync / written, 1 = table drifted, export budget
+#             exceeded or an MMTAPI declaration not exported,
+#             2 = validator broken.
 #
 # Usage: bash scripts/validate-exported-symbols.sh [--check|--write]
 
@@ -144,7 +148,7 @@ for loader in ("_init", "_fini"):
         print(f"✗ loader symbol `{loader}` marked public", file=sys.stderr)
         sys.exit(1)
 
-# --- export budget: dynamic exports ⊆ MMTAPI declarations (issue #533) -----
+# --- export set: dynamic exports == MMTAPI declarations (issue #533) -------
 LOADER = {"_init", "_fini"}
 NON_NAMES = {"__attribute__", "__declspec", "deprecated", "visibility"}
 api_text = ""
@@ -175,6 +179,7 @@ exports = sorted(set(l.split()[-1] for l in dyn.stdout.splitlines()
                      if l.split()))
 budget = len(api) + 5
 leaked = [s for s in exports if s not in api and s not in LOADER]
+missing = sorted(api - set(exports))
 print(f"  exports: {len(exports)} dynamic symbols; MMTAPI declarations: "
       f"{len(api)} (budget {budget})")
 budget_ok = True
@@ -188,11 +193,21 @@ if leaked:
     for s in leaked:
         print(f"      {s}", file=sys.stderr)
     budget_ok = False
-if not budget_ok:
+if leaked or len(exports) > budget:
     print("To fix:  declare the symbol MMTAPI in a src/mmt_core header, or "
           "keep it hidden (issue #533)", file=sys.stderr)
-else:
-    print("  ✓ every export is an MMTAPI declaration, within the budget")
+if missing:
+    print(f"✗ {len(missing)} MMTAPI declaration(s) not exported by {lib}:",
+          file=sys.stderr)
+    for s in missing:
+        print(f"      {s}", file=sys.stderr)
+    print("To fix:  include the declaring header in the defining source file "
+          "so the definition gets default visibility, or drop the MMTAPI "
+          "declaration (issue #533)", file=sys.stderr)
+    budget_ok = False
+if budget_ok:
+    print("  ✓ every export is an MMTAPI declaration and every MMTAPI "
+          "declaration is exported, within the budget")
 
 if mode == "--write":
     open(doc_path, "w", encoding="utf-8").write(generated)

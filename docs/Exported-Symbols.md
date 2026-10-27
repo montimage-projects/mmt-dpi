@@ -26,8 +26,8 @@ this `T` table does not list them. Tests that call hidden internals link
 `libmmt_core.a` (`tools/phase0/tests/static_core_link.sh`).
 `scripts/validate-exported-symbols.sh` also fails when `nm -D --defined-only`
 lists more symbols than the `MMTAPI` declarations in
-`src/mmt_core/{public,private}_include/*.h` plus 5, or any symbol that is not
-one of those declarations.
+`src/mmt_core/{public,private}_include/*.h` plus 5, any symbol that is not
+one of those declarations, or misses one of them.
 
 > **Deprecation note (2026-09, #149):** The following 3 public ABI symbols are exported
 > (`nm -D local_install/dpi/lib/libmmt_core.so | grep ' T '` confirms) but have **0 callers**
