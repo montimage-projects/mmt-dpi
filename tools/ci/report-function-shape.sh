@@ -57,7 +57,7 @@ fi
 # reported on upstream, so its shape is not this repo's debt.
 # shellcheck source=tools/ci/vendor-paths-lib.sh
 . "$ROOT/tools/ci/vendor-paths-lib.sh"
-vendor_paths_load || exit 2
+vendor_paths_load "$VENDOR_LIST" || exit 2
 is_vendored() {
     local v
     for v in "${VENDOR_PATHS[@]}"; do

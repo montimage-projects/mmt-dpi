@@ -33,7 +33,7 @@ STRICT=0
 # Vendored sources (tools/ci/vendor-paths.txt) are excluded by configuration.
 # shellcheck source=tools/ci/vendor-paths-lib.sh
 . "$ROOT/tools/ci/vendor-paths-lib.sh"
-vendor_paths_load || exit 2
+vendor_paths_load "$VENDOR_LIST" || exit 2
 vendor_excludes=()
 for p in "${VENDOR_PATHS[@]}"; do
     vendor_excludes+=(":!:$p")

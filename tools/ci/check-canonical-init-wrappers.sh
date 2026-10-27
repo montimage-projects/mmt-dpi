@@ -49,7 +49,7 @@ command -v python3 >/dev/null 2>&1 || { echo "✗ python3 is required" >&2; exit
 # the parsed list reaches the python below one path per line.
 # shellcheck source=tools/ci/vendor-paths-lib.sh
 . "$ROOT/tools/ci/vendor-paths-lib.sh"
-vendor_paths_load || exit 2
+vendor_paths_load "$VENDOR_LIST" || exit 2
 
 VENDOR_PATHS_LINES="$(printf '%s\n' "${VENDOR_PATHS[@]}")" python3 - <<'PYEOF'
 import os

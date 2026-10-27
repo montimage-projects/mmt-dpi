@@ -4,7 +4,7 @@
 # list of vendored sources the clean-code metrics exclude. Sourced, not run:
 #
 #   . "$ROOT/tools/ci/vendor-paths-lib.sh"
-#   vendor_paths_load || exit 2
+#   vendor_paths_load "$VENDOR_LIST" || exit 2
 #   for p in "${VENDOR_PATHS[@]}"; do ...; done
 #
 # VENDOR_LIST is repo-relative: every consumer cd's to the repo root first.

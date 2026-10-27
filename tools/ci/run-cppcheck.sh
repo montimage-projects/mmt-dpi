@@ -70,7 +70,7 @@ EXCLUDE=(-i src/mmt_mobile/asn1c)   # generated ASN.1 tree — never scanned
 # Vendored sources (tools/ci/vendor-paths.txt) are excluded by configuration.
 # shellcheck source=tools/ci/vendor-paths-lib.sh
 . "$ROOT/tools/ci/vendor-paths-lib.sh"
-vendor_paths_load || exit 2
+vendor_paths_load "$VENDOR_LIST" || exit 2
 for p in "${VENDOR_PATHS[@]}"; do
     EXCLUDE+=(-i "$p")
 done

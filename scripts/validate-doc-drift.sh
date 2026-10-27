@@ -200,7 +200,7 @@ check "vendor-paths.txt carries a pinned upstream reference" \
       "grep -Eq 'nodejs/llhttp.*v9\.4\.3|v9\.4\.3.*nodejs/llhttp' $VENDOR_LIST"
 
 vendored_ok=1
-vendor_paths_load || vendored_ok=0
+vendor_paths_load "$VENDOR_LIST" || vendored_ok=0
 for p in "${VENDOR_PATHS[@]}"; do
     if [ ! -f "$p" ]; then
         echo "  ✗ vendored path listed but missing: $p"
