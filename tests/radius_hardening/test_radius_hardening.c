@@ -19,7 +19,8 @@
  *   B. value clamps: User-Name values over 64 bytes are clamped to 64,
  *      Called-Station-Id to 63 bytes plus a NUL.
  *   C. 32-bit attributes: NAS-IP-Address shorter than 6 bytes is rejected;
- *      a 6-byte one reads 100.64.1.10.
+ *      a 6-byte one reads 100.64.1.10, and 192.168.1.10 — a first octet
+ *      >= 0x80, which read_be32() once shifted into the int sign bit.
  *   D. 3GPP vendor-specific attribute (type 26): IMSI extracted from a valid
  *      sub-attribute; not reported for a VSA too short for vendor id +
  *      sub-header, an over-long sub-attribute, a len-1 sub-attribute, a
@@ -316,10 +317,7 @@ static void test_u32_short(void) {
         send_case();
         expect_absent(what, A_NAS_IP, A_USER_NAME);
     }
-    /* First octet below 0x80 on purpose: read_be32() (proto_radius.c:49)
-     * shifts the int-promoted first byte left by 24, undefined for octets
-     * >= 0x80 — UBSan aborts SANITIZE=asan runs on 192.168.x.x (issue #526
-     * follow-up; this suite does not change src/). */
+    /* First octet below 0x80. */
     static const uint8_t ip[4] = { 100, 64, 1, 10 };
     attrs_reset(); sibling_user_name(); tlv(4, ip, 4);
     send_case();
@@ -327,6 +325,16 @@ static void test_u32_short(void) {
     int i = last_with(A_NAS_IP);
     CHECK(i >= 0 && g_obs[i].u32[A_NAS_IP] == 0x6440010Au,
           "NAS-IP-Address len 6: reads 100.64.1.10");
+    /* First octet >= 0x80: read_be32() (proto_radius.c:49) shifted the
+     * int-promoted first byte left by 24, undefined behaviour that UBSan
+     * reports under SANITIZE=asan (issue #526); it now shifts uint32_t. */
+    static const uint8_t ip_hi[4] = { 192, 168, 1, 10 };
+    attrs_reset(); sibling_user_name(); tlv(4, ip_hi, 4);
+    send_case();
+    expect_classified("NAS-IP-Address len 6, first octet >= 0x80");
+    i = last_with(A_NAS_IP);
+    CHECK(i >= 0 && g_obs[i].u32[A_NAS_IP] == 0xC0A8010Au,
+          "NAS-IP-Address len 6: reads 192.168.1.10");
 }
 
 /* ---- D. 3GPP vendor-specific attribute -------------------------------- */
