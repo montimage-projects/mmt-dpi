@@ -17,7 +17,7 @@ extern "C" {
 #include "mmt_tcpip_plugin_structs.h"
 #include "protocols/tcp.h"
 
-static int seen = 1;
+/* Issue #505 (F-BUG-107): TCP event payloads are typed block-scope literals at each fire site. */
 
 /**
  * Generic function for setting the content type of a flow.
@@ -150,6 +150,9 @@ get_local_conv_proto(ipacket_t * ipacket) {
     if ((src_conv_proto | dest_conv_proto) /* Both are not null */ &&
             (((src_conv_proto ^ dest_conv_proto) == 0 /* they are equal */)
              || ((src_conv_proto ^ dest_conv_proto) == (src_conv_proto | dest_conv_proto) /* one is zero the other is not */))) {
+        // The OR is the result, not a truth value: it is the shared proto, or
+        // the non-zero one (identicalInnerCondition, cppcheck 2.22, #518).
+        // cppcheck-suppress identicalInnerCondition
         return src_conv_proto | dest_conv_proto; /*If equal Oring them is equal to them, if one is zero Oring them is equal to the non zero */
     }
     return PROTO_UNKNOWN;
@@ -353,7 +356,7 @@ mmt_connection_tracking(ipacket_t * ipacket, unsigned index) {
                     flow_l4_tcp->rtt.tv_sec = ipacket->p_hdr->ts.tv_sec;
                     flow_l4_tcp->rtt.tv_usec = ipacket->p_hdr->ts.tv_usec;
 
-                    fire_attribute_event(ipacket, PROTO_TCP, TCP_SYN_RCV, index, (void *) &seen);
+                    fire_attribute_event(ipacket, PROTO_TCP, TCP_SYN_RCV, index, (void *) &(uint32_t){1}); /* MMT_U32_DATA */
                 }
 
                 if(tcph->ack != 0 && flow_l4_tcp->seen_syn == 1){
@@ -364,7 +367,7 @@ mmt_connection_tracking(ipacket_t * ipacket, unsigned index) {
             if (tcph->syn == 0 && tcph->ack == 1 && flow_l4_tcp->seen_syn == 1 && flow_l4_tcp->seen_syn_ack == 1) {
                 flow_l4_tcp->seen_ack = 1;
 
-                fire_attribute_event(ipacket, PROTO_TCP, TCP_CONN_ESTABLISHED, index, (void *) &seen);
+                fire_attribute_event(ipacket, PROTO_TCP, TCP_CONN_ESTABLISHED, index, (void *) &(uint8_t){1}); /* MMT_U8_DATA */
 
                 if (flow_l4_tcp->rtt.tv_sec != 0) {
                     session->rtt.tv_sec = ipacket->p_hdr->ts.tv_sec - flow_l4_tcp->rtt.tv_sec;
@@ -386,7 +389,7 @@ mmt_connection_tracking(ipacket_t * ipacket, unsigned index) {
             flow_l4_tcp->seen_close = 1;
             session->force_timeout = 1;
 
-            fire_attribute_event(ipacket, PROTO_TCP, TCP_CONN_CLOSED, index, (void *) &seen);
+            fire_attribute_event(ipacket, PROTO_TCP, TCP_CONN_CLOSED, index, (void *) &(uint8_t){1}); /* MMT_U8_DATA */
 
         }
         if(tcph->fin != 0){

@@ -30,6 +30,20 @@
 # tools/ci/vendored-components.py (issue #496), which checks the committed
 # manifest, fixture manifests that must fail, and the SBOM injection on a
 # fixture SPDX document.
+# It also runs the release-hardening self-test beside
+# tools/ci/check-hardening-flags.sh (issue #508), which evaluates the real
+# makefiles with a print goal (no SDK compile) to pin that hardening is keyed
+# on compiler identity, and drives --built DIR on fixture shared objects.
+# It also runs the dependency-list self-test beside
+# tools/ci/check-dependency-lists.sh (issue #495), which runs the real lint
+# on fixture trees where one list or tools/ci/build-deps.txt row diverges.
+# It also runs the release-bootstrap self-test beside
+# tools/ci/make-release-bootstrap.sh and tools/ci/bootstrap-install.sh
+# (issue #498), which renders fixture release directories and drives the
+# rendered bootstrap's detection, lookup and digest check (no network).
+# It also runs the shlib-deps self-test beside tools/ci/shlib-deps.sh
+# (issue #515), which maps each libxml2 soname to its runtime package on
+# fixture payloads (libxml2.so.16 -> libxml2-16 on Ubuntu 26.04).
 set -e
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../tools/ci/tests"
 python3 "${TESTS_DIR}/test-release-gates.py" "$@"
@@ -41,3 +55,7 @@ bash "${TESTS_DIR}/test-image-pins.sh"
 python3 "${TESTS_DIR}/test-dependency-advisories.py"
 bash "${TESTS_DIR}/test-required-checks.sh"
 python3 "${TESTS_DIR}/test-vendored-components.py"
+bash "${TESTS_DIR}/test-hardening-identity.sh"
+bash "${TESTS_DIR}/test-dependency-lists.sh"
+bash "${TESTS_DIR}/test-release-bootstrap.sh"
+bash "${TESTS_DIR}/test-shlib-deps.sh"

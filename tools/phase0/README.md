@@ -62,8 +62,8 @@ untrusted packet input.)
 
 ```bash
 # from the repo root
-tools/phase0/capture_baseline.sh                 # defaults: prefix /tmp/mmt, 300 iters
-tools/phase0/capture_baseline.sh --prefix /tmp/mmt --iterations 500 --jobs 8
+tools/phase0/capture_baseline.sh                 # defaults: fresh mktemp prefix (removed on exit), 200 iters
+tools/phase0/capture_baseline.sh --prefix "$(mktemp -d)" --iterations 500 --jobs 8
 ```
 
 If the mmt-test repo is not at `../mmt-test`, point the script at the data-sets:
@@ -107,7 +107,7 @@ list fails the build):
 - `classification-gate` — Golden classification fingerprint unchanged
 - `leak-gate` — leak-gate
 - `precision-gate` — Labelled-pcap precision/recall holds or improves (M9, issue #74)
-- matrix expansion: `harness-*` fans out to 49 jobs, one per `tools/phase0/tests/run_*.sh`
+- matrix expansion: `harness-*` fans out to 50 jobs, one per `tools/phase0/tests/run_*.sh`
 <!-- end-generated: ci-gates -->
 
 What each gate asserts:

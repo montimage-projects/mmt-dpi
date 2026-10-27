@@ -253,13 +253,14 @@ bool str_compare(char * str1, char * str2){
     int len = 0;
     if(str2 == NULL && str1 == NULL) return NULL;
 
-    if(str1 == NULL && str2 != NULL) {
+    // Both NULL returned above, so each branch below knows which is set.
+    if(str1 == NULL) {
         len = strlen(str2);
         comb = (char *)malloc(len + 1);
         if(comb == NULL) return NULL;
         memcpy(comb,str2,len);
         comb[len]='\0';
-    }else if(str2 == NULL && str1 != NULL){
+    }else if(str2 == NULL){
         len = strlen(str1);
         comb = (char *)malloc(len + 1);
         if (comb == NULL)
@@ -396,6 +397,11 @@ int * str_get_indexes_n(char *str, size_t str_len, char *str1, size_t str1_len){
 
     if(array_index[current_index] != 0){
         char * str_substr = str_sub_n(str,strlen(str),0,array_index[current_index]-1);
+        if(str_substr == NULL){ /* allocation failure (#505) */
+            free(new_string);
+            free(array_index);
+            return NULL;
+        }
         strcpy(new_string,str_substr);
         free(str_substr);
     }
@@ -409,8 +415,12 @@ int * str_get_indexes_n(char *str, size_t str_len, char *str1, size_t str1_len){
         }else{
             strcat(new_string,rep);
         }
-        strcat(new_string,str_substr);
-        free(str_substr);
+        /* Issue #505 (F-BUG-013): adjacent matches leave an empty gap, for
+         * which str_sub_n() returns NULL — strcat(…, NULL) crashed. */
+        if(str_substr != NULL){
+            strncat(new_string, str_substr, (size_t)new_string_len - 1 - strlen(new_string));
+            free(str_substr);
+        }
         current_index ++;
     }
 

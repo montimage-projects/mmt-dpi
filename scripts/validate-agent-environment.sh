@@ -147,18 +147,17 @@ while IFS=$'\t' read -r cite head tail claim body; do
 done <<'CITATIONS'
 rules/common-linux.mk:62	^# -flto=auto is GCC-only	-	LTO is enabled for GCC only
 rules/common-linux.mk:6-12	^ifdef ENABLESEC	^endif	ENABLESEC objects get -fPIC and the libxml2 include path	LIBXML2_CFLAGS
-rules/common-linux.mk:66-163	^MMT_RELEASE_BUILD := 1	^endif +# release builds only	release hardening, disabled for sanitizer profiles	MMT_HARDEN_CFLAGS
-rules/common-linux.mk:149-157	^# TUNE=native \(opt-in, NEVER the default	^endif	TUNE=native is opt-in, never the default	ifeq \(\$\(TUNE\),native\)
-rules/common-linux.mk:202-214	^# -Wl,-z,defs	^endif	the self-containedness guard, skipped for sanitizers	filter asan tsan,\$\(BUILD\)
-rules/common-linux.mk:215-218	^ifdef ENABLESEC	^endif	the ENABLESEC engines link against libxml2	LIBXML2_LIBS
-rules/common-linux.mk:226-230	^ifdef ENABLESEC	^endif	ENABLESEC adds both engines to the libraries target	LIBSECURITY
-rules/common-linux.mk:237	\$\(CXX\) .*-shared .*\$\(LIBCORE\)\.so	-	shared libraries are linked with $(CXX)
-rules/common-linux.mk:263-279	^ifdef ENABLESEC	^endif	the engine link rules are ENABLESEC-gated	LIBSECURITY
+rules/common-linux.mk:85-193	^MMT_RELEASE_BUILD := 1	^endif +# release builds only	release hardening, disabled for sanitizer profiles	MMT_HARDEN_CFLAGS
+rules/common-linux.mk:177-185	^# TUNE=native \(opt-in, NEVER the default	^endif	TUNE=native is opt-in, never the default	ifeq \(\$\(TUNE\),native\)
+rules/common-linux.mk:236-248	^# -Wl,-z,defs	^endif	the self-containedness guard, skipped for sanitizers	filter asan tsan,\$\(BUILD\)
+rules/common-linux.mk:249-252	^ifdef ENABLESEC	^endif	the ENABLESEC engines link against libxml2	LIBXML2_LIBS
+rules/common-linux.mk:260-264	^ifdef ENABLESEC	^endif	ENABLESEC adds both engines to the libraries target	LIBSECURITY
+rules/common-linux.mk:271	\$\(CXX\) .*-shared .*\$\(LIBCORE\)\.so	-	shared libraries are linked with $(CXX)
+rules/common-linux.mk:297-313	^ifdef ENABLESEC	^endif	the engine link rules are ENABLESEC-gated	LIBSECURITY
 rules/common.mk:3	^MMT_BASE \?=/opt/mmt	-	MMT_BASE defaults to /opt/mmt
 rules/common.mk:21-24	^ifndef VERBOSE	^endif	VERBOSE=1 prints full compile commands	QUIET := @
 rules/common.mk:30	^CFLAGS .*-DPLUGINS_REPOSITORY_OPT=	-	the plugin repository path is baked into the objects
 rules/common.mk:38-43	^ifdef NDEBUG	^endif	NDEBUG=1 keeps assert()/debug() active	\+= \-DNDEBUG
-rules/common.mk:56-74	^# nghttp2: prefer pkg-config	^endif	libnghttp2 is auto-detected and optional	libnghttp2
 rules/common.mk:76-84	^# libxml2 \(only the ENABLESEC	^endif	libxml2 is resolved for the ENABLESEC engines	libxml-2\.0
 rules/common.mk:87-93	^ifdef DEBUG	^endif	DEBUG=1 swaps -O3 for -g	\+= \-g$
 rules/common.mk:94-98	^# VALGRIND = 1	^endif	VALGRIND=1 adds Valgrind-friendly instrumentation	\-\-gstabs
@@ -176,11 +175,11 @@ sdk/Makefile:8-12	^ifdef MMT_BASE	^endif	an unset MMT_BASE targets /opt/mmt	MMT_
 sdk/Makefile:25-29	^PLUGINS_PATH_STAMP :=	^FORCE:	plugins_engine.o depends on a plugin-directory stamp	plugins_engine\.o: \$\(PLUGINS_PATH_STAMP\)
 sdk/Makefile:58-68	^LDCONF +\?= auto	^[[:space:]]+esac$	the loader is registered by privilege (LDCONF=auto|0|1)	id -u
 sdk/Makefile:70-80	^--check-built:	^[[:space:]]+fi$	make install refuses a missing or mismatched build	PLUGINS_PATH_STAMP
-sdk/Makefile:160-201	^uninstall:	Done!	make uninstall removes the install and its drop-in	LDCONF_FILE
+sdk/Makefile:168-209	^uninstall:	Done!	make uninstall removes the install and its drop-in	LDCONF_FILE
 sdk/Makefile:88-94	ln -sf .*libmmt_core\.so	ln -sf .*LIBDICOM	make install creates the unversioned .so symlinks	LIBMOBILE
 sdk/Makefile:89-90	ln -sf .*libmmt_fuzz\.so	ln -sf .*libmmt_security\.so	install symlinks both ENABLESEC engines	libmmt_fuzz\.so\.\$\(VERSION\) +\$\(MMT_LIB\)/libmmt_fuzz\.so$
-sdk/Makefile:282-283	ln -s .*libmmt_fuzz\.so	ln -s .*libmmt_security\.so	the dist tree symlinks both ENABLESEC engines	libmmt_security\.so\.\$\(VERSION\) +\$\(BUILD_DIR\)\$\(MMT_LIB\)/libmmt_security\.so$
-sdk/Makefile:453-458	^test:	\./proto_attributes_iterator	the make test target builds from the installed prefix	\$\(MMT_EXAMS\)/proto_attributes_iterator\.c
+sdk/Makefile:324-325	ln -s .*libmmt_fuzz\.so	ln -s .*libmmt_security\.so	the dist tree symlinks both ENABLESEC engines	libmmt_security\.so\.\$\(VERSION\) +\$\(BUILD_DIR\)\$\(MMT_LIB\)/libmmt_security\.so$
+sdk/Makefile:597-602	^test:	\./proto_attributes_iterator	the make test target builds from the installed prefix	\$\(MMT_EXAMS\)/proto_attributes_iterator\.c
 tests/run_all_tests.sh:8-101	^# Modes:	^esac	the runner has two opt-in sanitizer modes	\-fsanitize=thread
 tests/run_all_tests.sh:89-92	command -v setarch	^ *fi$	TSan re-execs once with ASLR disabled	exec setarch .*\-R
 tests/run_all_tests.sh:190-221	^DEFAULT_SUITES=\(	^\)$	the default suite list lives in DEFAULT_SUITES	docs_onboarding
@@ -191,12 +190,13 @@ rules/common.mk:548-566	^# BUILD=coverage to compile the SDK	^endif	the BUILD=co
 tests/run_all_tests.sh:359-375	^# --- phase0 harnesses	^fi$	--with-harnesses delegates to the aggregate runner	run_all_harnesses\.sh
 sdk/Makefile:1	^ARCH +\?= linux	-	default architecture is Linux
 rules/arch-linux.mk:2-3	^CXX := g\+\+	^CC  := gcc	Linux uses GCC and G++
-.github/workflows/c-cpp.yml:225-230	Set up Ruby	bundler-cache: true	docs CI uses Ruby 3.3	ruby-version: "3.3"
+rules/arch-linux.mk:20-21	^CFLAGS \+= -std=gnu17$	^CFLAGS \+= \$\(MMT_EXTRA_CFLAGS\)$	the GCC toolchain pins gnu17, MMT_EXTRA_CFLAGS comes after
+.github/workflows/c-cpp.yml:271-276	Set up Ruby	bundler-cache: true	docs CI uses Ruby 3.4	ruby-version: "3.4"
 docs/Gemfile:12-17	^source	^gem "jekyll-seo-tag"	documentation gems	jekyll
-.github/workflows/c-cpp.yml:243	bash tools/ci/build-docs-site.sh	-	CI builds Jekyll
+.github/workflows/c-cpp.yml:289	bash tools/ci/build-docs-site.sh	-	CI builds Jekyll
 rules/common.mk:3-8	^MMT_BASE	^MMT_EXAMS	Make install configuration
-tests/fault_injection/run_tests.sh:90-92	^make .* clean	^make .* install	fault injection builds and installs SDK
-tests/fault_injection/run_tests.sh:77-82	^if .*SDK_BUILD_PROFILE	^fi	sanitizers skip fault injection engine leg	exit 0
+tests/fault_injection/run_tests.sh:110-112	^make .* clean	^make .* install	fault injection builds and installs SDK
+tests/fault_injection/run_tests.sh:97-102	^if .*SDK_BUILD_PROFILE	^fi	sanitizers skip fault injection engine leg	exit 0
 tests/run_all_tests.sh:258-262	json_file=	select\(	coverage restricts emitted records to src	/src/
 tests/run_all_tests.sh:319-333	Instrumented files	scope:	coverage summary exposes measured scope	instrumented_sources
 tests/coverage/floor.json:2-10	"library_line_pct": 80.0	  ]	coverage floor and required sources	"instrumented_files": 29
@@ -285,6 +285,44 @@ else
     fi
 fi
 
+# Docs-site Ruby (issue #517): the PR gate and the Pages build must run the
+# Ruby release the doc states, so no workflow can drift away from the others.
+doc_ruby="$(tr '\n' ' ' < "$DOC" | grep -oE 'use Ruby \*\*[0-9]+\.[0-9]+\*\*' | head -1 | grep -oE '[0-9]+\.[0-9]+' || true)"
+# Workflows and composite actions; a ruby-version: that is not a literal
+# release (an expression, a file reference) cannot be compared, so it fails.
+ruby_lines="$(cat "$ROOT"/.github/workflows/*.y*ml "$ROOT"/.github/actions/*/action.y*ml 2>/dev/null \
+    | grep -E '^[[:space:]]*ruby-version:' || true)"
+wf_rubies="$(printf '%s\n' "$ruby_lines" \
+    | sed -nE "s/^[[:space:]]*ruby-version:[[:space:]]*[\"']?([0-9][0-9.]*)[\"']?[[:space:]]*(#.*)?\$/\1/p" \
+    | sort -u || true)"
+ruby_odd="$(printf '%s\n' "$ruby_lines" \
+    | grep -vE "^[[:space:]]*ruby-version:[[:space:]]*[\"']?[0-9][0-9.]*[\"']?[[:space:]]*(#.*)?\$" \
+    | grep . || true)"
+if [ -z "$doc_ruby" ]; then
+    fail "states no docs-site Ruby release (expected: use Ruby **X.Y**)"
+elif [ -n "$ruby_odd" ]; then
+    fail "ruby-version: not a literal release: $(printf '%s' "$ruby_odd" | sed -E 's/^[[:space:]]+//' | tr '\n' ';')"
+elif [ -z "$wf_rubies" ]; then
+    fail "no ruby-version: found in .github/workflows/*.yml"
+elif [ "$wf_rubies" = "$doc_ruby" ]; then
+    ok "every workflow ruby-version: is the documented Ruby $doc_ruby"
+else
+    fail "workflow ruby-version: $(printf '%s' "$wf_rubies" | tr '\n' ' ' | sed 's/ $//') differs from the documented Ruby $doc_ruby"
+fi
+
+# Docs-site Bundler (issue #520): the major the doc names is the one the lock's
+# BUNDLED WITH pins (ruby/setup-ruby installs exactly that release).
+# shellcheck disable=SC2016  # backticks are Markdown syntax inside the pattern
+doc_bundler="$(tr '\n' ' ' < "$DOC" | grep -oE '`BUNDLED WITH` \([0-9]+\.' | head -1 | grep -oE '[0-9]+' || true)"
+lock_bundler="$(awk '/^BUNDLED WITH$/ { getline; print $1; exit }' "$ROOT/docs/Gemfile.lock" 2>/dev/null || true)"
+if [ -z "$doc_bundler" ] || [ -z "$lock_bundler" ]; then
+    fail "docs-site Bundler not stated in the doc (\`BUNDLED WITH\` (N.x)) or not pinned by docs/Gemfile.lock"
+elif [ "${lock_bundler%%.*}" = "$doc_bundler" ]; then
+    ok "docs/Gemfile.lock BUNDLED WITH $lock_bundler is the documented Bundler $doc_bundler"
+else
+    fail "docs/Gemfile.lock BUNDLED WITH $lock_bundler differs from the documented Bundler $doc_bundler"
+fi
+
 # -----------------------------------------------------------------------------
 # 3. Single source of truth
 # -----------------------------------------------------------------------------
@@ -343,7 +381,7 @@ defined_once() {
 # Debian packaging checklist) are a different fact, not a copy of this one, and
 # executable package lists are exempt because they have to be runnable.
 defined_once "toolchain install line" \
-             'apt-get install' 'build-essential' 'libnghttp2-dev'
+             'apt-get install' 'build-essential' 'pkg-config' 'jq'
 defined_once "MMT_BASE default declaration" \
              'MMT_BASE \?=/opt/mmt'
 # shellcheck disable=SC2016  # backticks are Markdown syntax inside the pattern

@@ -3,8 +3,8 @@
 #
 # Every non-comment line is the exact image reference a workflow consumes:
 # the build matrix in .github/workflows/release-packages.yml (which greps
-# this file for its matrix pin before building), the root-install job of
-# .github/workflows/c-cpp.yml, the asn1c gate container of
+# this file for its matrix pin before building), the root-install and
+# toolchain-floor jobs of .github/workflows/c-cpp.yml, the asn1c gate container of
 # .github/workflows/asn1c-regen.yml and the per-distribution install smoke
 # matrix of .github/workflows/install-smoke.yml (issue #493). tools/ci/check-image-digests.sh scans
 # every workflow and fails when an image is floating, unrecorded here, or
@@ -14,10 +14,11 @@
 # is detected by .github/workflows/base-image-refresh.yml: once a day it runs
 # tools/ci/refresh-base-images.sh --check, which resolves every tag below to
 # its current upstream digest and fails on a moved tag or on a pinned digest
-# the registry no longer serves (quay.io drops the previous
-# centos:stream9 manifest on every retag, issues #587/#590); it then proposes
-# the --write repin as one pull request (or, without a dedicated token, one
-# issue carrying the diff).
+# the registry no longer serves; it then proposes the --write repin as one
+# pull request (or, without a dedicated token, one issue carrying the diff).
+# The quay.io pins are also checked hourly (--registry quay.io): quay.io
+# drops the previous centos:stream9/stream10 manifest the moment it retags
+# (issues #587/#590/#641), so every pull of the old pin fails at once.
 #
 # Pins are name:tag@sha256:<index-digest>; the index digest must cover both
 # linux/amd64 and linux/arm64 (the arm64 matrix leg runs natively on the
@@ -25,21 +26,33 @@
 # pulled only on amd64 runners (archlinux: the install smoke matrix), says so
 # with a trailing `# platforms: linux/amd64`, which refresh-base-images.sh
 # honours instead.
+# Dated retirement (issue #516): a trailing `# retire-by: YYYY-MM-DD` marks an
+# image whose legs are removed before its distribution's end of life (dates
+# and reasons: docs/DECISIONS.md). check-image-digests.sh warns from 60 days
+# before that date and fails from the date on, while the line is still here
+# (the verify-helpers job of c-cpp.yml; base-image-refresh.yml only repins).
 # Refresh every pin with: bash tools/ci/refresh-base-images.sh --write
 # Refresh a single pin with:
 digest-source: docker buildx imagetools inspect <image>:<tag>
-ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7
-ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
-debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443
+ubuntu:22.04@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b  # retire-by: 2027-04-30 (#516)
+ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61
 rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6
-quay.io/centos/centos:stream9@sha256:086f25bff2b5e44eaa6953c8165cf6c4dcb3af8018b37053b510c7d5d796613c
-buildpack-deps:bookworm@sha256:b22578185ebfdbd9a4050f697638b9c9696b70616d9b01bddfa79145db2b6dfd
+quay.io/centos/centos:stream9@sha256:6f8045fc4f552544d8a401d61848bafc8d06ca7c11897c5b54a2c37fc419a20a  # retire-by: 2027-04-30 (#516)
+buildpack-deps:trixie@sha256:4a40a9b7f5b25cced5d5367108754eeb825a3e64c05c94e1ab7b462a96de5434
+# Current-generation release legs (issue #515). Rocky Linux 10 is published
+# as rockylinux/rockylinux only: the Docker Hub official `rockylinux` image
+# stops at 9.
+ubuntu:26.04@sha256:19fcd1bf268f02b60aca3bd30bd8a6d9a11759a430e32921833e65f16d87348a
+debian:13@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308
+rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834
+quay.io/centos/centos:stream10@sha256:99b8fe27dd4958b5dc2630ce35f5f6a7ff7bf9b2b1a72078102fde50d3277550
 # Install smoke matrix only (issue #493): the advertised distributions outside
 # the release matrix. registry.opensuse.org where upstream publishes there, to
 # stay clear of Docker Hub pull limits. Fedora comes from the Docker Hub official
 # image: quay.io retags fedora:44 daily and drops the previous digest at once,
 # so a quay pin breaks within a day.
 fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
-registry.opensuse.org/opensuse/leap:16.0@sha256:230a53aa81c3d1e4318ba8c73a942f0f330383c229ae64dd116d4fee1a6a16ab
-alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
-archlinux:base@sha256:e43f1fd80e073992c5f173efbbbf65144170bf60aeb7369940087d63eacea8f4  # platforms: linux/amd64
+registry.opensuse.org/opensuse/leap:16.0@sha256:295892214721055ace3d2b7f86b21d4143cc0edb4264149d3310a0a032fa166a
+alpine:3.23@sha256:ff7f0c727dd796aa36787bfcd9a64bf35a6ce72a73451b3359fde849b6703d63
+archlinux:base@sha256:52dfbd5afb23a220d5ee92dafcb4c788d96c026ed04179890c23adef4c897fa0  # platforms: linux/amd64

@@ -196,6 +196,10 @@ struct mmt_session_struct {
     uint32_t tcp_outoforders;                 /**< number of TCP outoforder */
     /* tcp sequence number connection tracking and retransmissions counting */
     uint32_t next_tcp_seq_nr[2];
+    /* Issue #499 (F-BUG-001): live tunnel children whose parent_session is
+     * this session. While non-zero the session is never freed — its expiry
+     * is deferred — so a child never holds a dangling parent pointer. */
+    uint32_t live_children;
 
     uint64_t session_id;                     /**< session identifier */
     uint64_t fragmented_packet_count;        /**< number of fragmented packets which are in this session*/
@@ -371,7 +375,12 @@ struct attribute_internal_struct {
      * head-insert order. */
     attribute_handler_t * attribute_handlers;
     uint32_t attribute_handlers_cap;
-    attribute_internal_t * next; /**< next attribute */
+    /* Issue #501 (F-BUG-017): the handler whose registration created this
+     * extraction slot and counted in registration_count — NULL when
+     * register_extraction_attribute() created it or the owner has left.
+     * Only that handler's unregistration gives the count back. */
+    attribute_handler_function extraction_owner;
+    attribute_internal_t * next; /**< Issue #501: links the attributes in mmt_handler_t.attr_free_pending */
 };
 
 /**
@@ -576,6 +585,20 @@ struct mmt_handler_struct {
     attribute_handler_element_t * proto_registered_attribute_handlers[PROTO_MAX_IDENTIFIER];
     uint32_t proto_registered_attribute_handlers_len[PROTO_MAX_IDENTIFIER];
     uint32_t proto_registered_attribute_handlers_cap[PROTO_MAX_IDENTIFIER];
+    /* Issue #501 (F-BUG-004): an attribute handler may unregister handlers
+     * from inside its callback. While attr_dispatch_depth > 0 (an attribute
+     * dispatch loop is running), an attribute released by unregistration is
+     * unlinked from the arrays at once but its memory is chained here
+     * through attribute_internal_t.next and freed when the outermost
+     * dispatch returns (flush_deferred_attribute_frees()). */
+    unsigned attr_dispatch_depth;
+    attribute_internal_t * attr_free_pending;
+    /* Issue #506 (F-PERF-103): per-packet scratch. Values an attribute
+     * extractor hands over with mmt_packet_scratch_adopt() are chained here
+     * (records bump-allocated from the arena, created on first use) and
+     * released when the next packet_process() starts or the handler closes. */
+    mmt_arena_t * packet_scratch;
+    struct mmt_packet_scratch_entry_struct * packet_scratch_head;
     packet_handler_t * packet_handlers;
     uint32_t packet_handlers_len;
     uint32_t packet_handlers_cap;
@@ -656,6 +679,21 @@ int package_dependent_init();
 void free_registered_extraction_attributes(mmt_handler_t *mmt_handler);
 
 /**
+ * Issue #506: releases every value adopted with mmt_packet_scratch_adopt()
+ * since the last release and rewinds the scratch arena (kept for reuse).
+ * Called when packet_process() starts; a no-op when nothing was adopted.
+ * @param mmt_handler the handler whose per-packet scratch is released
+ */
+void mmt_packet_scratch_release(mmt_handler_t *mmt_handler);
+
+/**
+ * Issue #506: releases the adopted values and frees the scratch arena itself.
+ * Called from mmt_close_handler() (via free_registered_extraction_attributes()).
+ * @param mmt_handler the handler being closed
+ */
+void mmt_packet_scratch_destroy(mmt_handler_t *mmt_handler);
+
+/**
  * Cleanup function that frees the registered attribute handlers.
  * @param mmt_handler pointer to the mmt handler we want to unregister the attribute handlers from
  */
@@ -671,6 +709,10 @@ void free_registered_packet_handlers(mmt_handler_t *mmt_handler);
  * Cleanup function that frees registered protocol.
  */
 void free_registered_protocols();
+
+/* Most sessions one out-of-memory sweep expires, and most milestones it
+ * scans; a stop mid-list leaves the rest linked (issue #500). */
+#define MMT_OOM_SWEEP_BUDGET 65000u
 
 /**
  * Forces the timeout of sessions associated to the least recent timeout slots. The minimum number
@@ -797,6 +839,9 @@ static inline void proto_status_store(int *status, int value) {
 /* packet_session.c — session lifecycle, called by packet_registry.c and
  * packet_pipeline.c. */
 void force_sessions_timeout(void * timeout_milestone, void * milestone_sessions_list, void * args);
+/* Issue #499: expire every session of the handler, tunnel children before
+ * their parents (used by mmt_close_handler). */
+void expire_all_sessions(mmt_handler_t * mmt_handler);
 void process_timedout_sessions(mmt_handler_t *mmt_handler, uint32_t current_seconds);
 int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configured_protocol, unsigned index);
 
@@ -826,6 +871,8 @@ void mmt_dpi_profile_apply_env(mmt_handler_t *mmt_handler);
 bool attribute_ids_comparison_fct(uint32_t l_id, uint32_t r_id);
 struct attribute_internal_struct * get_registered_attribute_internal_struct(const ipacket_t * ipacket, uint32_t proto_id, uint32_t attribute_id, unsigned index);
 struct attribute_internal_struct * get_registered_attribute(mmt_handler_t *mmt_handler, uint32_t proto_id, uint32_t field_id);
+/* Issue #501: frees the attributes released during an attribute dispatch. */
+void flush_deferred_attribute_frees(mmt_handler_t *mmt_handler);
 
 /* Issue #245 (F-PERF-003/004/005/006): TCP-reassembly instrumentation. The
  * counters live in libmmt_core (packet_pipeline.c) — the one shared object

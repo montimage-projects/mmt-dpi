@@ -16,9 +16,14 @@ name: Build & release packages
 # release job adds a SHA256SUMS manifest over the whole asset set and a
 # build-provenance attestation covering every published file, so users can
 # run `sha256sum --check SHA256SUMS` and `gh attestation verify <pkg>`
-# before installing the package as root.
+# before installing the package as root. The release job also publishes the
+# verified bootstrap (issue #498): alias-named packages, manifest.json, an
+# install.sh with their sha256 embedded, and the attestation's Sigstore
+# bundle (mmt-dpi.intoto.jsonl) that install.sh checks offline.
 #
-# The five build container images are pinned by index digest
+# The nine build container images — the previous distribution generation
+# plus the current one (Ubuntu 26.04, Debian 13, Rocky Linux 10, CentOS
+# Stream 10; issue #515) — are pinned by index digest
 # (issue #217, F-DEP-101/F-CI-012/F-SEC-007) — the same digest resolves both
 # the amd64 and arm64 matrix legs — and mirrored in the tracked
 # tools/ci/base-images.txt, which the daily base-image-refresh.yml workflow
@@ -107,8 +112,12 @@ jobs:
               tools/ci/build-package.sh|tools/ci/install-build-deps.sh|\
               tools/ci/check-reproducible-build.sh|tools/ci/check-release-tag.sh|\
               tools/ci/check-release-gates.sh|tools/ci/publish-release.sh|\
+              tools/ci/check-hardening-flags.sh|\
               tools/ci/release-alert.sh|tools/ci/base-images.txt|\
-              tools/ci/vendored-components.*|\
+              tools/ci/vendored-components.*|tools/ci/check-package-split.sh|\
+              tools/ci/check-package-deps.sh|tools/ci/shlib-deps.sh|\
+              tools/ci/make-release-bootstrap.sh|tools/ci/bootstrap-install.sh|\
+              LICENSE|LICENSES/*|THIRD-PARTY-NOTICES|dist/ZIP/*|\
               .github/workflows/release-packages.yml)
                 echo "packaging path changed: $f"
                 packaging=true ;;
@@ -135,11 +144,16 @@ jobs:
       matrix:
         arch: [amd64, arm64]
         distro:
-          - { name: ubuntu-22.04,   image: "ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7",                    pkg: deb }
-          - { name: ubuntu-24.04,   image: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",                    pkg: deb }
-          - { name: debian-12,      image: "debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443",                       pkg: deb }
+          - { name: ubuntu-22.04,   image: "ubuntu:22.04@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b",                    pkg: deb }
+          - { name: ubuntu-24.04,   image: "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c",                    pkg: deb }
+          - { name: debian-12,      image: "debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61",                       pkg: deb }
           - { name: rocky-9,        image: "rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6",                    pkg: rpm }
-          - { name: centos-stream9, image: "quay.io/centos/centos:stream9@sha256:086f25bff2b5e44eaa6953c8165cf6c4dcb3af8018b37053b510c7d5d796613c",   pkg: rpm }
+          - { name: centos-stream9, image: "quay.io/centos/centos:stream9@sha256:6f8045fc4f552544d8a401d61848bafc8d06ca7c11897c5b54a2c37fc419a20a",   pkg: rpm }
+          # Current generation (issue #515).
+          - { name: ubuntu-26.04,    image: "ubuntu:26.04@sha256:19fcd1bf268f02b60aca3bd30bd8a6d9a11759a430e32921833e65f16d87348a",                    pkg: deb }
+          - { name: debian-13,       image: "debian:13@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308",                       pkg: deb }
+          - { name: rocky-10,        image: "rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834",        pkg: rpm }
+          - { name: centos-stream10, image: "quay.io/centos/centos:stream10@sha256:99b8fe27dd4958b5dc2630ce35f5f6a7ff7bf9b2b1a72078102fde50d3277550",  pkg: rpm }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -148,19 +162,27 @@ jobs:
       # The matrix pin above must be mirrored verbatim in the tracked
       # tools/ci/base-images.txt — fail fast here rather than building on an
       # unrecorded image (issue #217; check-image-digests.sh gates the same).
+      # Trailing comments (`# retire-by:`, issue #516) are stripped first.
       - name: Verify pinned base image is recorded
-        run: grep -Fx "${{ matrix.distro.image }}" tools/ci/base-images.txt
+        env:
+          IMAGE: ${{ matrix.distro.image }}
+        run: sed 's/[[:space:]]*#.*$//' tools/ci/base-images.txt | grep -Fx -- "$IMAGE"
 
       # -e CI forwards the runner's CI=true marker into the container so a
       # missing git history there is the hard error rules/common.mk intends
       # (issue #220) instead of a silently date-stamped package.
+      # Hardening of what ships (issue #508): build-package.sh installs the
+      # package it just built into this same container, so the hardening
+      # check then runs on the packaged libraries and plugins — on every
+      # distro and both architectures — not only on an unshipped host build.
       - name: Build ${{ matrix.distro.pkg }} in ${{ matrix.distro.image }}
         run: |
           docker run --rm --platform "linux/${{ matrix.arch }}" \
             -e CI \
             -v "$PWD":/work -w /work \
             "${{ matrix.distro.image }}" \
-            bash tools/ci/build-package.sh "${{ matrix.distro.name }}" "${{ matrix.distro.pkg }}"
+            bash -c 'bash tools/ci/build-package.sh "$1" "$2" && bash tools/ci/check-hardening-flags.sh --built /opt/mmt/dpi/lib /opt/mmt/plugins' \
+            _ "${{ matrix.distro.name }}" "${{ matrix.distro.pkg }}"
 
       - name: Locate the built package
         id: pkg
@@ -170,18 +192,32 @@ jobs:
           # host. Hand it back to the runner user — the SBOM step below must
           # create <pkg>.sbom.json inside dist/packages (CI verified EACCES).
           sudo chown -R "$(id -u):$(id -g)" dist
-          # build-package.sh produces exactly one package per matrix cell —
-          # fail loudly if that ever changes so the SBOM mapping stays 1:1.
+          # build-package.sh produces exactly two packages per matrix cell —
+          # mmt-dpi and mmt-dpi-security (issue #497) — fail loudly if that
+          # ever changes so the SBOM mapping stays 1:1.
           mapfile -t pkgs < <(find dist/packages -maxdepth 1 -type f \
             \( -name '*.deb' -o -name '*.rpm' \) | LC_ALL=C sort)
-          if [ "${#pkgs[@]}" -ne 1 ]; then
-            echo "expected exactly 1 package in dist/packages," \
+          if [ "${#pkgs[@]}" -ne 2 ]; then
+            echo "expected exactly 2 packages in dist/packages," \
               "found ${#pkgs[@]}" >&2
             exit 1
           fi
+          main="" sec=""
+          for p in "${pkgs[@]}"; do
+            case "$(basename "$p")" in
+              mmt-dpi-security_*) sec="$p" ;;
+              mmt-dpi_*) main="$p" ;;
+            esac
+          done
+          if [ -z "$main" ] || [ -z "$sec" ]; then
+            echo "expected one mmt-dpi_* and one mmt-dpi-security_* package" >&2
+            exit 1
+          fi
           {
-            echo "file=${pkgs[0]}"
-            echo "sbom=${pkgs[0]}.sbom.json"
+            echo "file=${main}"
+            echo "sbom=${main}.sbom.json"
+            echo "sec_file=${sec}"
+            echo "sec_sbom=${sec}.sbom.json"
           } >> "$GITHUB_OUTPUT"
 
       # Per-package SBOM (F-SEC-015): scanned from the package file itself so
@@ -191,7 +227,7 @@ jobs:
       # upload below ships the .sbom.json, and the release job's
       # tools/ci/publish-release.sh stays the single publisher (issue #489).
       - name: Generate SBOM for the package
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           file: ${{ steps.pkg.outputs.file }}
           format: spdx-json
@@ -200,17 +236,30 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
+      - name: Generate SBOM for the security package
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          file: ${{ steps.pkg.outputs.sec_file }}
+          format: spdx-json
+          output-file: ${{ steps.pkg.outputs.sec_sbom }}
+          artifact-name: sbom-security-${{ matrix.distro.name }}-${{ matrix.arch }}
+          upload-artifact: false
+          upload-release-assets: false
+
       # Vendored components (issue #496, F-DEP-305): syft sees the package as
       # one opaque file, so the SBOM would list only the package itself. Add
       # the third-party sources compiled into it — llhttp, the asn1c runtime —
       # from the tracked manifest tools/ci/vendored-components.json, before
       # the upload below and before the release job hashes and attests it.
+      # Only the mmt-dpi SBOM gains them: no vendored code is compiled into
+      # mmt-dpi-security (`notices --check` fails if one ever is, issue #497).
       - name: Add vendored components to the SBOM
         env:
           SBOM: ${{ steps.pkg.outputs.sbom }}
         run: |
           set -euo pipefail
           python3 tools/ci/vendored-components.py check
+          python3 tools/ci/vendored-components.py notices --check
           python3 tools/ci/vendored-components.py sbom "$SBOM"
           jq -e --slurpfile m tools/ci/vendored-components.json \
             '[.packages[].name] as $have
@@ -219,7 +268,7 @@ jobs:
           jq -c '[.packages[].name]' "$SBOM"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mmt-dpi-${{ matrix.distro.name }}-${{ matrix.arch }}
           path: dist/packages/*
@@ -230,7 +279,8 @@ jobs:
     # F-CI-011 (issue #220): build the package twice inside the same
     # container and diff the sha256 sums — the AC for reproducible packages
     # is byte-identity, and this job is the gate that proves it. One amd64
-    # leg per package format on images already pinned in the build matrix.
+    # leg per package format on images already pinned in the build matrix,
+    # plus one current-generation leg (issue #515).
     name: Reproducible ${{ matrix.pkg }} build (${{ matrix.distro }})
     needs: changes
     if: needs.changes.outputs.packaging == 'true'
@@ -240,15 +290,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { distro: ubuntu-24.04, image: "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",                    pkg: deb }
+          - { distro: ubuntu-24.04, image: "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c",                    pkg: deb }
           - { distro: rocky-9,      image: "rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6",                   pkg: rpm }
+          # One current-generation leg (issue #515): GCC 15 and libxml2 2.15.
+          - { distro: ubuntu-26.04, image: "ubuntu:26.04@sha256:19fcd1bf268f02b60aca3bd30bd8a6d9a11759a430e32921833e65f16d87348a",                    pkg: deb }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0   # GIT_VERSION + SOURCE_DATE_EPOCH derive from the commit
 
       - name: Verify pinned base image is recorded
-        run: grep -Fx "${{ matrix.image }}" tools/ci/base-images.txt
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: sed 's/[[:space:]]*#.*$//' tools/ci/base-images.txt | grep -Fx -- "$IMAGE"
 
       - name: Double-build and diff sha256 in ${{ matrix.image }}
         run: |
@@ -257,13 +311,53 @@ jobs:
             "${{ matrix.image }}" \
             bash tools/ci/check-reproducible-build.sh --install-deps "${{ matrix.distro }}" "${{ matrix.pkg }}"
 
+  bootstrap-dry-run:
+    # The release job's bootstrap step (issue #498) on this run's packages:
+    # make-release-bootstrap.sh renders install.sh, manifest.json and the
+    # alias names for v<VERSION> from the full build matrix — mmt-dpi and
+    # mmt-dpi-security, every distro and arch — and the result is checked,
+    # so a package-name or matrix change that the generator would refuse
+    # fails here, on the pull request, not on the tag. Nothing is published
+    # or attested; bootstrap-smoke.yml runs the rendered bootstrap end to end
+    # against a published release.
+    needs: [changes, build]
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download all package artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+
+      - name: Render and check the bootstrap set
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^VERSION[[:space:]]*:\{0,1\}=[[:space:]]*//p' rules/common.mk | head -n1)"
+          mkdir -p release
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' \) -exec cp {} release/ \;
+          bash tools/ci/make-release-bootstrap.sh "v${version}" release
+          sh -n release/install.sh
+          # Every built package has an alias row, and each digest matches.
+          built="$(find release -maxdepth 1 -name 'mmt-dpi*_*_*_*_*.*' | wc -l)"
+          rows="$(jq '.packages | length' release/manifest.json)"
+          echo "built=${built} manifest rows=${rows}"
+          test "$built" -eq "$rows"
+          jq -r '.packages[] | "\(.sha256)  \(.file)"' release/manifest.json \
+            | (cd release && sha256sum --check --quiet -)
+
   packages-gate:
     # Required-check aggregate (issue #490, F-CI-004): one context that
     # reports on every pull request, whatever paths it touches. It passes
-    # when the PR touches no packaging path and build + reproducibility were
-    # skipped, and otherwise requires every package leg to have succeeded —
+    # when the PR touches no packaging path and build + reproducibility (+
+    # the bootstrap dry-run, issue #498) were skipped, and otherwise requires
+    # every package leg to have succeeded —
     # a failed, cancelled or unexpectedly skipped leg fails it.
-    needs: [changes, build, reproducibility]
+    needs: [changes, build, reproducibility, bootstrap-dry-run]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -274,9 +368,10 @@ jobs:
           PACKAGING: ${{ needs.changes.outputs.packaging }}
           BUILD: ${{ needs.build.result }}
           REPRO: ${{ needs.reproducibility.result }}
+          BOOTSTRAP: ${{ needs.bootstrap-dry-run.result }}
         run: |
           set -euo pipefail
-          echo "changes=${CHANGES} packaging=${PACKAGING:-} build=${BUILD} reproducibility=${REPRO}"
+          echo "changes=${CHANGES} packaging=${PACKAGING:-} build=${BUILD} reproducibility=${REPRO} bootstrap-dry-run=${BOOTSTRAP}"
           if [ "$CHANGES" != "success" ]; then
             echo "::error::the packaging path filter did not succeed (${CHANGES})"
             exit 1
@@ -286,8 +381,8 @@ jobs:
           else
             want=skipped
           fi
-          if [ "$BUILD" != "$want" ] || [ "$REPRO" != "$want" ]; then
-            echo "::error::expected build and reproducibility ${want}, got ${BUILD} / ${REPRO}"
+          if [ "$BUILD" != "$want" ] || [ "$REPRO" != "$want" ] || [ "$BOOTSTRAP" != "$want" ]; then
+            echo "::error::expected build, reproducibility and bootstrap-dry-run ${want}, got ${BUILD} / ${REPRO} / ${BOOTSTRAP}"
             exit 1
           fi
           echo "packages-gate: ok (packaging=${PACKAGING})"
@@ -361,7 +456,7 @@ jobs:
 
       - name: Upload release evidence record
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-evidence
           path: release-evidence.json
@@ -379,8 +474,20 @@ jobs:
       id-token: write      # Sigstore OIDC identity for provenance signing
       attestations: write  # publish attestations to the repo attestation store
     steps:
+      # This job has no source tree of its own: a sparse checkout fetches
+      # just the scripts it runs, at the tag's commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: src
+          sparse-checkout: |
+            tools/ci/publish-release.sh
+            tools/ci/make-release-bootstrap.sh
+            tools/ci/bootstrap-install.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Download all package artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
 
@@ -393,8 +500,21 @@ jobs:
           echo "Assets to publish:"
           ls -l release
 
-      # The manifest covers every asset that will be attached — packages and
-      # SBOMs — so `sha256sum --check SHA256SUMS` verifies the whole download.
+      # Verified bootstrap (issue #498, F-CI-112): a copy of every package
+      # under its stable alias name (<package>_<distro>_<amd64|arm64>.<ext>),
+      # manifest.json, and install.sh rendered for this tag with each
+      # package's sha256 embedded — so
+      # `curl -fsSL …/releases/latest/download/install.sh | sh` checks the
+      # digest and the attestation below before installing the native
+      # package. Written before SHA256SUMS and the attestation, so all of it
+      # is covered by both.
+      - name: Generate the bootstrap installer, manifest and alias packages
+        run: bash src/tools/ci/make-release-bootstrap.sh "$GITHUB_REF_NAME" release
+
+      # The manifest covers every asset that will be attached — packages,
+      # SBOMs and the bootstrap set — so `sha256sum --check SHA256SUMS`
+      # verifies the whole download (the provenance bundle added after the
+      # attestation step is signed itself).
       - name: Generate SHA256SUMS manifest
         run: |
           cd release
@@ -407,22 +527,25 @@ jobs:
       # release asset (issue #198, F-SEC-005). Attest-before-publish keeps a
       # failed attestation from shipping unverifiable assets.
       - name: Attest build provenance for every release asset
+        id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: release/*
 
+      # The Sigstore bundle of that attestation, published so the bootstrap
+      # verifies provenance offline (`gh attestation verify --bundle`) with no
+      # GitHub login (issue #498). Not in SHA256SUMS: it is signed itself.
+      - name: Publish the provenance bundle for the bootstrap
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -s "$BUNDLE"
+          cp -v "$BUNDLE" release/mmt-dpi.intoto.jsonl
+
       # The only publisher (issue #489): refuses when a Release for the tag
       # already exists (made by hand), creates it as a draft with release/*
       # attached, then publishes it — never a Release without its assets.
-      # This job has no source tree of its own: a sparse checkout fetches
-      # just the script, at the tag's commit.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: src
-          sparse-checkout: tools/ci/publish-release.sh
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-
       - name: Create and publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

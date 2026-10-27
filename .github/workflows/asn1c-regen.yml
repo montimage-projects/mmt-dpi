@@ -16,13 +16,18 @@ on:
   schedule:
     - cron: '17 4 * * 1'
   workflow_dispatch:
-  # Also guard the inputs themselves: recipe, pin and ASN.1 support files.
+  # Also guard the inputs themselves (recipe, pin, ASN.1 support files) and
+  # the generated output, so a hand edit to it fails the PR (issue #522).
   pull_request:
     branches: [ main ]
     paths:
       - 'src/mmt_mobile/asn1c/Makefile'
+      - 'src/mmt_mobile/asn1c/s1ap-simplify.py'
       - 'src/mmt_mobile/asn1c/ASN1C_VERSION'
       - 'src/mmt_mobile/asn1c/support/**'
+      - 'src/mmt_mobile/asn1c/common/**'
+      - 'src/mmt_mobile/asn1c/s1ap/**'
+      - 'src/mmt_mobile/asn1c/ngap/**'
       - '.github/workflows/asn1c-regen.yml'
 
 # A newer push cancels the superseded run of the same ref (issue #188,
@@ -44,14 +49,17 @@ jobs:
     # libtool/bison/flex (the yacc/lex aliases the asn1c build calls) are
     # installed below. Digest-pinned and recorded in tools/ci/base-images.txt
     # (issue #491); base-image-refresh.yml repins it when the tag moves.
-    container: buildpack-deps:bookworm@sha256:b22578185ebfdbd9a4050f697638b9c9696b70616d9b01bddfa79145db2b6dfd
+    # Debian 13 since issue #516: the Debian 12 image misses the 2026 glibc
+    # fixes, and the tree reproduces byte-for-byte under trixie's toolchain.
+    container: buildpack-deps:trixie@sha256:4a40a9b7f5b25cced5d5367108754eeb825a3e64c05c94e1ab7b462a96de5434
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install asn1c build dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends libtool bison flex
+          # python3 runs src/mmt_mobile/asn1c/s1ap-simplify.py in gen-s1ap (issue #523).
+          apt-get install -y --no-install-recommends libtool bison flex python3
           # The checkout is owned by the runner UID but the container runs
           # as root; allow git to read it (fatal "dubious ownership"
           # otherwise).
@@ -68,13 +76,18 @@ jobs:
           mkdir -p /tmp/asn1c-src
           tar xzf /tmp/asn1c.tar.gz -C /tmp/asn1c-src --strip-components=1
           cd /tmp/asn1c-src
+          # v1.5.x derives its version string from `git describe` at
+          # autoreconf time (NOGIT-<build date> in a tarball) and every
+          # generated header embeds it: stamp the pinned string and bug URL
+          # so the output does not depend on the build date (issue #521).
+          sed -i "/^AC_INIT(/i m4_define([ASN1C_VERSION], [${ASN1C_VERSION_STRING}])m4_define([ASN1C_BUGURL], [${ASN1C_BUGURL}])" configure.ac
           autoreconf -iv
           ./configure
           make -j"$(nproc)"
           make install
           asn1c -v 2>&1
-          # The reported version must match the pin (printed on stderr).
-          asn1c -v 2>&1 | grep -q "v${ASN1C_VERSION}"
+          # The reported version must be exactly the pin (printed on stderr).
+          test "$(asn1c -v 2>&1 | head -n 1)" = "ASN.1 Compiler, ${ASN1C_VERSION_STRING} (${ASN1C_BUGURL})"
 
       - name: Re-run the generation targets
         run: |

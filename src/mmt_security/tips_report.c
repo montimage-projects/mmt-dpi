@@ -84,30 +84,26 @@
 #include "types_defs.h"
 #define _STDC_FORMAT_MARCROS
 #include <inttypes.h>
+#include <math.h>
 
     static long long corr_mess = 0;
 
 /* F-BUG-092 (#209): control bytes escape as \u + 4 hex digits — up to 6
- * output bytes per
- * input byte — so the destination is size*6+1, non-positive sizes are
- * rejected, and the loop tracks the remaining capacity. */
-char * convert_string_to_json_compatible (char * p, int size){
-    char * result = NULL;
-    char *c = NULL;
-    char *r = NULL;
-    int pos = 0;
-    size_t remaining;
-    if (p == NULL || size <= 0) return NULL;
-    if ((size_t) size > (SIZE_MAX - 1) / 6) return NULL;
-    c = p;
-    result = xmalloc ((size_t) size * 6 + 1);
-    r = result;
-    if(r == NULL) return NULL;
-    *r = '\0';
-    remaining = (size_t) size * 6; /* keep the last byte for the terminator */
-    for (pos=0; pos<size && remaining > 0; pos++){
+ * output bytes per input byte — so the destination needs size*6+1 bytes.
+ * json_escape_into() writes at most cap-1 escaped bytes plus the
+ * terminator and never splits an escape sequence (a truncated tail is
+ * dropped whole). F-BUG-209 (#510): it is the one escaper every string
+ * value of the verdict JSON goes through. */
+static void json_escape_into(char *dst, size_t cap, const char *src, size_t n)
+{
+    size_t remaining, pos;
+    char *r = dst;
+    if (dst == NULL || cap == 0) return;
+    remaining = cap - 1; /* keep the last byte for the terminator */
+    for (pos = 0; src != NULL && pos < n && remaining > 0; pos++) {
         const char *esc = NULL;
-        switch (*c) {
+        unsigned char ch = (unsigned char) src[pos];
+        switch (ch) {
             case  '"': esc = "\\\""; break;
             case '\\': esc = "\\\\"; break;
             case '\b': esc = "\\b"; break;
@@ -116,29 +112,57 @@ char * convert_string_to_json_compatible (char * p, int size){
             case '\r': esc = "\\r"; break;
             case '\t': esc = "\\t"; break;
             default:
-                if ((unsigned char) *c <= '\x1f') {
-                    if (remaining < 6) { c++; goto done; }
-                    snprintf(r, 7, "\\u%04x", (int)(unsigned char)(*c));
+                if (ch <= 0x1f) {
+                    if (remaining < 6) goto done;
+                    snprintf(r, 7, "\\u%04x", (int) ch);
                     r += 6;
                     remaining -= 6;
-            	} else {
-                    *r = *c; r++;
+                } else {
+                    *r++ = (char) ch;
                     remaining--;
-            	}
+                }
                 break;
-        } //end of switch
+        }
         if (esc != NULL) {
-            if (remaining < 2) { c++; goto done; }
+            if (remaining < 2) goto done;
             memcpy(r, esc, 2); r += 2;
             remaining -= 2;
         }
-        //end string
-        *r = '\0';
-        c++;
-    } //end of for
+    }
 done:
     *r = '\0';
+}
+
+/* Heap form of json_escape_into(): non-positive sizes are rejected. */
+char * convert_string_to_json_compatible (char * p, int size){
+    char * result = NULL;
+    if (p == NULL || size <= 0) return NULL;
+    if ((size_t) size > (SIZE_MAX - 1) / 6) return NULL;
+    result = xmalloc ((size_t) size * 6 + 1);
+    if (result == NULL) return NULL;
+    json_escape_into(result, (size_t) size * 6 + 1, p, (size_t) size);
     return result;
+}
+
+static void json_grow_append(char **buf, size_t *cap, const char *src);
+
+/* {"<proto>.<att>":"<value>[: <value2>]"}, appended in pieces: an escaped
+ * payload or header can be longer than store_history()'s fixed json_buff1,
+ * where snprintf() would cut the closing quote and brace off (#510). */
+static void json_append_string_attr(char **buf, size_t *cap, const char *proto,
+        const char *att, const char *value, const char *value2)
+{
+    json_grow_append(buf, cap, "{\"");
+    json_grow_append(buf, cap, proto != NULL ? proto : "(null)");
+    json_grow_append(buf, cap, ".");
+    json_grow_append(buf, cap, att != NULL ? att : "(null)");
+    json_grow_append(buf, cap, "\":\"");
+    json_grow_append(buf, cap, value != NULL ? value : "");
+    if (value2 != NULL) {
+        json_grow_append(buf, cap, ": ");
+        json_grow_append(buf, cap, value2);
+    }
+    json_grow_append(buf, cap, "\"},");
 }
 
 static void json_grow_append(char **buf, size_t *cap, const char *src) {
@@ -190,13 +214,19 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
         if (utime != NULL) tvp = *(struct timeval *) utime;
     }
 
-    snprintf(json_buff, json_cap, "\"timestamp\":%lu.%06lu", tvp.tv_sec, (long) tvp.tv_usec);
+    snprintf(json_buff, json_cap, "\"timestamp\":%lu.%06lu", tvp.tv_sec, (unsigned long) tvp.tv_usec);
 
     int having_ip_src = 0, having_ip_dst = 0, having_mac_src = 0, having_mac_dst = 0;
     const char *proto_name, *att_name;
 
     if (cause != NULL && *cause != '\0') {
-        snprintf(json_buff1, json_cap1, ",\"description\":\"%s\"", cause);
+        {
+            /* the cause quotes the rule's event description — escape it
+             * like every other string value (F-BUG-209, #510) */
+            char cause_esc[SIZE_CAUSE * 6 + 1];
+            json_escape_into(cause_esc, sizeof cause_esc, cause, strnlen(cause, SIZE_CAUSE));
+            snprintf(json_buff1, json_cap1, ",\"description\":\"%s\"", cause_esc);
+        }
         json_grow_append(&json_buff, &json_cap, json_buff1);
         json_grow_append(&json_buff, &json_cap, ",\"attributes\":[");
 
@@ -244,8 +274,12 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                     break;
                 }
                 case MMT_DATA_FLOAT:
-                    snprintf(json_buff1, json_cap1, "{\"%s.%s\":%f},", proto_name,
-                            att_name, (double) *(float*) (data1));
+                    /* %f prints nan/inf, which are not JSON values (#510) */
+                    if (isfinite(*(float*) (data1)))
+                        snprintf(json_buff1, json_cap1, "{\"%s.%s\":%f},", proto_name,
+                                att_name, (double) *(float*) (data1));
+                    else
+                        snprintf(json_buff1, json_cap1, "{\"%s.%s\":null},", proto_name, att_name);
                     json_grow_append(&json_buff, &json_cap, json_buff1);
                     break;
                 case MMT_DATA_MAC_ADDR:
@@ -259,16 +293,17 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                 case MMT_DATA_TIMEVAL: {
                     struct timeval tv = *(struct timeval *) (data1);
                     snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%lu.%06lu\"},", proto_name,
-                            att_name, tv.tv_sec, (long) tv.tv_usec);
+                            att_name, tv.tv_sec, (unsigned long) tv.tv_usec);
                     json_grow_append(&json_buff, &json_cap, json_buff1);
                     break;
                 }
                 case MMT_DATA_IP_ADDR:
                     if(proto_name!=NULL && att_name!=NULL && *((char*)data1)!=0){
-                       L1 = (*(unsigned long*)(data1)&0x000000ff);
-                       L2 = (*(unsigned long*)(data1)&0x0000ff00)>>8;
-                       L3 = (*(unsigned long*)(data1)&0x00ff0000)>>16;
-                       L4 = (*(unsigned long*)(data1)&0xff000000)>>24;
+                       /* byte by byte: an LP64 unsigned long read 8 bytes (#511) */
+                       L1 = ((const uint8_t *) (data1))[0];
+                       L2 = ((const uint8_t *) (data1))[1];
+                       L3 = ((const uint8_t *) (data1))[2];
+                       L4 = ((const uint8_t *) (data1))[3];
                        snprintf(json_buff1, json_cap1,"{\"%s.%s\":\"%lu.%lu.%lu.%lu\"},", proto_name, att_name, L1, L2, L3, L4);
                     }else
                        snprintf(json_buff1, json_cap1,"{\"x.x\":\"0.0.0.0\"},");
@@ -302,7 +337,8 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                     int hl_len = ((mmt_header_line_t *)data1)->len;
                     if (hl_len < 0) hl_len = 0;
                     if (hl_len > 512) hl_len = 512;
-                    buff = xmalloc (hl_len + 1);
+                    /* packet bytes: escaped, not copied raw (F-BUG-209, #510) */
+                    buff = xmalloc ((size_t) hl_len * 6 + 1);
                     if(buff == NULL){
                         /* F-BUG-096 (#209): the old `break` only left the
                          * switch — the loop kept appending into the freed
@@ -311,8 +347,8 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                          * path now reaches the single cleanup exit. */
                         goto cleanup;
                     }
-                    memcpy(buff, ((mmt_header_line_t *)data1)->ptr, hl_len);
-                    buff[hl_len] ='\0';
+                    json_escape_into(buff, (size_t) hl_len * 6 + 1,
+                            ((mmt_header_line_t *)data1)->ptr, (size_t) hl_len);
 					snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%s\"},", proto_name,
 							att_name, (char *)buff);
                     xfree(buff);
@@ -328,9 +364,9 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                     if (slen > data_size - (int)sizeof(int)) slen = data_size - (int)sizeof(int);
                     if (slen > 512) slen = 512;
                     if (slen < 0) slen = 0;
-                    char tmp_str[513];
-                    memcpy(tmp_str, (char*)(data1 + sizeof(int)), slen);
-                    tmp_str[slen]='\0';
+                    /* packet bytes: escaped, not copied raw (F-BUG-209, #510) */
+                    char tmp_str[512 * 6 + 1];
+                    json_escape_into(tmp_str, sizeof tmp_str, (char*)(data1 + sizeof(int)), (size_t) slen);
                     snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%s\"},", proto_name, att_name, tmp_str);
                     json_grow_append(&json_buff, &json_cap, json_buff1);
                     break;
@@ -347,17 +383,18 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                     if (data_size < 0) data_size = 0;
                     data2 = db1->data;
                     if (data_size == 4) {
-                        L1 = (*(unsigned long*)(data2)&0x000000ff);
-                        L2 = (*(unsigned long*)(data2)&0x0000ff00)>>8;
-                        L3 = (*(unsigned long*)(data2)&0x00ff0000)>>16;
-                        L4 = (*(unsigned long*)(data2)&0xff000000)>>24;
+                        /* byte by byte: an LP64 unsigned long read 8 bytes (#511) */
+                        L1 = ((const uint8_t *) (data2))[0];
+                        L2 = ((const uint8_t *) (data2))[1];
+                        L3 = ((const uint8_t *) (data2))[2];
+                        L4 = ((const uint8_t *) (data2))[3];
                         snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%lu.%lu.%lu.%lu\"},", proto_name, att_name, L1, L2, L3, L4);
                         json_grow_append(&json_buff, &json_cap, json_buff1);
                     } else if (data_size == 6) {
                         int close_tag=NO;
                         for (j = 0; j < data_size; j++) {
                             if (j == 0) {
-                                snprintf(json_buff1, json_cap1, "{\"%s.%s\":%2.2X", proto_name,
+                                snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%2.2X", proto_name,
                                         att_name, *((unsigned char*) data2 + j));
                                 close_tag=YES;
                             } else {
@@ -365,8 +402,9 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                             }
                             json_grow_append(&json_buff, &json_cap, json_buff1);
                         }
+                        /* quoted: a bare AA:BB:.. is not a JSON value */
                         if(close_tag==YES)
-                          json_grow_append(&json_buff, &json_cap, "},");
+                          json_grow_append(&json_buff, &json_cap, "\"},");
                     } else {
                         int close_tag=NO;
                         for (j = 0; j < data_size; j++) {
@@ -398,8 +436,7 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
 									  /* NULL on non-positive size or OOM — a NULL %s
 									   * argument is undefined; skip the attribute */
 									  if (new_data_pointer != NULL) {
-										  snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%s\"},", proto_name, att_name, (char*) (new_data_pointer));
-										  json_grow_append(&json_buff, &json_cap, json_buff1);
+										  json_append_string_attr(&json_buff, &json_cap, proto_name, att_name, new_data_pointer, NULL);
 										  xfree (new_data_pointer);
 									  }
 								  }
@@ -413,8 +450,7 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                         char *esc = convert_string_to_json_compatible((char *) data1,
                                 (int) strnlen((char *) data1, STRING_DATA_LEN));
                         if (esc != NULL) {
-                            snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%s\"},", proto_name, att_name, esc);
-                            json_grow_append(&json_buff, &json_cap, json_buff1);
+                            json_append_string_attr(&json_buff, &json_cap, proto_name, att_name, esc, NULL);
                             xfree(esc);
                         }
                     }
@@ -429,9 +465,8 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
                         char *esc2 = convert_string_to_json_compatible(
                                 ghl->hvalue != NULL ? (char *) ghl->hvalue : "",
                                 (int) (ghl->hvalue != NULL ? strlen(ghl->hvalue) : 0));
-                        snprintf(json_buff1, json_cap1, "{\"%s.%s\":\"%s: %s\"},", proto_name, att_name,
+                        json_append_string_attr(&json_buff, &json_cap, proto_name, att_name,
                                 esc != NULL ? esc : "", esc2 != NULL ? esc2 : "");
-                        json_grow_append(&json_buff, &json_cap, json_buff1);
                         if (esc != NULL) xfree(esc);
                         if (esc2 != NULL) xfree(esc2);
                     }
@@ -466,10 +501,11 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
             data1 = NULL;
         	data1 = get_attribute_extracted_data(ctx->pkt, 178, 12);
             if(data1!= NULL && *((char*)data1)!=0){
-                L1 = (*(unsigned long*)(data1)&0x000000ff);
-                L2 = (*(unsigned long*)(data1)&0x0000ff00)>>8;
-                L3 = (*(unsigned long*)(data1)&0x00ff0000)>>16;
-                L4 = (*(unsigned long*)(data1)&0xff000000)>>24;
+                /* byte by byte: an LP64 unsigned long read 8 bytes (#511) */
+                L1 = ((const uint8_t *) (data1))[0];
+                L2 = ((const uint8_t *) (data1))[1];
+                L3 = ((const uint8_t *) (data1))[2];
+                L4 = ((const uint8_t *) (data1))[3];
         		snprintf(json_buff1, json_cap1,"{\"ip.src\":\"%lu.%lu.%lu.%lu\"},", L1, L2, L3, L4);
         	    json_grow_append(&json_buff, &json_cap, json_buff1);
        	   }else if( having_mac_src == 0 ){
@@ -489,10 +525,11 @@ void store_history( verify_ctx_t *ctx, enum_operation_type context, rule *curr_r
             data1 = NULL;
             data1 = get_attribute_extracted_data(ctx->pkt, 178, 13);
             if(data1!=NULL && *((char*)data1)!=0){
-                L1 = (*(unsigned long*)(data1)&0x000000ff);
-                L2 = (*(unsigned long*)(data1)&0x0000ff00)>>8;
-                L3 = (*(unsigned long*)(data1)&0x00ff0000)>>16;
-                L4 = (*(unsigned long*)(data1)&0xff000000)>>24;
+                /* byte by byte: an LP64 unsigned long read 8 bytes (#511) */
+                L1 = ((const uint8_t *) (data1))[0];
+                L2 = ((const uint8_t *) (data1))[1];
+                L3 = ((const uint8_t *) (data1))[2];
+                L4 = ((const uint8_t *) (data1))[3];
 				snprintf(json_buff1, json_cap1,"{\"ip.dst\":\"%lu.%lu.%lu.%lu\"},", L1, L2, L3, L4);
 			    json_grow_append(&json_buff, &json_cap, json_buff1);
 		    }else if( having_mac_dst == 0 ){
@@ -577,19 +614,21 @@ void store_tuples( verify_ctx_t *ctx, enum_operation_type context, rule *curr_ru
                     temp_tuple->protocol_id, temp_tuple->field_id);
             //exit(-1);
         } else {
-            temp_tuple->data_size = get_data_size_by_proto_and_field_ids(temp_tuple->protocol_id, temp_tuple->field_id);
+            /* a pointer-typed attribute's datum is the NUL-terminated string
+             * itself (#326). Its storage belongs to the packet or session —
+             * released when the next packet starts (#506) — so the tuple
+             * keeps a copy of the string, terminator included, not the
+             * pointer: a reference outlives the packet it came from. */
+            if (temp_tuple->data_type_id == MMT_STRING_DATA_POINTER)
+                temp_tuple->data_size = (int) (strlen((const char *) data) + 1);
+            else
+                temp_tuple->data_size = get_data_size_by_proto_and_field_ids(temp_tuple->protocol_id, temp_tuple->field_id);
             temp_tuple->valid = FOUND;
             temp_tuple->data = (void *) xmalloc(temp_tuple->data_size);
             if (temp_tuple->data == NULL) {
                 return;
             }
-            /* a pointer-typed attribute's datum is the pointer itself —
-             * store the pointer value so references can compare the
-             * pointed-to string (#326) */
-            if (temp_tuple->data_type_id == MMT_STRING_DATA_POINTER)
-                memcpy(temp_tuple->data, &data, temp_tuple->data_size);
-            else
-                memcpy(temp_tuple->data, data, temp_tuple->data_size);
+            memcpy(temp_tuple->data, data, temp_tuple->data_size);
         }
         temp_tuple = temp_tuple->next;
     }
@@ -848,6 +887,53 @@ static int gc_append(char **buf, size_t *cap, size_t *len, const char *src, size
     return 0;
 }
 
+/* The reaction folder: MMT_SEC_REACTION_DIR when it holds an absolute path,
+ * else $(MMT_BASE)/probe/conf as baked in at build time
+ * (MMT_SEC_REACTION_DIR_OPT, rules/common.mk) — #512: it was a hard-coded
+ * /opt/mmt/probe/conf/. */
+static const char *reaction_dir(void)
+{
+    const char *d = secure_getenv("MMT_SEC_REACTION_DIR");
+    if (d != NULL && d[0] == '/') return d;
+    if (d != NULL && d[0] != '\0')
+        (void)fprintf(stderr, "Error 22c: MMT_SEC_REACTION_DIR is not an absolute path, using %s\n", MMT_SEC_REACTION_DIR_OPT);
+    return MMT_SEC_REACTION_DIR_OPT;
+}
+
+#define DETECTION_FILE_TRIES 1000
+
+/* Claims the next free detection_<n>.data in dir. The file is created with
+ * O_CREAT|O_EXCL|O_NOFOLLOW and mode 0600, so an existing file or a planted
+ * symlink is never truncated or followed: its number is skipped (#512 — the
+ * predictable name used to be fopen'ed "w+"). The path is left in path. */
+static FILE *open_detection_file(const char *dir, char *path, size_t cap)
+{
+    int i;
+    for (i = 0; i < DETECTION_FILE_TRIES; i++) {
+        int fd;
+        counter_detection++;
+        if (snprintf(path, cap, "%s/detection_%ld.data", dir, counter_detection) >= (int) cap) {
+            (void)fprintf(stderr, "Error 22d: Reaction directory path too long: %s\n", dir);
+            return NULL;
+        }
+        fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+        if (fd >= 0) {
+            FILE *f = fdopen(fd, "w");
+            if (f == NULL) {
+                (void)close(fd);
+                (void)unlink(path);
+            }
+            return f;
+        }
+        if (errno != EEXIST && errno != ELOOP) {
+            (void)fprintf(stderr, "Error 22d: Cannot create %s: %s\n", path, strerror(errno));
+            return NULL;
+        }
+    }
+    (void)fprintf(stderr, "Error 22d: No free detection_<n>.data in %s\n", dir);
+    return NULL;
+}
+
 char *generate_command( const ipacket_t *pkt, rule *r, char * input )
 {
     //input: "name_of_script parameters" where parameters can be constants or variables (e.g., script(1,META.PROTO.3) )
@@ -858,6 +944,10 @@ char *generate_command( const ipacket_t *pkt, rule *r, char * input )
     size_t out_cap = 0, out_len = 0;
     int oom = 0;
     tuple *list_of_tuples = r->list_of_tuples;
+    const char *dir = reaction_dir();
+    char *dir_arg = NULL;
+    char pythonDataFileName[4096];
+    FILE * pythonDataFile = NULL;
 
     // Start with expansion room for quoting; the buffer grows further on
     // demand so escaped substitutions can never overrun it.
@@ -873,7 +963,12 @@ char *generate_command( const ipacket_t *pkt, rule *r, char * input )
     //Copy input to output, replacing the variables with the values recovered below
     // if a value is not available then print an error and return NULL!
 
-    oom |= gc_append(&output, &out_cap, &out_len, "/opt/mmt/probe/conf/./", 22);
+    /* the folder is configuration, not rule text: quoted as one shell word */
+    dir_arg = escape_shell_arg(dir);
+    if (dir_arg == NULL) goto fail;
+    oom |= gc_append(&output, &out_cap, &out_len, dir_arg, strlen(dir_arg));
+    oom |= gc_append(&output, &out_cap, &out_len, "/./", 3);
+    xfree(dir_arg);
 
     tempi = input;
     while (*tempi == ' ') tempi++;
@@ -893,7 +988,10 @@ char *generate_command( const ipacket_t *pkt, rule *r, char * input )
     tempi++; //skip '('
     oom |= gc_append(&output, &out_cap, &out_len, " ", 1);
     //we have: "script_name "
-    counter_detection++;
+    //Put data in file with name: detection_<counter_detection>.data
+    //Will be used by python script
+    pythonDataFile = open_detection_file(dir, pythonDataFileName, sizeof pythonDataFileName);
+    if (pythonDataFile == NULL) goto fail;
     snprintf(numbuf, sizeof(numbuf), "%ld ", counter_detection);
     oom |= gc_append(&output, &out_cap, &out_len, numbuf, strlen(numbuf));
 
@@ -952,13 +1050,7 @@ char *generate_command( const ipacket_t *pkt, rule *r, char * input )
         if (!closed) (void)fprintf(stderr, "Error 22x: missing ')' in: %s\n", input);
         goto fail;
     }
-    //Put data in file with name: detection_<counter_detection>.data
-    //Will be used by python script
-    FILE * pythonDataFile;
-    char pythonDataFileName[50];
     rule * rr = NULL;
-    snprintf(pythonDataFileName, 50, "/opt/mmt/probe/conf/detection_%ld.data", counter_detection);
-    pythonDataFile = open_file(pythonDataFileName, "w+");
     if(r->root != NULL) rr = r->root;
     else rr = r;
     if(rr->type_rule == ATTACK)             fprintf(pythonDataFile,"attack\n"); 
@@ -971,9 +1063,18 @@ char *generate_command( const ipacket_t *pkt, rule *r, char * input )
     else                                    fprintf(pythonDataFile,"history\n");
     fprintf(pythonDataFile,"%d\n", rr->property_id);
     fprintf(pythonDataFile,"detected");
-    close_file(pythonDataFile);
+    if (fclose(pythonDataFile) != 0) {
+        (void)fprintf(stderr, "Error 22d: Cannot write %s: %s\n", pythonDataFileName, strerror(errno));
+        (void)unlink(pythonDataFileName);
+        xfree(output);
+        return NULL;
+    }
     return output;
 fail:
+    if (pythonDataFile != NULL) {
+        (void)fclose(pythonDataFile);
+        (void)unlink(pythonDataFileName);
+    }
     xfree(output);
     return NULL;
 }
@@ -1073,8 +1174,9 @@ void rule_is_satisfied_or_not( verify_ctx_t *ctx, rule *r, enum_print state ) {
     }
 
     /* Reaction scripts are resolved from the folder generate_command
-     * prepends (/opt/mmt/probe/conf/) and run in the current working
-     * directory of the engine process. */
+     * prepends (reaction_dir(): MMT_SEC_REACTION_DIR or
+     * $(MMT_BASE)/probe/conf) and run in the current working directory of
+     * the engine process. */
     void *data = NULL;
     short do_it = 0;
     char * what_to_do = NULL;
@@ -1110,33 +1212,27 @@ void rule_is_satisfied_or_not( verify_ctx_t *ctx, rule *r, enum_print state ) {
             } else {
                 char * funct_name = funct_extract_name(what_to_do);
                 int data_size = 0;
+                if (funct_name == NULL) return;
+                /* checked when the rule was loaded (#511) */
+                embedded_funct_t funct = embedded_funct_resolve(funct_name);
                 char * command = strchr(what_to_do, '(');
-                command++;
-                while (*command == ' ') command++;
-                char * command2;
-                tuple * top_tuple = (tuple *) xmalloc(sizeof (tuple));
-                if(top_tuple == NULL){
+                if (funct == NULL || command == NULL) {
                     xfree(funct_name);
                     return;
                 }
-                top_tuple->protocol_id = -1;
-                top_tuple->field_id = -1;
-                top_tuple->data_type_id = -1;
-                top_tuple->data_size = -1;
-                top_tuple->event_id = -1;
-                top_tuple->valid = NOT_YET; //not used in this context
-                top_tuple->data = NULL;
-                top_tuple->next = NULL;
-                tuple * a_tuple = top_tuple;
+                command++;
+                while (*command == ' ') command++;
+                char * command2 = command;
+                tuple * top_tuple = NULL;
+                tuple ** link = &top_tuple;
+                tuple * a_tuple;
                 tuple * new_tuple;
-
-                command2 = funct_get_info_param( ctx->pkt->mmt_handler, NOT_USED, command, a_tuple);
-                while( command2 ) {
+                int bad = 0;
+                while (*command2 != ')') {
                     new_tuple = (tuple *)xmalloc(sizeof (tuple));
                     if(new_tuple == NULL){
-                        xfree(top_tuple);
-                        xfree(funct_name);
-                        return;
+                        bad = 1;
+                        break;
                     }
                     new_tuple->protocol_id = -1;
                     new_tuple->field_id = -1;
@@ -1146,15 +1242,21 @@ void rule_is_satisfied_or_not( verify_ctx_t *ctx, rule *r, enum_print state ) {
                     new_tuple->valid = NOT_YET; //not used in this context
                     new_tuple->data = NULL;
                     new_tuple->next = NULL;
-                    if(a_tuple != NULL){
-                        a_tuple->next = new_tuple;
-                        a_tuple = new_tuple;
-                        command2 = funct_get_info_param(ctx->pkt->mmt_handler, NOT_USED, command2, a_tuple);
+                    *link = new_tuple;
+                    link = &new_tuple->next;
+                    if (funct_get_info_param(ctx->pkt->mmt_handler, NOT_USED, command2, new_tuple, &command2) != 0) {
+                        bad = 1;
+                        break;
                     }
+                    if (command2 == NULL) break;
                 }
-                enum_found found = NOT_FOUND; //not used in this context
-                data = funct_get_params_and_execute( ctx, funct_name, data_size, top_tuple, r->list_of_tuples, &found);
-                xfree(data);
+                if (bad == 0) {
+                    enum_found found = NOT_FOUND; //not used in this context
+                    data = funct_get_params_and_execute( ctx, funct, data_size, top_tuple, r->list_of_tuples, &found);
+                    xfree(data);
+                } else {
+                    (void)fprintf(stderr, "Error 22b: Reaction \"%s\" not executed.\n", what_to_do);
+                }
                 a_tuple = top_tuple;
                 while (a_tuple != NULL) {
                     new_tuple = a_tuple;

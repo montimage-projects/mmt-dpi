@@ -25,8 +25,11 @@ curl -fsSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/ins
 ```
 
 This script (`install.sh`):
-1. Detects your distribution and installs an equivalent distro-specific build
-   dependency set (`install.sh:381-454`); the reference list is
+1. Detects your distribution and installs the default-profile build set
+   (compiler, `make`, `git`) plus libpcap for the example programs
+   (`install.sh:386-453`) — not libxml2, which only `ENABLESEC=1` needs. What
+   each package list holds is recorded in `tools/ci/build-deps.txt`; the
+   developer toolchain line is in
    [Agent Environment Notes §1 Toolchain Requirements](./AGENT_ENVIRONMENT.md#1-toolchain-requirements).
 2. Clones the pinned release tag into a temporary directory and verifies it
    (commit pin, plus the tag signature when present — issue #197).
@@ -124,7 +127,7 @@ callbacks, statistics), one `mmt_handler_t` per packet stream. The order is:
    `register_extraction_attribute_by_name()`, and optionally packet-,
    attribute- or session-level callbacks. Each returns `false` on failure.
 4. Feed packets in with `packet_process()`
-   (`src/mmt_core/src/packet_pipeline.c:1389`); it returns `false` when a
+   (`src/mmt_core/src/packet_pipeline.c:1505`); it returns `false` when a
    packet could not be processed, and later packets can still be fed.
 5. Release every handler with `mmt_close_handler()`: it expires the
    handler's sessions, frees everything the handler owns and removes it from

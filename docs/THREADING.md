@@ -153,6 +153,39 @@ tables are shared by every handler, and the S1AP protocol-cleanup callback
 (run when a handler is closed) and `s1ap_entities_reset()` clear both of them
 — for all handlers, not just the one being closed.
 
+Attribute extraction parses each S1AP packet once into a per-thread cache
+(issue #507, `_extraction_att()` in `src/mmt_mobile/proto_s1ap.c`). The cache is keyed by the handler, the per-handler `packet_id`
+and a generation counter the store bumps each time it is cleared, and it holds
+copies of the packet's entities taken under `mutex`, never pointers into the
+shared list — so a thread driving several handlers, or a handler outliving
+another one's close, never reads another packet's data or a freed entity.
+
+The NAS decoders under `src/mmt_mobile/nas/` keep no global state: each one
+returns its error code (issue #507 removed the process-global
+`errorCodeDecoder` every decoding thread wrote; see `src/mmt_mobile/nas/util/decoder.h`).
+
+### Exception: the security rule engine — one engine per process
+
+The optional rule engine (`libmmt_security`, built with `ENABLESEC=1`) keeps
+its whole state in process globals: the rule list `top_rule`, the options
+`op`, the loader's father stack and the reaction counter
+(`src/mmt_security/tips_internal.h`). So a process runs **one** engine, on
+**one** handler:
+
+- `init_sec_lib()` loads the rule file and registers the engine's packet
+  handler on the `mmt_handler_t` it is given. It succeeds at most once per
+  process: a second call returns `-1` ("Error 105") without allocating
+  anything or touching the loaded rules (issue #512,
+  `engine_state` and `init_sec_lib()` in `src/mmt_security/tips.c`). The
+  engine is claimed with an atomic compare-and-swap, so of two threads that
+  race to initialise it exactly one wins.
+- A load that fails — unreadable or malformed rule file, missing embedded
+  function — returns `-1`, frees everything it built and releases the claim,
+  so the process may call `init_sec_lib()` again.
+- Packets reach the engine through that one handler, so the "one handler per
+  worker" rule makes the engine single-threaded: feed the handler from one
+  thread only. There is no unload; the engine lives until the process exits.
+
 ## Per-handler state (not shared)
 
 The following live inside `mmt_handler_t` and are private to the owning thread,

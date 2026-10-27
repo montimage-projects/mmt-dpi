@@ -52,22 +52,47 @@ jobs:
     # Toolchain-floor gate (issue #218, F-DEP-207): the declared floor is
     # GCC 11 / glibc 2.34 / libstdc++ 11 (rules/common.mk, enforced by
     # rules/arch-linux.mk) — the oldest toolchain the release matrix builds
-    # on. ubuntu-22.04 is the oldest GitHub-hosted runner image and ships
-    # GCC 11.4, so this job proves the floor instead of merely asserting
-    # it: a change that silently requires a newer compiler fails here.
-    runs-on: ubuntu-22.04
+    # on. The digest-pinned ubuntu:22.04 container ships GCC 11.4, so this
+    # job proves the floor instead of merely asserting it: a change that
+    # silently requires a newer compiler fails here. A container on
+    # ubuntu-24.04, not the ubuntu-22.04 runner image, which GitHub
+    # deprecated on 2026-09-17 and removes on 2027-04-17 (issue #516); the
+    # job keeps its name, so the required context is unchanged. The image
+    # retires on the date tools/ci/base-images.txt records (docs/DECISIONS.md).
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
+    container:
+      image: "ubuntu:22.04@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b"
     steps:
+    # git first, so actions/checkout makes a real clone (without git it
+    # downloads a tarball with no history, and the suites read the tree with
+    # git). archive.ubuntu.com fails an index fetch while a mirror syncs ("File
+    # has unexpected size") and this is a required check: retry the update,
+    # and make every later apt call in the container retry its fetches too.
+    - name: Install git for the checkout
+      run: |
+        echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
+        for i in 1 2 3; do apt-get update -qq && break; [ "$i" = 3 ] && exit 1; sleep 30; done
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git ca-certificates
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-    - uses: ./.github/actions/bootstrap-deps
-    - name: Assert the runner sits at the declared floor
+    # The build dependency set of the release containers, plus the tools the
+    # hosted runner image provides and the suites call (jq, pkg-config,
+    # curl). The suites then run as an unprivileged user, as on a hosted
+    # runner: as root, the installer suites skip their non-root checks.
+    - name: Install the floor toolchain and the suite prerequisites
+      run: |
+        bash tools/ci/install-build-deps.sh ubuntu-22.04 deb
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq pkg-config curl
+        useradd --create-home floor
+        chown -R floor: "$GITHUB_WORKSPACE"
+    - name: Assert the container sits at the declared floor
       run: |
         gcc --version | head -1
         test "$(gcc -dumpfullversion | cut -d. -f1)" -eq 11
     - name: Build the SDK on the floor toolchain
-      run: make -C sdk -j"$(nproc)"
+      run: runuser -u floor -- make -C sdk -j"$(nproc)"
     - name: Run unit test suites
-      run: bash tests/run_all_tests.sh
+      run: runuser -u floor -- bash tests/run_all_tests.sh
 
   sanitizer-tests:
     # Run the unit suites (tests/run_all_tests.sh) under the sanitizer
@@ -133,7 +158,7 @@ jobs:
       # Also after a failed gate: sdk-coverage.json names the vanished source
       # or the broken floor (issue #388).
       if: success() || failure()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: unit-suite-coverage
         path: tests/coverage/
@@ -145,15 +170,36 @@ jobs:
     # on the committed findings ratchet (tools/ci/cppcheck-ratchet.txt) and
     # publishes its findings as a report artifact. The generated ASN.1 tree
     # (src/mmt_mobile/asn1c) is excluded from the scan.
+    #
+    # The ratchet is only comparable under one cppcheck release (issue #345),
+    # so the job runs in the digest-pinned ubuntu:24.04 container and builds
+    # that release (CPPCHECK_PINNED_VERSION, tools/ci/run-cppcheck.sh) from
+    # its checksum-pinned source tarball with tools/ci/install-cppcheck.sh
+    # (issue #518): neither a runner-image refresh nor an apt archive update
+    # can move the analyser under the baseline. shellcheck comes from the
+    # container's apt, the same 0.9 release the ubuntu-24.04 runner ships.
     runs-on: ubuntu-24.04
-    # cppcheck scans the whole tree single-threaded; measured at ~65-90 min on
-    # a hosted runner.
+    # cppcheck scans the whole tree; measured at ~65-90 min on a hosted runner.
     timeout-minutes: 120
+    container:
+      image: "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c"
     steps:
+    # git first, so actions/checkout makes a real clone (shellcheck lists the
+    # tracked scripts with git ls-files); retried as in toolchain-floor.
+    - name: Install git, shellcheck and the cppcheck build prerequisites
+      run: |
+        echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
+        for i in 1 2 3; do apt-get update -qq && break; [ "$i" = 3 ] && exit 1; sleep 30; done
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+          git ca-certificates curl shellcheck g++ make python3
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-    - uses: ./.github/actions/bootstrap-deps
-      with:
-        extra-packages: shellcheck cppcheck
+    # The checkout is owned by the runner UID but the container runs as
+    # root: without this, git ls-files dies on "dubious ownership" and
+    # shellcheck would be handed no files.
+    - name: Mark the checkout as a safe git directory
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+    - name: Build the pinned cppcheck release from source
+      run: bash tools/ci/install-cppcheck.sh
     - name: shellcheck (all tracked shell scripts, blocking)
       run: shellcheck $(git ls-files '*.sh')
     - name: cppcheck (error-severity gate + findings ratchet)
@@ -164,7 +210,7 @@ jobs:
       run: bash tools/ci/run-cppcheck.sh
     - name: Upload cppcheck findings report
       if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: cppcheck-findings-report
         path: cppcheck-report.xml
@@ -187,14 +233,14 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: ./.github/actions/bootstrap-deps
-    - uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+    - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
       with:
         languages: c-cpp
         queries: security-extended
         build-mode: manual
     - name: Build the SDK for CodeQL extraction
       run: make -C sdk ENABLESEC=1 -j"$(nproc)"
-    - uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+    - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
       with:
         category: "/language:c-cpp"
 
@@ -223,9 +269,9 @@ jobs:
         bash tools/ci/check-typed-accessors.sh
         bash tools/ci/lint-markers.sh --strict
     - name: Set up Ruby for the docs-site build
-      uses: ruby/setup-ruby@e8944e80fb94b20106697132f8c20c665fab29e9 # v1.325.0
+      uses: ruby/setup-ruby@b1da4809b005e0178fe08a1d57317bffc00b7b4c # v1.332.0
       with:
-        ruby-version: "3.3"
+        ruby-version: "3.4"
         working-directory: docs
         bundler-cache: true
       env:
@@ -253,6 +299,12 @@ jobs:
       # version/pin that drifts from the tree, a missing path, or a
       # tools/ci/vendor-paths.txt entry no component covers.
       run: python3 tools/ci/vendored-components.py check
+    - name: Licence notices and package licence expressions (blocking — issue #497)
+      # THIRD-PARTY-NOTICES is generated from that manifest; the check fails
+      # when it is stale, when sdk/Makefile's PKG_LICENSE/SEC_PKG_LICENSE
+      # differ from the expressions the evidence yields, or when a licence
+      # text under LICENSES/ is missing.
+      run: python3 tools/ci/vendored-components.py notices --check
     - name: Image digest pinning (blocking — issues #217, #491)
       # The gate condition holds — every image any workflow pulls is
       # name:tag@sha256-pinned and recorded in tools/ci/base-images.txt — so
@@ -278,6 +330,15 @@ jobs:
       # the build; the contradictions it tracked are closed, so a regression
       # now fails the job.
       run: bash tools/ci/check-package-deps.sh
+    - name: Build-dependency lists match their one source (blocking — issue #495)
+      # tools/ci/build-deps.txt says what each package list must hold; the
+      # lint extracts install.sh's branches, install-build-deps.sh, the rpm
+      # BuildRequires, the bootstrap action and the documented toolchain line
+      # and fails on any divergence. The self-test proves a diverging fixture
+      # fails.
+      run: |
+        bash tools/ci/check-dependency-lists.sh
+        bash tools/ci/tests/test-dependency-lists.sh
     - name: Commented-out code lint (blocking — issue #232)
       # The gate condition holds — zero commented-out statement blocks of
       # ≥5 lines — so this helper runs as an ordinary blocking step, not in
@@ -446,7 +507,7 @@ jobs:
     - name: Root install / uninstall round trip in ubuntu:24.04
       run: |
         docker run --rm -v "$PWD":/work -w /work \
-          "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254" \
+          "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c" \
           bash tools/ci/tests/run-root-install.sh --install-deps
 
   assertions-live:
@@ -573,7 +634,7 @@ jobs:
       run: bash tools/ci/run-fuzz.sh --seconds "${FUZZ_SECONDS}" --seed "${FUZZ_SEED}" --iterations "${FUZZ_ITER}" --artifacts fuzz-artifacts
     - name: Upload crash reproducers
       if: failure()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: fuzz-reproducers
         path: fuzz-artifacts/
@@ -600,7 +661,7 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Download crash reproducers
       continue-on-error: true   # the job can fail before recording any
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: fuzz-reproducers
         path: fuzz-artifacts/
@@ -642,7 +703,7 @@ jobs:
       run: python3 tools/ci/check-resource-budgets.py "${{ runner.temp }}/resource-bounds/results.json"
     - name: Upload resource-bound results
       if: success() || failure()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: resource-bounds-results-${{ runner.arch }}
         path: ${{ runner.temp }}/resource-bounds/results.json
@@ -663,9 +724,9 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: ./.github/actions/bootstrap-deps
     - name: Set up Ruby for the docs-site build
-      uses: ruby/setup-ruby@e8944e80fb94b20106697132f8c20c665fab29e9 # v1.325.0
+      uses: ruby/setup-ruby@b1da4809b005e0178fe08a1d57317bffc00b7b4c # v1.332.0
       with:
-        ruby-version: "3.3"
+        ruby-version: "3.4"
         working-directory: docs
         bundler-cache: true
       env:
@@ -676,3 +737,32 @@ jobs:
       env:
         DOCS_SITE_DIR: docs/_site
       run: bash tests/docs_onboarding/run_tests.sh
+
+  toolchain-ceiling:
+    # Toolchain-ceiling gate (issue #514, F-DEP-301/F-DEP-307): the newest GCC
+    # the SDK is checked against. ubuntu-26.04 ships GCC 15, whose default C
+    # dialect is C23. The SDK pins gnu17 (rules/arch-linux.mk); this job
+    # overrides the pin with MMT_EXTRA_CFLAGS=-std=gnu23 so the SDK — the
+    # explicit ENABLESEC=1 build and every SDK-building suite's internal build
+    # (make imports the variable from the environment) — compiles as C23. The
+    # suites' own test programs keep the -std their run_tests.sh pins (GCC
+    # 15's C23 default where none is pinned) and get the GCC >= 15
+    # diagnostics. The floor job above is unchanged. ubuntu-26.04 is a
+    # GitHub preview runner label.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      MMT_EXTRA_CFLAGS: -std=gnu23
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: ./.github/actions/bootstrap-deps
+      with:
+        extra-packages: jq
+    - name: Assert the runner is at or above the GCC 15 ceiling
+      run: |
+        gcc --version | head -1
+        test "$(gcc -dumpfullversion | cut -d. -f1)" -ge 15
+    - name: Build the SDK with the security engines as C23 (ENABLESEC=1)
+      run: make -C sdk ENABLESEC=1 -j"$(nproc)"
+    - name: Run unit test suites
+      run: bash tests/run_all_tests.sh

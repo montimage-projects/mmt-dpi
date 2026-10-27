@@ -32,17 +32,23 @@ the QoE demo, the prebuilt ZIP, the Debian packaging checklist).
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential gcc make libxml2-dev libpcap-dev libnghttp2-dev bash git pkg-config jq
+sudo apt-get install -y build-essential gcc g++ make git libxml2-dev libpcap-dev bash pkg-config jq
 ```
 
 | Package | Why it is needed |
 |---------|------------------|
 | `gcc`, `make` | The whole build (`rules/common-linux.mk:62` enables LTO for GCC only) |
-| `libpcap-dev` | Examples that read pcap files (`src/examples/`) |
+| `libpcap-dev` | Examples that read pcap files (`src/examples/`); no SDK library links it |
 | `libxml2-dev` | Only needed with `ENABLESEC=1` (`rules/common.mk:76-84`) |
-| `libnghttp2-dev` | Optional at build time — the Makefile auto-detects its absence and keeps building (`rules/common.mk:56-74`) |
 | `bash` | Test scripts are bash (`tests/run_all_tests.sh`) |
 | `jq` | JSON checks in the `release_gates`, `sdk_coverage` and `resource_bounds` suites and in `--coverage` mode |
+
+The build links no other third-party library (issue #495). This line and the
+executable lists — `install.sh`, `tools/ci/install-build-deps.sh`, the rpm
+`BuildRequires:` in `sdk/Makefile` and `.github/actions/bootstrap-deps` — are
+each checked against `tools/ci/build-deps.txt`, which records what every list
+must hold, by `tools/ci/check-dependency-lists.sh`: change a package there
+first.
 
 CI builds and tests on `ubuntu-24.04` (GCC 13) — see
 `.github/workflows/c-cpp.yml`. That is the reference toolchain.
@@ -56,18 +62,44 @@ Rocky 9 / CentOS Stream 9 and Ubuntu 22.04. The constants live in
 the detected compiler, the generated `.deb` declares the same glibc and
 libstdc++ floors in its `Depends:` line (`sdk/Makefile` `deb` target), and
 the `toolchain-floor` job in `c-cpp.yml` builds the SDK and runs the full
-suite on `ubuntu-22.04` (GCC 11.4) so the floor is exercised, not just
-asserted.
+suite, unprivileged, in a digest-pinned `ubuntu:22.04` container (GCC 11.4)
+on an `ubuntu-24.04` runner, so the floor is exercised, not just asserted.
+The CentOS Stream 9 and Ubuntu 22.04 images retire on 2027-04-30, before
+their end of life (issue #516): the `# retire-by:` date on their
+`tools/ci/base-images.txt` lines makes `tools/ci/check-image-digests.sh`
+warn 60 days ahead and fail from that date. The floor does not move with
+them — Rocky 9 (GCC 11, glibc 2.34) stays in the matrix; the schedule and
+the floor job's next image are in
+[DECISIONS.md](https://github.com/montimage-projects/mmt-dpi/blob/main/docs/DECISIONS.md).
+
+**C dialect and toolchain ceiling (issue #514, F-DEP-301/F-DEP-307):** the
+default GCC toolchain (`ARCH=linux`) compiles C as gnu17
+(`rules/arch-linux.mk:20-21`) — GCC 11–14 default to it, GCC 15 to gnu23.
+`MMT_EXTRA_CFLAGS` is appended after the pin, so its last `-std` wins:
+`make -C sdk ENABLESEC=1 MMT_EXTRA_CFLAGS=-std=gnu2x` builds the SDK as C23.
+Both apply to C only (C++ keeps `CXX`/`CXXFLAGS`) and to the GCC toolchain
+only (`ARCH=linux-clang`/`linux-icc` are unchanged). The `toolchain-ceiling`
+job in `c-cpp.yml` runs on `ubuntu-26.04` (GCC ≥ 15, a GitHub preview runner
+label) with `MMT_EXTRA_CFLAGS=-std=gnu23`: it builds the SDK with
+`ENABLESEC=1` and runs the full suite, whose SDK-building suites inherit the
+variable and build the SDK as C23; the suites' own test programs keep the
+`-std` their `run_tests.sh` pins (GCC 15's C23 default where none is
+pinned). The floor job above is unchanged.
 
 **Package dependency declarations (issue #219):** the `.deb` `Depends:` and
-the `.rpm` `Requires:`/`BuildRequires:` are not hand-maintained lists —
+the `.rpm` `Requires:` are not hand-maintained lists (the `.rpm`
+`BuildRequires:` is a literal list, checked against `tools/ci/build-deps.txt`
+by `tools/ci/check-dependency-lists.sh` — issue #495) —
 `tools/ci/shlib-deps.sh` derives them at package-build time from the NEEDED
 entries `objdump -p` reports for the shipped `.so` files (the floors above
 survive as the `libc6`/`glibc` and `libstdc++6`/`libstdc++` entries).
 `tools/ci/build-package.sh` builds with `ENABLESEC=1` and verifies each
 artifact with `tools/ci/check-package-deps.sh --verify-package`, which
 compares `dpkg-deb -f` / `rpm -qp` output against the derived set and fails
-on divergence.
+on divergence. One entry is not derived: `mmt-dpi-security` (issue #497)
+requires exactly its own `mmt-dpi` version. `libmmt_security` resolves
+`libmmt_core` symbols at load time, which NEEDED does not show, and the
+check requires that sibling entry.
 
 **Reproducible packages (issue #220, F-CI-011):** `make -C sdk deb` /
 `make -C sdk rpm` are byte-deterministic for a given commit — the staging
@@ -97,26 +129,33 @@ Notes:
 - Clang is available via `make ARCH=linux-clang`; icc via `ARCH=linux-icc`
   (rule files in `rules/arch-*.mk`). GCC is the default and best-tested path.
 - A C++ compiler (`g++`, pulled in by `build-essential`) is required because
-  shared libraries are linked with `$(CXX)` (`rules/common-linux.mk:237`).
+  shared libraries are linked with `$(CXX)` (`rules/common-linux.mk:271`).
 - `cppcheck` is not in the toolchain line: only the `lint` job needs it.
   `tools/ci/run-cppcheck.sh` pins the release its findings ratchet
   (`tools/ci/cppcheck-ratchet.txt`) was measured with —
-  `CPPCHECK_PINNED_VERSION`, the major.minor of ubuntu-24.04's package
-  (2.13) — because other releases report a different total on unchanged
-  code (issue #345). Under `CI=true` a different version fails the script
-  (exit 2); locally it warns and treats the ratchet as advisory while the
-  error-severity gate stays enforced. For a CI-equivalent local verdict,
-  run it with cppcheck 2.13 (e.g. in an `ubuntu:24.04` container).
+  `CPPCHECK_PINNED_VERSION` (2.22) — because other releases report a
+  different total on unchanged code (issue #345). No distribution package
+  carries it: the `lint` job runs in the digest-pinned `ubuntu:24.04`
+  container and builds it from its sha256-pinned source tarball with
+  `tools/ci/install-cppcheck.sh` (issue #518). Under `CI=true` a different
+  version fails the script (exit 2); locally it warns and treats the
+  ratchet as advisory while the error-severity gate stays enforced. For a
+  CI-equivalent local verdict, build it the same way — in an `ubuntu:24.04`
+  container with `g++ make python3 curl ca-certificates`, run
+  `bash tools/ci/install-cppcheck.sh` — then run the gate there.
 
 ### Documentation-site toolchain
 
-The C SDK does not require Ruby. For the documentation site, use Ruby **3.3**
-as in CI (`.github/workflows/c-cpp.yml:225-230`), with Bundler to install
-the gems and run Jekyll. CI enables `bundler-cache` through `ruby/setup-ruby`
+The C SDK does not require Ruby. For the documentation site, use Ruby **3.4**
+as in CI (`.github/workflows/c-cpp.yml:271-276`), with Bundler to install
+the gems and run Jekyll; every workflow's `ruby-version:` is that same
+release (issue #517). CI enables `bundler-cache` through `ruby/setup-ruby`
 and verifies the committed `docs/Gemfile.lock` under `BUNDLE_FROZEN=true`
 (issue #372) — after changing `docs/Gemfile`, regenerate the lock
-(`bundle lock`) and commit it or the frozen install fails. With Ruby 3.3
-available:
+(`bundle lock`) and commit it or the frozen install fails. The Bundler
+release is the lock's `BUNDLED WITH` (4.0.x, issue #520): `ruby/setup-ruby`
+installs exactly that one, and an older local Bundler installs it and
+restarts with it. With Ruby 3.4 available:
 
 ```bash
 gem install bundler
@@ -124,7 +163,7 @@ gem install bundler
 ```
 
 `docs/Gemfile:12-17` defines Jekyll and its plugins. CI builds the site with
-`tools/ci/build-docs-site.sh` (`.github/workflows/c-cpp.yml:243`): source and
+`tools/ci/build-docs-site.sh` (`.github/workflows/c-cpp.yml:289`): source and
 built-site link checks around a frozen Jekyll 4 build, the lock-unchanged
 check, and a `docs/_site/build-manifest.json` recording the renderer versions,
 the lock digest and a site digest. GitHub Pages publishes the artifact that
@@ -175,8 +214,9 @@ All flags are passed as make variables, e.g. `make -C sdk DEBUG=1`.
 | `NDEBUG=1` | Keep debug/assert active (suppress `-DNDEBUG`; default build defines `-DNDEBUG`) | `rules/common.mk:38-43` |
 | `SHOWLOG=1` | Show `MMT_LOG()` output (`-DDEBUG`). ⚠ Prints decoded, subscriber-identifying fields (IMSI, M-TMSI, UE/eNB IPs, URLs) — build only for captures you may expose, never ship where output is collected (F-SEC-016, #214) | `rules/common.mk:159-171` |
 | `VALGRIND=1` | Valgrind-friendly instrumentation | `rules/common.mk:94-98` |
-| `TUNE=native` | Opt-in `-march=native` (unsafe for redistributed binaries — off by default) | `rules/common-linux.mk:149-157` |
+| `TUNE=native` | Opt-in `-march=native` (unsafe for redistributed binaries — off by default) | `rules/common-linux.mk:177-185` |
 | `VERBOSE=1` | Print full compile commands | `rules/common.mk:21-24` |
+| `MMT_EXTRA_CFLAGS=...` | Extra C flags appended after the gnu17 dialect pin (the last `-std` wins, e.g. `-std=gnu2x`); default GCC toolchain only | `rules/arch-linux.mk:20-21` |
 
 ## 3. Testing
 
@@ -216,8 +256,10 @@ the exact-release-SHA publish gate (`test-release-gates.py`, issue
 issue #345, and the version-agreement self-test `test-version-agreement.sh`,
 issue #483, the release-tag pin self-test `test-release-tag-pin.sh`, issue
 #484, the single-publisher self-test `test-release-publish.sh`, issue
-#489, and the vendored-inventory self-test `test-vendored-components.py`,
-issue #496) and the SDK integration coverage path (`test-sdk-coverage.sh`, issue
+#489, the vendored-inventory self-test `test-vendored-components.py`,
+issue #496, and the release-hardening self-test
+`test-hardening-identity.sh`, issue #508, which evaluates the makefiles
+without compiling) and the SDK integration coverage path (`test-sdk-coverage.sh`, issue
 #387); the first three build nothing, `sdk_coverage` builds its own
 `BUILD=coverage` SDK whatever the mode and cleans `sdk/` afterwards. `installed_consumer` (issue #374) drives the
 other
@@ -244,7 +286,7 @@ directly against sources under `src/` with plain `gcc`; suites that need the
 built SDK (`hashmap`, `citrix_ica_detection`, `http_header_case`,
 `s1ap_ngap_decode`, `rule_engine`, `nas_ies_tail`, `installer`,
 `installed_consumer`, `parser_boundaries`, `sdk_coverage`, `docs_lifecycle`, `docs_onboarding`, and the engine
-leg of `fault_injection`, `tests/fault_injection/run_tests.sh:90-92`) run `make -C sdk clean` and build
+leg of `fault_injection`, `tests/fault_injection/run_tests.sh:110-112`) run `make -C sdk clean` and build
 it themselves into a throwaway prefix, so running them discards an existing
 `sdk/` build. You
 can run one suite by passing its directory name:
@@ -265,7 +307,7 @@ skipped — the runner exits non-zero (issue #186).
   `rules/common.mk:120-127`) and sets `ASAN_OPTIONS=detect_leaks=0`
   (leak detection stays with Valgrind). The SDK-building suites inherit `BUILD=asan` for their internal SDK
   build, except `fault_injection`: its engine leg is skipped under sanitizers
-  while its unit leg still runs (`tests/fault_injection/run_tests.sh:77-82`).
+  while its unit leg still runs (`tests/fault_injection/run_tests.sh:97-102`).
 - `SANITIZE=tsan bash tests/run_all_tests.sh` — same with TSan
   (`rules/common.mk:150-157`). On kernels with high-entropy ASLR the runner
   re-execs itself once under `setarch -R`
@@ -372,7 +414,7 @@ documents link here.
   root install out; `LDCONF=1` forces registration; `LDCONF_DIR` and
   `LDCONFIG` relocate the drop-in and the command (the installer suite uses
   a staged directory and a fake `ldconfig`).
-- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:160-201`)
+- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:168-209`)
   removes exactly the entries `install` recorded in
   `<prefix>/.mmt-dpi-manifest` (one path per line, relative to the prefix,
   merged across reinstalls), then the SDK directories left empty (`rmdir`,
@@ -407,7 +449,7 @@ documents link here.
 
 ### The `make test` trap
 
-`sdk/Makefile`'s `test` target (`sdk/Makefile:453-458`) compiles the
+`sdk/Makefile`'s `test` target (`sdk/Makefile:597-602`) compiles the
 `proto_attributes_iterator` example **from the installed prefix**:
 
 ```
@@ -512,9 +554,16 @@ harness must be built with this profile — see
 ```
 
 In both profiles the release-hardening block (LTO, FORTIFY, stack protector,
-RELRO — `rules/common-linux.mk:66-163`) is automatically disabled, and the
+RELRO — `rules/common-linux.mk:85-193`) is automatically disabled, and the
 `-Wl,-z,defs` self-containedness guard is skipped because sanitizer runtime
-symbols are intentionally left undefined (`rules/common-linux.mk:202-214`).
+symbols are intentionally left undefined (`rules/common-linux.mk:236-248`).
+In a release build the block is keyed on the compiler's identity, read from
+its preprocessor macros, so `CC=/usr/bin/gcc` or `CC=gcc-13` is hardened like
+`CC=gcc`; a `$(CC)` identified as neither GCC nor Clang skips it with a build
+`$(warning)`, and LTO needs `$(CC)` and `$(CXX)` to be the same GCC release
+(issue #508). `bash tools/ci/check-hardening-flags.sh --built [DIR...]`
+checks built libraries (default `sdk/lib/`); the release workflow runs it
+on the installed packages.
 
 ### `BUILD=coverage` — gcov instrumentation
 
@@ -533,8 +582,8 @@ next build of any profile deletes them, so harvest them first with
 `libmmt_fuzz` — which are otherwise not built at all:
 
 - Object/header selection: `rules/common.mk:201-203, 225-228, 310-313`
-- Link rules and libxml2 wiring: `rules/common-linux.mk:6-12, 215-218, 226-230, 263-279`
-- Install symlinks for both engines: `sdk/Makefile:89-90, 282-283`
+- Link rules and libxml2 wiring: `rules/common-linux.mk:6-12, 249-252, 260-264, 297-313`
+- Install symlinks for both engines: `sdk/Makefile:89-90, 324-325`
 
 Usage (requires `libxml2-dev`):
 
@@ -544,6 +593,13 @@ make -C sdk ENABLESEC=1 -j$(nproc)
 
 Without the flag those sources are skipped entirely, so a missing libxml2 is
 only fatal when `ENABLESEC=1`.
+
+With the engines built, `make -C sdk deb`/`rpm` stages them into a second
+package, `mmt-dpi-security` (issue #497): `libmmt_security` is
+GPL-3.0-or-later, unlike the rest of the SDK. That package requires the same
+`mmt-dpi` version. Each package's SPDX licence expression is `PKG_LICENSE`
+or `SEC_PKG_LICENSE` in `sdk/Makefile`, and
+`python3 tools/ci/vendored-components.py notices --check` verifies both.
 
 ## 7. Quick Verification Checklist
 
@@ -577,7 +633,8 @@ Facts a later agent cannot infer from the build system alone (issue #480).
   overwrite, reset, `git clean`, pop or drop it — and never pop, apply or drop
   a stash entry you did not create.
 - **Phase0 gate commands.** Both gates build and install the SDK themselves;
-  give each a scratch prefix (default `/tmp/mmt-phase0`, shared between runs):
+  give each a scratch prefix (`MMT_PREFIX`; unset, each gate installs into a
+  fresh `mktemp -d /tmp/mmt-phase0.XXXXXX` it removes on exit — issue #508):
 
   ```bash
   MMT_PREFIX=$(mktemp -d) bash tools/phase0/ci/check_classification.sh   # golden fingerprint
