@@ -44,6 +44,12 @@
 # It also runs the shlib-deps self-test beside tools/ci/shlib-deps.sh
 # (issue #515), which maps each libxml2 soname to its runtime package on
 # fixture payloads (libxml2.so.16 -> libxml2-16 on Ubuntu 26.04).
+# It also runs the docs-only filter self-test beside
+# tools/ci/classify-changes.sh (issues #528, #552), which classifies fixture
+# path lists and pins the c-cpp.yml / phase0-baseline.yml job wiring that
+# keeps every required context reporting on a docs-only pull request. Its
+# wiring half skips without PyYAML; verify-helpers runs it with PyYAML
+# required.
 # It also runs the commented-out code ratchet self-test beside
 # tools/ci/lint-commented-code.sh (issue #529), which drives the real lint on
 # a fixture git repository with fixture baselines and vendored-source lists.
@@ -62,4 +68,5 @@ bash "${TESTS_DIR}/test-hardening-identity.sh"
 bash "${TESTS_DIR}/test-dependency-lists.sh"
 bash "${TESTS_DIR}/test-release-bootstrap.sh"
 bash "${TESTS_DIR}/test-shlib-deps.sh"
+bash "${TESTS_DIR}/test-classify-changes.sh"
 bash "${TESTS_DIR}/test-commented-code-ratchet.sh"
