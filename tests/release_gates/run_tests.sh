@@ -44,6 +44,9 @@
 # It also runs the shlib-deps self-test beside tools/ci/shlib-deps.sh
 # (issue #515), which maps each libxml2 soname to its runtime package on
 # fixture payloads (libxml2.so.16 -> libxml2-16 on Ubuntu 26.04).
+# It also runs the commented-out code ratchet self-test beside
+# tools/ci/lint-commented-code.sh (issue #529), which drives the real lint on
+# a fixture git repository with fixture baselines and vendored-source lists.
 set -e
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../tools/ci/tests"
 python3 "${TESTS_DIR}/test-release-gates.py" "$@"
@@ -59,3 +62,4 @@ bash "${TESTS_DIR}/test-hardening-identity.sh"
 bash "${TESTS_DIR}/test-dependency-lists.sh"
 bash "${TESTS_DIR}/test-release-bootstrap.sh"
 bash "${TESTS_DIR}/test-shlib-deps.sh"
+bash "${TESTS_DIR}/test-commented-code-ratchet.sh"
