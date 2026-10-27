@@ -223,7 +223,7 @@ must stay required. Priorities: **high** = changes the critical path or more
 than 25% of job-minutes; **medium** = a sizeable share of job-minutes or a
 precondition for a high item; **low** = hygiene.
 
-### 5.1 R1 — cppcheck: scan one configuration on PRs, all configurations in the merge queue — high
+### 5.1 R1 — cppcheck: scan one configuration on PRs, all configurations in the merge queue — high (#653)
 
 - **Extends #552** (single pass + `--cppcheck-build-dir` cache).
 - **Basis:** §4.1. CI cold scan 28–30 min; locally, a single configuration
@@ -234,7 +234,7 @@ precondition for a high item; **low** = hygiene.
   queue exists.
 - **Stays required:** `lint` (shellcheck + cppcheck, error gate + ratchet).
 
-### 5.2 R2 — Build the SDK once per job and share it across suites — high
+### 5.2 R2 — Build the SDK once per job and share it across suites — high (#654)
 
 - **Extends #553:** ccache speeds a rebuild, sharing removes it. Do both.
 - **Basis:** `unit-tests` log, run 40513495242. 13 SDK-building suites
@@ -257,7 +257,7 @@ precondition for a high item; **low** = hygiene.
   `GCOV_PREFIX` per suite.
 - **Stays required:** every suite leg that is required today.
 
-### 5.3 R3 — Replace the 50-leg harness matrix with profile shards — high
+### 5.3 R3 — Replace the 50-leg harness matrix with profile shards — high (#655)
 
 - **Basis:** §3.3. 50 legs × 1.2 min ≈ 60 job-min; queue 8.5 / 24.7 min;
   `harness-gate` ends `phase0` in every run.
@@ -274,7 +274,7 @@ precondition for a high item; **low** = hygiene.
   profiles. Debugging gets one level coarser (shard, then the log line).
 - **Stays required:** `harness-gate`; `leak-gate` (Valgrind oracle) as today.
 
-### 5.4 R4 — Path-to-test selection: extend `changes` from docs/code to five tiers — high
+### 5.4 R4 — Path-to-test selection: extend `changes` from docs/code to five tiers — high (#656)
 
 - **Extends #552** (`tools/ci/classify-changes.sh`, `test-classify-changes.sh`).
 - **Basis:** §6.1, the PR mix of the last 100 merged PRs.
@@ -301,7 +301,7 @@ precondition for a high item; **low** = hygiene.
   merge queue, so nothing merges untested.
 - **Stays required:** every required context still reports on every PR.
 
-### 5.5 R5 — Adopt a merge queue and drop strict "up to date before merge" — high (human decision)
+### 5.5 R5 — Adopt a merge queue and drop strict "up to date before merge" — high (#657) (human decision)
 
 - **Basis:** 84 `C/C++ CI` PR runs for 49 branches since 10-01 (1.7 per PR);
   23 cancelled by a newer push, mostly a "Update branch" merge forced by
@@ -324,7 +324,7 @@ precondition for a high item; **low** = hygiene.
   and `merge_group`. Reconcile `.github/required-checks.txt` with the applied
   protection at the same time (§7).
 
-### 5.6 R6 — Move variant and duplicate legs from every PR to the merge queue — medium (depends on R5)
+### 5.6 R6 — Move variant and duplicate legs from every PR to the merge queue — medium (#658) (depends on R5)
 
 - **Basis:** §3.2 and §3.4.
 
@@ -346,7 +346,7 @@ precondition for a high item; **low** = hygiene.
 - **Stays required:** whichever contexts are required today, reported by the
   queue run. On PRs they report a skip, as docs-only PRs already do.
 
-### 5.7 R7 — Fold redundant jobs — medium
+### 5.7 R7 — Fold redundant jobs — medium (#659)
 
 | Job | Covered by | Duration (min) |
 |-----|-----------|------:|
@@ -364,7 +364,7 @@ precondition for a high item; **low** = hygiene.
 - **Stays required:** the covering jobs. Each removed required context needs
   a branch-protection update (human decision).
 
-### 5.8 R8 — Make the caches work: apt, `main` runs, CodeQL budget — low
+### 5.8 R8 — Make the caches work: apt, `main` runs, CodeQL budget — low (#660)
 
 - **Extends #553** (F-CI-008).
 - **Changes:**
