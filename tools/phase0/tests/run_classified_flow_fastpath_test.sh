@@ -9,7 +9,10 @@
 # had converged, because standard checkers return 4 (bits 0-1 unset) and the
 # walk only stops on MMT_CLASSIFY_MATCHED_MASK. The harness asserts the
 # acceptance criterion directly: a packet on an already-classified session
-# invokes 0 checkers on its own chain (IP/TCP/UDP).
+# invokes 0 checkers on its own chain (IP/TCP/UDP). The same binary then
+# replays 50 crafted packets of one unknown TCP flow and asserts the issue
+# #99 give-up on the SDK path (issue #526): TCP checkers walked on packets
+# 1..40, none from packet 41.
 #
 # Steps:
 #   1. Build + install the SDK with BUILD=asan into an isolated prefix (the
@@ -47,11 +50,16 @@ else
     make -C "${REPO_ROOT}/sdk" BUILD=asan MMT_BASE="${PREFIX}" install >/dev/null
 fi
 
+# Issue #533: this test calls libmmt_core internals the shared library hides,
+# so it links the static archive instead (never -lmmt_core as well).
+# shellcheck source=tools/phase0/tests/static_core_link.sh
+. "${TEST_DIR}/static_core_link.sh"
+mmt_static_core_link "${PREFIX}/dpi/lib" || exit 2
 echo "[2/3] compiling classified_flow_fastpath_test (ASan/UBSan)"
 gcc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=all \
     -o "${BIN}" "${TEST_DIR}/classified_flow_fastpath_test.c" \
     -I"${PREFIX}/dpi/include" \
-    -L"${PREFIX}/dpi/lib" -lmmt_core -ldl -lpcap
+    -L"${PREFIX}/dpi/lib" "${MMT_STATIC_CORE_LDFLAGS[@]}" -ldl -lpcap
 
 echo "[3/3] replaying ${PCAP} under ASan/UBSan"
 if [ ! -f "${PCAP}" ]; then

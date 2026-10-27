@@ -264,7 +264,9 @@ issue #483, the release-tag pin self-test `test-release-tag-pin.sh`, issue
 issue #496, the release-hardening self-test
 `test-hardening-identity.sh`, issue #508, which evaluates the makefiles
 without compiling, and the docs-only CI filter self-test
-`test-classify-changes.sh`, issues #528/#552) and the SDK integration coverage path (`test-sdk-coverage.sh`, issue
+`test-classify-changes.sh`, issues #528/#552, the public-API contract
+checker self-test `test-api-contracts.sh` and the ABI-diff self-test
+`test-abi-diff.sh`, issue #525) and the SDK integration coverage path (`test-sdk-coverage.sh`, issue
 #387); the first three build nothing, `sdk_coverage` builds its own
 `BUILD=coverage` SDK whatever the mode and cleans `sdk/` afterwards. `installed_consumer` (issue #374) drives the
 other
@@ -289,7 +291,7 @@ Key property for agents: these suites are **standalone** — no prior build, no
 install, no `sudo` needed. Most suites' `run_tests.sh` compiles the test
 directly against sources under `src/` with plain `gcc`; suites that need the
 built SDK (`hashmap`, `citrix_ica_detection`, `http_header_case`,
-`s1ap_ngap_decode`, `rule_engine`, `nas_ies_tail`, `installer`,
+`s1ap_ngap_decode`, `rule_engine`, `radius_hardening`, `nas_ies_tail`, `installer`,
 `installed_consumer`, `parser_boundaries`, `sdk_coverage`, `docs_lifecycle`, `docs_onboarding`, and the engine
 leg of `fault_injection`, `tests/fault_injection/run_tests.sh:110-112`) run `make -C sdk clean` and build
 it themselves into a throwaway prefix, so running them discards an existing
@@ -302,6 +304,22 @@ bash tests/run_all_tests.sh hashmap memory   # subset
 
 A listed suite whose `run_tests.sh` is absent counts as **failed**, not
 skipped — the runner exits non-zero (issue #186).
+
+**Public-API contracts and the ABI diff (issue #525).** `core_engine` also
+builds `test_api_contracts`, one compiled `CONTRACT()` entry per `MMTAPI`
+function (`tests/core_engine/test_api_contracts.c`), then runs
+`tools/ci/check-api-contracts.sh`, which fails when a name printed by
+`tools/ci/check-public-decls.sh --list` (which itself exits 2 on an `MMTAPI`
+declaration without the `MMTCALL` marker) has no entry, an entry names no
+`MMTAPI` function, or the error-path waivers differ from
+`tests/core_engine/api-contract-waivers.txt`: a new export fails the suite
+until it has a contract. `tools/ci/abi-diff.sh` builds the v1.9.1 tag and
+`HEAD` in temporary git worktrees (release profile plus `-g`; the checkout's
+`sdk/` is untouched) and runs libabigail's `abidiff` per library; the
+`abi-diff` job in `c-cpp.yml` runs it, plus a symbol-level leg against the
+shipped v1.9.1 `.deb`, as a report-only check that is not a required
+context. Locally it needs `abigail-tools` (or `ABIDIFF=/path/to/abidiff`)
+and a fetched `v1.9.1` tag: `bash tools/ci/abi-diff.sh --report abi.txt`.
 
 ### Suite modes: sanitizers and coverage
 
@@ -395,8 +413,8 @@ of the audit, and the recorded exclusions: generated asn1c, vendored llhttp
 Assessed. The coverage CI job fails when a built handwritten source is
 missing from the records, a tracked one is neither built nor justified, a
 family measures nothing or drops below its `sdk.family_floors` entry
-(issue #524: core 85.3, tcpip 60.3, mobile 63.7, business_app 88.8, dicom
-88.1, security_fuzz 70.4), the original cohort drops below 82.9% or the
+(issue #524: core 85.3, tcpip 60.3, mobile 74.3 since issue #532,
+business_app 88.8, dicom 88.1, security_fuzz 70.4), the original cohort drops below 82.9% or the
 whole SDK drops below `sdk.whole_sdk_line_pct` (measured 65.53% at issue
 #524 with the harness cohort, floor 64.5%). The same job runs
 `tools/ci/report-uncovered-runs.sh` as a gate: a contiguous run of more than
