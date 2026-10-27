@@ -309,7 +309,8 @@ skipped — the runner exits non-zero (issue #186).
 builds `test_api_contracts`, one compiled `CONTRACT()` entry per `MMTAPI`
 function (`tests/core_engine/test_api_contracts.c`), then runs
 `tools/ci/check-api-contracts.sh`, which fails when a name printed by
-`tools/ci/check-public-decls.sh --list` has no entry, an entry names no
+`tools/ci/check-public-decls.sh --list` (which itself exits 2 on an `MMTAPI`
+declaration without the `MMTCALL` marker) has no entry, an entry names no
 `MMTAPI` function, or the error-path waivers differ from
 `tests/core_engine/api-contract-waivers.txt`: a new export fails the suite
 until it has a contract. `tools/ci/abi-diff.sh` builds the v1.9.1 tag and

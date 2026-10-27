@@ -18,7 +18,8 @@
 #   unreadable contract list                            -> 2
 #   malformed contract line                             -> 2
 # Plus: CONTRACT() on an undeclared name fails to compile, on a declared one
-# compiles, and check-public-decls.sh --list prints the real declared set.
+# compiles, check-public-decls.sh --list prints the real declared set, and
+# --list on a scratch header with `MMTAPI` but no `MMTCALL` exits 2, naming it.
 #
 # Usage: bash tools/ci/tests/test-api-contracts.sh
 # Exit: 0 = all checks passed, 1 = at least one failed, 2 = self-test broke.
@@ -135,6 +136,28 @@ if [ "${n}" -gt 0 ] && bash "${DECLS_HELPER}" --list | grep -qx "mmt_init_handle
     echo "✓ check-public-decls.sh --list prints the declared set (${n} names)"
 else
     echo "✗ check-public-decls.sh --list printed ${n} names, mmt_init_handler missing"
+    FAILED=1
+fi
+
+# MMTCALL is defined empty, so an export without it compiles: --list must
+# refuse it rather than silently leave it out of the declared set. The helper
+# reads the headers relative to its own location, so run a copy in a scratch
+# tree holding one such header.
+mkdir -p "${WORK}/tree/tools/ci" "${WORK}/tree/src/mmt_core/public_include"
+cp "${DECLS_HELPER}" "${WORK}/tree/tools/ci/"
+cat > "${WORK}/tree/src/mmt_core/public_include/probe.h" <<'EOF'
+#define MMTAPI extern
+#define MMTCALL
+MMTAPI int MMTCALL probe_with_mmtcall(void);
+MMTAPI int probe_no_mmtcall(void);
+EOF
+rc=0
+bash "${WORK}/tree/tools/ci/check-public-decls.sh" --list >"${WORK}/out" 2>&1 || rc=$?
+if [ "${rc}" -eq 2 ] && grep -q "without MMTCALL: probe_no_mmtcall" "${WORK}/out"; then
+    echo "✓ --list exits 2 on an MMTAPI declaration without MMTCALL"
+else
+    echo "✗ --list on an MMTAPI declaration without MMTCALL: exit ${rc}, expected 2 naming probe_no_mmtcall"
+    sed 's/^/      /' "${WORK}/out"
     FAILED=1
 fi
 

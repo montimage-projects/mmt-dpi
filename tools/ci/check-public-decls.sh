@@ -15,7 +15,8 @@
 #
 # With --list it only prints the declared names, sorted and unique, one per
 # line — the set tools/ci/check-api-contracts.sh compares the public-API
-# contract table against (issue #525).
+# contract table against (issue #525). It exits 2 when an MMTAPI declaration
+# lacks the MMTCALL marker, which the name set would otherwise miss.
 #
 # Exit codes: 0 = all declarations resolve, 1 = unresolved declaration(s),
 #             2 = helper broken (also: --list parsed no declaration).
@@ -85,6 +86,24 @@ if not decls:
     sys.exit(2)
 
 if list_only:
+    # MMTCALL is defined empty (mmt_exports.h), so `MMTAPI int foo(void);`
+    # compiles and exports foo yet escapes the MMTCALL match above — and
+    # with it the contract check (issue #525). Match MMTAPI alone, outside
+    # preprocessor lines (the macro definitions), and refuse a list that
+    # would drop a name: exit 2 aborts tests/core_engine/run_tests.sh
+    # (set -e) instead of emitting a union that hides the missing marker.
+    no_pp = re.sub(r"^[ \t]*#(?:[^\n]*\\\n)*[^\n]*", "", text, flags=re.M)
+    mmtapi = set(
+        m.group(1)
+        for m in re.finditer(r"\bMMTAPI\b[^;{}]*?\b([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                             no_pp, re.S)) - {"__declspec", "deprecated"}
+    unmarked = sorted(mmtapi - set(decls))
+    if unmarked:
+        print("✗ MMTAPI declaration(s) without MMTCALL: " + " ".join(unmarked),
+              file=sys.stderr)
+        print("To fix:  declare them as `MMTAPI <type> MMTCALL name(...)`",
+              file=sys.stderr)
+        sys.exit(2)
     print("\n".join(decls))
     sys.exit(0)
 
