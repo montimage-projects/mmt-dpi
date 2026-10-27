@@ -94,7 +94,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --baseline-ref|--head-ref|--baseline-dir|--head-dir|--headers-dir1|\
         --headers-dir2|--release-deb|--keep-libs|--fail-on|--report|--summary)
-            [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"
+            if [ $# -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value"; fi
             case "$1" in
                 --baseline-ref) baseline_ref="$2" ;;
                 --head-ref)     head_ref="$2" ;;
@@ -122,7 +122,9 @@ if [ -n "$release_deb" ]; then
     [ -f "$release_deb" ] || die "release package not found: $release_deb"
 elif [ -n "$baseline_dir" ] || [ -n "$head_dir" ]; then
     mode=prebuilt
-    [ -n "$baseline_dir" ] && [ -n "$head_dir" ] || die "prebuilt mode needs both --baseline-dir and --head-dir"
+    if [ -z "$baseline_dir" ] || [ -z "$head_dir" ]; then
+        die "prebuilt mode needs both --baseline-dir and --head-dir"
+    fi
 else
     mode=build
 fi
@@ -173,7 +175,7 @@ build_ref() {
 find_lib() {
     local f found=""
     for f in "$1"/libmmt_"$2".so.*; do
-        [ -f "$f" ] && [ ! -L "$f" ] || continue
+        if [ ! -f "$f" ] || [ -L "$f" ]; then continue; fi
         [ -z "$found" ] || die "more than one libmmt_$2.so.* in $1"
         found="$f"
     done

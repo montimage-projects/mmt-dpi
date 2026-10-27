@@ -2639,6 +2639,7 @@ static void e_is_valid_proto_attribute(void) {
 #define W_SESSION  "pure accessor of a caller-owned session record: dereferences it and defines no failure value (NULL is a precondition violation, not a reported error)"
 #define W_ATTR     "pure accessor of an attribute record: dereferences it and defines no failure value"
 #define W_NOARGS   "takes no input: there is no invalid argument to pass"
+#define W_OOMONLY  "takes no input; its only failure value (0, mmt_core.h) is reached through allocation or plugin-init failure, which this binary cannot inject: it is linked without the --wrap allocator hooks"
 #define W_TOTAL    "total function over its argument domain: every input has a defined result, none is a failure"
 #define W_HANDLER  "takes a live handler and reports nothing: NULL or a closed handler is a dereferenced precondition violation"
 #define W_SETTER   "unconditional field store on a caller-owned record: no input is rejected and nothing is reported"
@@ -2779,7 +2780,7 @@ static const api_contract_t k_contracts[] = {
     CONTRACT(process_packet_handler, b_process_packet_handler, e_process_packet_handler),
     NO_ERROR_PATH(mmt_drop_packet, b_mmt_drop_packet,
                   "takes the live packet being processed and reports nothing: no input is rejected"),
-    NO_ERROR_PATH(init_extraction, b_init_extraction, W_NOARGS),
+    NO_ERROR_PATH(init_extraction, b_init_extraction, W_OOMONLY),
     CONTRACT(update_protocol, b_update_protocol, e_update_protocol),
     NO_ERROR_PATH(close_extraction, b_close_extraction, W_NOARGS),
     CONTRACT(mmt_init_handler, b_mmt_init_handler, e_mmt_init_handler),
