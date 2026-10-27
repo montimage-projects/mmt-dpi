@@ -29,15 +29,14 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 2
 fi
 
-# Vendored sources are excluded by configuration, not convention
-# (issue #249, F-CLEAN-019): tools/ci/vendor-paths.txt lists them.
-VENDOR_LIST="tools/ci/vendor-paths.txt"
+# Vendored sources (tools/ci/vendor-paths.txt) are excluded by configuration.
+# shellcheck source=tools/ci/vendor-paths-lib.sh
+. "$ROOT/tools/ci/vendor-paths-lib.sh"
+vendor_paths_load || exit 2
 vendor_excludes=()
-[ -f "$VENDOR_LIST" ] || { echo "✗ vendored-source list not found: $VENDOR_LIST" >&2; exit 2; }
-while IFS= read -r p; do
-    case "$p" in ''|'#'*) continue ;; esac
+for p in "${VENDOR_PATHS[@]}"; do
     vendor_excludes+=(":!:$p")
-done < "$VENDOR_LIST"
+done
 
 # A private mktemp file, not a predictable /tmp/<name>.$$ path (issue #508).
 TRACKED="$(mktemp)"
