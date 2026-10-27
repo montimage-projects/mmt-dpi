@@ -22,10 +22,19 @@
 # A ten-symbol sample of the rows marked public is re-resolved against the
 # public headers on every run — the check the audit's sample failed.
 #
+# Export budget (issue #533): MMTAPI is libmmt_core's export marker — the core
+# is built -fvisibility=hidden (rules/common.mk). The MMTAPI declaration set is
+# every distinct name declared with the MMTAPI token, functions and data, in
+# src/mmt_core/public_include/*.h and src/mmt_core/private_include/*.h
+# (comments and preprocessor lines ignored). The check fails when
+# `nm -D --defined-only` of the built library lists more than that count + 5
+# symbols, or any symbol outside the set (the loader's _init/_fini aside).
+#
 # Needs the built library; when sdk/lib/libmmt_core.so* is absent the script
 # builds just that target (make -C sdk <abs path to libmmt_core.so>).
 #
-# Exit codes: 0 = in sync / written, 1 = table drifted, 2 = validator broken.
+# Exit codes: 0 = in sync / written, 1 = table drifted or export budget
+#             exceeded, 2 = validator broken.
 #
 # Usage: bash scripts/validate-exported-symbols.sh [--check|--write]
 
@@ -135,16 +144,66 @@ for loader in ("_init", "_fini"):
         print(f"✗ loader symbol `{loader}` marked public", file=sys.stderr)
         sys.exit(1)
 
+# --- export budget: dynamic exports ⊆ MMTAPI declarations (issue #533) -----
+LOADER = {"_init", "_fini"}
+NON_NAMES = {"__attribute__", "__declspec", "deprecated", "visibility"}
+api_text = ""
+for h in sorted(glob.glob("src/mmt_core/public_include/*.h") +
+                glob.glob("src/mmt_core/private_include/*.h")):
+    api_text += open(h, encoding="utf-8", errors="replace").read() + "\n"
+api_text = re.sub(r"/\*.*?\*/", "", api_text, flags=re.S)
+api_text = re.sub(r"//[^\n]*", "", api_text)
+api_text = re.sub(r"^[ \t]*#(?:[^\n]*\\\n)*[^\n]*", "", api_text, flags=re.M)
+api_text = re.sub(r"__attribute__\s*\(\((?:[^()]|\([^()]*\))*\)\)", "",
+                  api_text)
+api = set(m.group(1) for m in
+          re.finditer(r"\bMMTAPI\b[^;{}]*?\b([A-Za-z_]\w*)\s*\(", api_text))
+api |= set(m.group(1) for m in
+           re.finditer(r"\bMMTAPI\b[^;{}()]*?\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*;",
+                       api_text))
+api -= NON_NAMES
+if not api:
+    print("✗ no MMTAPI declaration parsed from src/mmt_core/*_include/",
+          file=sys.stderr)
+    sys.exit(2)
+dyn = subprocess.run(["nm", "-D", "--defined-only", lib],
+                     capture_output=True, text=True)
+if dyn.returncode != 0:
+    print(f"✗ nm -D failed on {lib}: {dyn.stderr.strip()}", file=sys.stderr)
+    sys.exit(2)
+exports = sorted(set(l.split()[-1] for l in dyn.stdout.splitlines()
+                     if l.split()))
+budget = len(api) + 5
+leaked = [s for s in exports if s not in api and s not in LOADER]
+print(f"  exports: {len(exports)} dynamic symbols; MMTAPI declarations: "
+      f"{len(api)} (budget {budget})")
+budget_ok = True
+if len(exports) > budget:
+    print(f"✗ {lib} exports {len(exports)} symbols, over the budget of "
+          f"{budget} (MMTAPI declarations + 5)", file=sys.stderr)
+    budget_ok = False
+if leaked:
+    print(f"✗ {len(leaked)} exported symbol(s) not declared MMTAPI:",
+          file=sys.stderr)
+    for s in leaked:
+        print(f"      {s}", file=sys.stderr)
+    budget_ok = False
+if not budget_ok:
+    print("To fix:  declare the symbol MMTAPI in a src/mmt_core header, or "
+          "keep it hidden (issue #533)", file=sys.stderr)
+else:
+    print("  ✓ every export is an MMTAPI declaration, within the budget")
+
 if mode == "--write":
     open(doc_path, "w", encoding="utf-8").write(generated)
     print(f"  wrote {doc_path}: {len(syms)} exported symbols, "
           f"{n_public} public (header-declared)")
-    sys.exit(0)
+    sys.exit(0 if budget_ok else 1)
 
 if generated == src:
     print(f"✓ {doc_path} is in sync ({len(syms)} exported symbols, "
           f"{n_public} public)")
-    sys.exit(0)
+    sys.exit(0 if budget_ok else 1)
 print(f"✗ {doc_path} is stale — regenerate with:", file=sys.stderr)
 print(f"      bash scripts/validate-exported-symbols.sh --write", file=sys.stderr)
 sys.exit(1)
