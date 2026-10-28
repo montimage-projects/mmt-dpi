@@ -90,6 +90,8 @@ for lib in "${MMT_LIBS[@]}"; do
     install -m 0755 "${matches[@]}" "$MMT_LIB"/
     base="$(basename "${matches[0]}")"
     ln -snf "$MMT_LIB/$base" "$MMT_LIB/$lib.so"
+    # The SONAME link a consumer's NEEDED entry names (issue #536).
+    ln -snf "$base" "$MMT_LIB/$lib.so.$SOVERSION"
 done
 shopt -u nullglob
 echo "[MMT-]> Installed  $SDKLIB at $MMT_LIB"

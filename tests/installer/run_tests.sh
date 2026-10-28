@@ -263,6 +263,17 @@ check "ZIP install into temp prefix (unprivileged)" \
     bash -c "cd '${Z}' && MMT_BASE='${ZPREFIX}' bash install.sh"
 check "installed lib present"  test -f "${ZPREFIX}/dpi/lib/libmmt_core.so.1.8.0"
 check "installed .so link"     test -e "${ZPREFIX}/dpi/lib/libmmt_core.so"
+# Issue #536: the SONAME link, named from the SOVERSION the ZIP carries —
+# the fallback make zip restamps, which must equal rules/common.mk's.
+SOV="$(sed -n 's/^SOVERSION[[:space:]]*:=[[:space:]]*//p' "${REPO_ROOT}/rules/common.mk")"
+VER="$(sed -n 's/^VERSION[[:space:]]*:=[[:space:]]*//p' "${REPO_ROOT}/rules/common.mk")"
+check "rules/common.mk defines SOVERSION" test -n "${SOV}"
+check "the ZIP SOVERSION fallback is rules/common.mk's" \
+    grep -qx "SOVERSION=\"\${SOVERSION:-${SOV}}\"" "${REPO_ROOT}/dist/ZIP/mmt-install-common.sh"
+check "make zip restamps SOVERSION" \
+    bash -c "sed -n '/^zip:/,/^clean:/p' '${REPO_ROOT}/sdk/Makefile' | grep -qF 'SOVERSION=\"\$(SOVERSION)\"'"
+check "ZIP install lays down the SONAME link" \
+    bash -c "[ \"\$(readlink '${ZPREFIX}/dpi/lib/libmmt_core.so.${SOV}')\" = libmmt_core.so.1.8.0 ]"
 check "installed plugin"       test -f "${ZPREFIX}/plugins/libmmt_tcpip.so"
 check "installed examples dir" test -f "${ZPREFIX}/examples/stub.c"
 check "ZIP install lays down LICENSE, THIRD-PARTY-NOTICES and COPYING" \
@@ -303,6 +314,19 @@ for ex in extract_all MAC_extraction simple_traffic_reporting; do
         "${CC}" "${extra_cflags[@]}" -O1 -Wall -o "${WORK}/${ex}" \
             "${PREFIX2}/examples/${ex}.c" -I "${INC}" -L "${LIB}" -lmmt_core -ldl -lpcap
 done
+
+# Issue #536: every installed library carries the versioned SONAME, make
+# install lays down its runtime link, and a consumer records that SONAME.
+# dynamic_entries <TAG> <file> — the values of one dynamic tag, objdump -p.
+dynamic_entries() { objdump -p "$2" 2>/dev/null | awk -v t="$1" '$1 == t { print $2 }'; }
+for l in libmmt_core libmmt_tcpip libmmt_tmobile libmmt_business_app libmmt_tdicom; do
+    check "${l}: SONAME is ${l}.so.${SOV}" \
+        test "$(dynamic_entries SONAME "${LIB}/${l}.so.${VER}")" = "${l}.so.${SOV}"
+    check "${l}: make install links ${l}.so.${SOV} -> ${l}.so.${VER}" \
+        test "$(readlink "${LIB}/${l}.so.${SOV}")" = "${l}.so.${VER}"
+done
+check "a consumer's NEEDED entry names libmmt_core.so.${SOV}" \
+    grep -qx "libmmt_core.so.${SOV}" <(dynamic_entries NEEDED "${WORK}/extract_all")
 
 # Unset mode must be rejected (was: uninitialised `type` branched randomly).
 check_fail "extract_all with no args is rejected" \
@@ -429,6 +453,8 @@ check "loader drop-in is mode 0644" \
 check "registration runs ldconfig" test -s "${WORK}/ldconfig.calls"
 check "make install writes the install manifest" \
     bash -c "grep -qx 'dpi/lib/libmmt_core.so' '${PREFIX2}/.mmt-dpi-manifest' && grep -qx 'examples/extract_all.c' '${PREFIX2}/.mmt-dpi-manifest'"
+check "the manifest records the SONAME links (issue #536)" \
+    bash -c "grep -qx 'dpi/lib/libmmt_core.so.${SOV}' '${PREFIX2}/.mmt-dpi-manifest' && grep -qx 'dpi/lib/libmmt_tcpip.so.${SOV}' '${PREFIX2}/.mmt-dpi-manifest'"
 DOC2="${PREFIX2}/dpi/share/doc/mmt-dpi"
 check "make install lays down LICENSE and THIRD-PARTY-NOTICES (0644)" \
     bash -c "cmp -s '${REPO_ROOT}/LICENSE' '${DOC2}/LICENSE' && cmp -s '${REPO_ROOT}/THIRD-PARTY-NOTICES' '${DOC2}/THIRD-PARTY-NOTICES' && [ \"\$(stat -c %a '${DOC2}/LICENSE' '${DOC2}/THIRD-PARTY-NOTICES' | sort -u)\" = 644 ]"
