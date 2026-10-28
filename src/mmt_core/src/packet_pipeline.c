@@ -705,8 +705,7 @@ int proto_packet_classify_next(ipacket_t * ipacket, protocol_instance_t * config
      * for is enforced below — classification_max_depth (issue #87) bounds
      * the whole deeper-layer detection round. */
     //Verify that classification is not disabled for this protocol
-    // Issues #69/#549: lock-free atomic read (relaxed) of this handler's own
-    // switch; compiles to a plain load.
+    // Issues #69/#549: lock-free relaxed atomic read of this handler's switch.
     if (proto_status_load(&configured_protocol->classify_enabled)) {
         mmt_classify_verdict_t classif_status = MMT_CLASSIFY_CONTINUE;
         //Pre-classification
@@ -1002,8 +1001,7 @@ int proto_packet_analyze(ipacket_t * ipacket, protocol_instance_t * configured_p
      * MMT_DROP/MMT_SKIP. */
     int retval = MMT_CONTINUE;
     //Verify that analysis is not disabled for this protocol
-    // Issues #69/#549: lock-free atomic read (relaxed) of this handler's own
-    // switch; compiles to a plain load.
+    // Issues #69/#549: lock-free relaxed atomic read of this handler's switch.
     if (!proto_status_load(&configured_protocol->analysis_enabled)) {
         return retval;
     }

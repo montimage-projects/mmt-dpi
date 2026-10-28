@@ -806,12 +806,20 @@ void clean_packet_with_reassembly(ipacket_t * ipacket);
  * The packet-processing module is split into five translation units:
  * packet_processing.c (the attribute accessors/formatting tail and misc
  * helpers), packet_pipeline.c (per-packet processing path and the
- * attribute-extraction machinery), packet_registry.c (protocol / handler /
- * attribute registration and handler lifecycle), packet_session.c (session
- * lifecycle and timeout — issue #240) and packet_stats.c (protocol
- * statistics — issue #240). The entry points below keep external linkage so
- * the units can call each other; they are not part of the public SDK ABI.
+ * attribute-extraction machinery), the packet_registry*.c units (issue #549:
+ * packet_registry.c — the protocol table, protocol stacks, name/id lookups
+ * and init_extraction()/close_extraction(); packet_registry_classify.c —
+ * per-protocol classification/analysis/session callback registration;
+ * packet_registry_handler.c — the handler lifecycle and bookkeeping map;
+ * packet_registry_attr.c — per-handler attribute and packet-handler
+ * registration), packet_session.c (session lifecycle and timeout — issue
+ * #240) and packet_stats.c (protocol statistics — issue #240). The entry
+ * points below keep external linkage so the units can call each other; they
+ * are not part of the public SDK ABI.
  * ======================================================================== */
+
+/* Protocol-id range check shared by the packet_registry*.c units. */
+#define _is_valid_protocol_id( proto_id ) ( proto_id < PROTO_MAX_IDENTIFIER )
 
 /*
  * Issue #69, reworked by issue #549: the analysis/classification switches are
@@ -870,7 +878,14 @@ void update_proto_stats_on_session_timeout(mmt_session_t * timed_out_session, pr
  * handler; called once by mmt_init_handler() (single-threaded init). */
 void mmt_dpi_profile_apply_env(mmt_handler_t *mmt_handler);
 
-/* packet_registry.c — registered-attribute bookkeeping, called by
+/* packet_registry*.c — cross-unit entry points (issue #549). */
+protocol_t *get_protocol_slot(uint32_t proto_id);
+protocol_t *get_protocol_struct_by_protocol_id(uint32_t proto_id);
+bool init_handlers_map(void);
+void close_handlers_map(void);
+int init_plugins(void);
+
+/* packet_registry_attr.c — registered-attribute bookkeeping, called by
  * packet_pipeline.c and packet_processing.c. */
 bool attribute_ids_comparison_fct(uint32_t l_id, uint32_t r_id);
 struct attribute_internal_struct * get_registered_attribute_internal_struct(const ipacket_t * ipacket, uint32_t proto_id, uint32_t attribute_id, unsigned index);

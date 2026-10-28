@@ -4,7 +4,7 @@
  * Drives the two largest central files directly, source-compiled so gcov
  * records them:
  *
- *   src/mmt_core/src/packet_registry.c — handler lifecycle
+ *   src/mmt_core/src/packet_registry*.c — handler lifecycle
  *     (init_extraction/mmt_init_handler/mmt_close_handler/close_extraction),
  *     attribute registration and the handler registries;
  *   src/mmt_core/src/packet_pipeline.c — the packet dispatch path
