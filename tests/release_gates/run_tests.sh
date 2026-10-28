@@ -44,10 +44,11 @@
 # It also runs the shlib-deps self-test beside tools/ci/shlib-deps.sh
 # (issue #515), which maps each libxml2 soname to its runtime package on
 # fixture payloads (libxml2.so.16 -> libxml2-16 on Ubuntu 26.04).
-# It also runs the docs-only filter self-test beside
-# tools/ci/classify-changes.sh (issues #528, #552), which classifies fixture
-# path lists and pins the c-cpp.yml / phase0-baseline.yml job wiring that
-# keeps every required context reporting on a docs-only pull request. Its
+# It also runs the path-to-test selection self-test beside
+# tools/ci/classify-changes.sh (issues #528, #552, #656), which classifies
+# fixture path lists, runs tools/ci/check-test-map.sh on the map and on
+# broken copies of it, and pins the c-cpp.yml / phase0-baseline.yml job
+# wiring that keeps every required context reporting on every tier. Its
 # wiring half skips without PyYAML; verify-helpers runs it with PyYAML
 # required.
 # It also runs the commented-out code ratchet self-test beside
@@ -64,6 +65,12 @@
 # scripts/validate-exported-symbols.sh (issue #534), which drives the real
 # validator on a fixture shared object and fixture documents (an unrecorded
 # export, a removed one, a missing section, --write; no SDK build).
+# It also runs the phase0 harness-shard self-test beside
+# tools/phase0/run_all_harnesses.sh (issue #655), which drives the runner's
+# --group/--shard/--list selectors and a fixture run that builds no SDK, and
+# pins that the phase0-baseline.yml harness legs cover every harness once.
+# Its wiring half skips without PyYAML; verify-helpers runs it with PyYAML
+# required.
 # It also runs the shared-build self-test beside tests/run_all_tests.sh
 # (issue #654), which drives a copy of the real runner over fake suites with
 # a stub make on PATH (one build per group, the incremental ENABLESEC=1
@@ -88,4 +95,5 @@ bash "${TESTS_DIR}/test-commented-code-ratchet.sh"
 bash "${TESTS_DIR}/test-api-contracts.sh"
 bash "${TESTS_DIR}/test-abi-diff.sh"
 bash "${TESTS_DIR}/test-exported-symbols.sh"
+bash "${TESTS_DIR}/test-harness-shards.sh"
 bash "${TESTS_DIR}/test-shared-sdk-build.sh"
