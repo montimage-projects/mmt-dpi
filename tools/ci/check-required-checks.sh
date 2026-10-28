@@ -41,9 +41,10 @@
 # does (an aggregate). Path-filtered workflows (install-smoke, bootstrap-smoke)
 # are not checked: their jobs never gate a pull request. An aggregate gates a
 # queue-only job only when it still runs after that job fails — a job-level
-# `if:` with `always()` or `!cancelled()`, since a job skipped by a failed
-# need reports success — and reads its result (`needs.<job>.result` or
-# `needs.*.result`) in a step.
+# `if:` with `always()`, `!cancelled()` or `failure()`, since a job skipped by
+# a failed need reports success — and reads its result (`needs.<job>.result`,
+# `needs['<job>'].result` or `needs.*.result`) in a step. That is a static
+# heuristic; whether the verdict is right is the workflow self-tests' job.
 #
 # Retired contexts (issue #659): .github/retired-checks.txt, same format, lists
 # contexts folded into other jobs that protection may still require. Each must
@@ -436,10 +437,16 @@ def matches_ctx(names, ctx):
 
 def aggregate_flaw(agg, job_id):
     """Why `agg` would not fail when its need `job_id` fails, or ''."""
-    if not re.search(r"always\(\)|!\s*cancelled\(\)", agg["cond"]):
-        return ("has no job-level `if:` with always() or !cancelled(), so a "
-                "failed need skips it and the skip reports success")
-    if not re.search(r"needs\.(?:\*|" + re.escape(job_id) + r")\.result",
+    # A static heuristic: it proves the aggregate runs after a failed need
+    # and looks at the result, not that its verdict is right — the wiring
+    # self-tests run each aggregate's verdict over every outcome.
+    if not re.search(r"(?<!!)\balways\(\)|!\s*cancelled\(\)|\bfailure\(\)",
+                     agg["cond"]):
+        return ("has no job-level `if:` with always(), !cancelled() or "
+                "failure(), so a failed need skips it and the skip reports "
+                "success")
+    if not re.search(r"needs(?:\.(?:\*|" + re.escape(job_id) + r")|\[\s*'"
+                     + re.escape(job_id) + r"'\s*\])\.result",
                      agg["step_text"]):
         return (f"reads neither needs.{job_id}.result nor needs.*.result in "
                 f"a step, so it passes whatever the need's outcome")

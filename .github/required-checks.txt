@@ -47,11 +47,13 @@ unit-tests (-fsigned-char, hashmap memory hexdump mmt_utils mmt_inet_ntop)
 # gate them.
 unit-tests-arm
 unit-tests-unsigned-char
-# Merge-queue legs (issue #658), skipped on pull requests: `build` (required
-# live) needs them and fails unless each succeeded, so the queue gates them
-# before their own contexts are required live.
+# A merge-queue leg (issue #658), skipped on pull requests: `build`
+# (required live) needs it and fails unless it succeeded, so the queue gates
+# it before its own context is required live. Likewise assertions-live.
 toolchain-floor
 # Runs on the ubuntu-26.04 preview runner label (GCC >= 15, C23; #514).
+# Still on pull requests (issue #658): it moves to the queue only once a
+# maintainer requires it, since a stalled preview runner would block it.
 toolchain-ceiling
 sanitizer-tests (BUILD=asan, asan)
 sanitizer-tests (BUILD=tsan, tsan)

@@ -58,9 +58,10 @@ and with `-funsigned-char` on x86 (`unit-tests-unsigned-char`, through
 exercised (issue #528). The x86 mirror, like the `-fsigned-char` leg of
 `unit-tests`, runs in the merge queue (and on push and the schedule), not on
 pull requests (issue #658): both contexts are required, so the queue waits
-for them. So do the `toolchain-floor`, `toolchain-ceiling` and
-`assertions-live` jobs below, which gate through the required `build`
-context: `build` needs them and fails unless each succeeded.
+for them. So do the `toolchain-floor` and `assertions-live` jobs below,
+which gate through the required `build` context: `build` needs them and
+fails unless each succeeded. `toolchain-ceiling`, on a preview runner
+label, still runs on every pull request.
 
 **Supported floor (issue #218, F-DEP-207):** GCC ≥ 11 with glibc ≥ 2.34 and
 libstdc++6 ≥ 11 — the oldest toolchain the release matrix
@@ -169,7 +170,7 @@ Notes:
 ### Documentation-site toolchain
 
 The C SDK does not require Ruby. For the documentation site, use Ruby **3.4**
-as in CI (`.github/workflows/c-cpp.yml:515-520`), with Bundler to install
+as in CI (`.github/workflows/c-cpp.yml:517-522`), with Bundler to install
 the gems and run Jekyll; every workflow's `ruby-version:` is that same
 release (issue #517). CI enables `bundler-cache` through `ruby/setup-ruby`
 and verifies the committed `docs/Gemfile.lock` under `BUNDLE_FROZEN=true`
@@ -185,7 +186,7 @@ gem install bundler
 ```
 
 `docs/Gemfile:12-17` defines Jekyll and its plugins. CI builds the site with
-`tools/ci/build-docs-site.sh` (`.github/workflows/c-cpp.yml:533`): source and
+`tools/ci/build-docs-site.sh` (`.github/workflows/c-cpp.yml:535`): source and
 built-site link checks around a frozen Jekyll 4 build, the lock-unchanged
 check, and a `docs/_site/build-manifest.json` recording the renderer versions,
 the lock digest and a site digest. GitHub Pages publishes the artifact that

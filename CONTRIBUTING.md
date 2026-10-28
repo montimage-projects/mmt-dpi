@@ -131,20 +131,24 @@ everything.
 Queue-only legs (issue #658): `unit-tests-unsigned-char` (the x86 mirror of
 `unit-tests-arm`), the `-fsigned-char` leg of `unit-tests` (x86's default
 signedness), `coverage` (whole-repo floors, checked once per merge),
-`toolchain-floor`, `toolchain-ceiling` and `assertions-live` skip on every
-pull request and run in the merge queue, on push and on the schedule. The
+`toolchain-floor` and `assertions-live` skip on every pull request and run in the merge queue, on push and on the schedule. The
 merge queue waits only for the contexts branch protection requires, so a leg
 may leave the PR path only when protection requires its context or that of
 an aggregate needing it: `check-required-checks.sh` fails a job that skips
 on pull requests in an always-on workflow unless that workflow triggers on
 `merge_group` and the job reports a context of `required-checks.txt` or a
 required aggregate needs it — one whose job-level `if:` keeps it running
-after a failed need (`always()` or `!cancelled()`) and that reads the
-need's result — and `--live` fails when that context is not live-required.
-The first three report their own required contexts; the three variant-build
-legs are needed by `build`, whose first step fails unless each succeeded (a
-skip passes on a pull request only). The full package matrix still runs on
-pull requests: `packages-gate` is not live-required, so a failed package leg
+after a failed need (`always()`, `!cancelled()` or `failure()`) and that
+reads the need's result — and `--live` fails when that context is not
+live-required. The first three report their own required contexts; the two
+variant-build legs are needed by `build`, whose first step fails unless each
+succeeded (a skip passes on a pull request only). So a failed or flaky
+`toolchain-floor` or `assertions-live` run now evicts its queue entry,
+although neither context is required live. `toolchain-ceiling` stays on pull
+requests: it runs on the `ubuntu-26.04` preview label, and a stalled or
+retired preview runner would hold `build` until the queue's 120-minute
+timeout evicted every entry — moving it waits for the maintainer to require
+its context. The full package matrix still runs on pull requests: `packages-gate` is not live-required, so a failed package leg
 in the queue would not block the merge. Once a maintainer requires it
 (below), `release-packages.yml` can keep one deb, one rpm and one
 reproducibility leg on pull requests and move the rest to the queue.
@@ -194,7 +198,9 @@ jq -Rn '{strict: false, checks: [inputs | select(test("^\\s*(#|$)") | not)
   | gh api -X PATCH repos/montimage-projects/mmt-dpi/branches/main/protection/required_status_checks --input -
 # Merge queue on main: a repository ruleset (classic protection has no merge
 # queue setting). Squash is the only merge method the repository allows; the
-# 120-minute response timeout clears the longest required job chain (80 min).
+# 120-minute response timeout clears the longest required job chains (80 min:
+# the packages chain, and c-cpp.yml's changes 5 + toolchain-floor or
+# assertions-live 45 + build 30).
 gh api -X POST repos/montimage-projects/mmt-dpi/rulesets --input - <<'JSON'
 {"name": "main merge queue", "target": "branch", "enforcement": "active",
  "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},

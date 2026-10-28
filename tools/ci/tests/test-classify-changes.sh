@@ -45,10 +45,11 @@
 #     check is a sanitizer asan-leg step, site-onboarding is verify-helpers'
 #     last step, resource-budgets is arm64 only); and the issue #658
 #     queue-only legs (unit-tests-unsigned-char, the -fsigned-char leg,
-#     coverage, toolchain-floor, toolchain-ceiling and assertions-live skip
-#     on pull requests; `build` needs the last three under !cancelled() and
-#     fails unless each succeeded; unit-tests-arm, the default unit-tests leg
-#     and the sanitizer legs stay on pull requests).
+#     coverage, toolchain-floor and assertions-live skip on pull requests;
+#     `build` needs the last two under !cancelled(), and its gate step, run
+#     over every event and result, fails unless each succeeded;
+#     unit-tests-arm, toolchain-ceiling, the default unit-tests leg and the
+#     sanitizer legs stay on pull requests).
 #
 # Part (2) needs python3 with PyYAML: without it, it reports SKIP, unless
 # REQUIRE_PYYAML=1 (the verify-helpers job), under which that fails.
@@ -367,6 +368,7 @@ else
     wiring="$(python3 - "$REPO_ROOT" <<'PY'
 import os
 import re
+import subprocess
 import sys
 
 import yaml
@@ -707,7 +709,7 @@ check("c-cpp.yml: every unit-tests step skips the -fsigned-char leg on "
       and [leg.get("extra_cflags") for leg in
            ((ut.get("strategy") or {}).get("matrix") or {}).get("include") or []]
       == ["", "-fsigned-char"])
-for name in ("sanitizer-tests", "unit-tests-arm"):
+for name in ("sanitizer-tests", "unit-tests-arm", "toolchain-ceiling"):
     j = cc.get(name) or {}
     check(f"c-cpp.yml: {name} still runs on pull requests",
           OFF_PR not in cond(j)
@@ -715,7 +717,7 @@ for name in ("sanitizer-tests", "unit-tests-arm"):
                   for st in j.get("steps") or []))
 # coverage gates itself: its context is required. The variant-build legs
 # gate through `build`, a required context that needs them.
-VARIANT_BUILDS = ["toolchain-floor", "toolchain-ceiling", "assertions-live"]
+VARIANT_BUILDS = ["toolchain-floor", "assertions-live"]
 for name in VARIANT_BUILDS + ["coverage"]:
     j = cc.get(name) or {}
     check(f"c-cpp.yml: {name} skips on pull requests only (merge queue, "
@@ -729,11 +731,34 @@ check("c-cpp.yml: build needs the variant-build legs and still runs when "
       "one fails (!cancelled(), never a tier condition)",
       sorted(needs(bj)) == sorted(VARIANT_BUILDS)
       and cond(bj).strip() == "${{ !cancelled() }}")
-check("c-cpp.yml: build's first step fails unless each variant-build leg "
-      "succeeded, accepting a skip on pull requests only",
-      all(f"needs.{n}.result" in bgate_text for n in VARIANT_BUILDS)
-      and "pull_request" in bgate_text and "success" in bgate_text
-      and 'exit "$bad"' in bgate_text and "uses" not in bgate)
+benv = bgate.get("env") or {}
+check("c-cpp.yml: build's first step reads each variant-build leg's result",
+      "uses" not in bgate and benv.get("EVENT") == "${{ github.event_name }}"
+      and all(f"${{{{ needs.{n}.result }}}}" in benv.values()
+              for n in VARIANT_BUILDS))
+# Run the step itself, as the runner does (bash -e), over events and results:
+# it passes only when every leg succeeded, or skipped on a pull request.
+leg_vars = [k for k, v in benv.items()
+            if any(f"needs.{n}.result" in str(v) for n in VARIANT_BUILDS)]
+verdicts = []
+for event in ("pull_request", "merge_group", "push", "schedule"):
+    for bad_leg in [None] + leg_vars:
+        for res in ("success", "skipped", "failure", "cancelled", ""):
+            env = dict(os.environ, EVENT=event)
+            for k in leg_vars:
+                env[k] = res if (bad_leg is None or k == bad_leg) else "success"
+            got = subprocess.run(
+                ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
+                 str(bgate.get("run", "exit 9"))], env=env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+            want = 0 if res == "success" or (
+                res == "skipped" and event == "pull_request") else 1
+            verdicts.append((event, bad_leg, res, got, want))
+wrong = [v for v in verdicts if v[3] != v[4]]
+check(f"c-cpp.yml: build's gate step passes only on success, or a skip on "
+      f"a pull request ({len(verdicts)} cases"
+      + (f"; wrong: {wrong[:3]}" if wrong else "") + ")",
+      len(leg_vars) == len(VARIANT_BUILDS) and not wrong)
 
 for status, label in results:
     print(f"  {status} {label}")

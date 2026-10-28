@@ -89,7 +89,7 @@ expect 0 "repository queue-only legs are gated by required contexts" \
     "ok   c-cpp.yml:unit-tests-unsigned-char  gated by unit-tests-unsigned-char" -- \
     --contexts "$LIST" --workflows "${REPO_ROOT}/.github/workflows"
 expect 0 "repository variant-build legs are gated through the build aggregate" \
-    "ok   c-cpp.yml:toolchain-ceiling  gated by build" -- \
+    "ok   c-cpp.yml:assertions-live  gated by build" -- \
     --contexts "$LIST" --workflows "${REPO_ROOT}/.github/workflows"
 for ctx in enablesec 'ASan/UBSan profile compiles'; do
     if grep -qxF -- "$ctx" "$LIST"; then bad "committed list still requires retired $ctx"
@@ -417,6 +417,20 @@ jobs:
     steps:
       - if: contains(needs.*.result, 'failure')
         run: exit 1
+  bracket:
+    needs: [leg]
+    if: success() || failure()
+    runs-on: ubuntu-24.04
+    steps:
+      - env: { R: "${{ needs['leg'].result }}" }
+        run: test "$R" = success
+  never:
+    needs: [leg]
+    if: ${{ !always() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - env: { R: "${{ needs.leg.result }}" }
+        run: test "$R" = success
 EOF
 expect 1 "queue: an aggregate a failed need would skip does not gate it" \
     "gated through the aggregate ci.yml:skips, which has no job-level" -- \
@@ -428,6 +442,12 @@ expect 1 "queue: an aggregate that never reads the need's result does not gate i
 expect 0 "queue: an aggregate reading needs.*.result under !cancelled() gates it" \
     "ok   ci.yml:leg  gated by star" -- \
     --workflows "$QA" --contexts "$(ctx star)"
+expect 0 "queue: success() || failure() and needs['leg'].result also gate it" \
+    "ok   ci.yml:leg  gated by bracket" -- \
+    --workflows "$QA" --contexts "$(ctx bracket)"
+expect 1 "queue: an aggregate under !always() does not gate it" \
+    "gated through the aggregate ci.yml:never, which has no job-level" -- \
+    --workflows "$QA" --contexts "$(ctx never)"
 
 QN="${WORK}/queue-nogroup"
 mkdir -p "$QN"
