@@ -44,8 +44,11 @@
 #     asan-build are `if: false` stubs of retired contexts, the BUILD=asan
 #     check is a sanitizer asan-leg step, site-onboarding is verify-helpers'
 #     last step, resource-budgets is arm64 only); and the issue #658
-#     queue-only legs (unit-tests-unsigned-char and the -fsigned-char leg
-#     skip on pull requests, the other variant legs do not).
+#     queue-only legs (unit-tests-unsigned-char, the -fsigned-char leg,
+#     coverage, toolchain-floor, toolchain-ceiling and assertions-live skip
+#     on pull requests; `build` needs the last three under !cancelled() and
+#     fails unless each succeeded; unit-tests-arm, the default unit-tests leg
+#     and the sanitizer legs stay on pull requests).
 #
 # Part (2) needs python3 with PyYAML: without it, it reports SKIP, unless
 # REQUIRE_PYYAML=1 (the verify-helpers job), under which that fails.
@@ -704,13 +707,33 @@ check("c-cpp.yml: every unit-tests step skips the -fsigned-char leg on "
       and [leg.get("extra_cflags") for leg in
            ((ut.get("strategy") or {}).get("matrix") or {}).get("include") or []]
       == ["", "-fsigned-char"])
-for name in ("toolchain-floor", "toolchain-ceiling", "assertions-live",
-             "coverage", "sanitizer-tests", "unit-tests-arm"):
+for name in ("sanitizer-tests", "unit-tests-arm"):
     j = cc.get(name) or {}
     check(f"c-cpp.yml: {name} still runs on pull requests",
           OFF_PR not in cond(j)
           and all(OFF_PR not in str(st.get("if", ""))
                   for st in j.get("steps") or []))
+# coverage gates itself: its context is required. The variant-build legs
+# gate through `build`, a required context that needs them.
+VARIANT_BUILDS = ["toolchain-floor", "toolchain-ceiling", "assertions-live"]
+for name in VARIANT_BUILDS + ["coverage"]:
+    j = cc.get(name) or {}
+    check(f"c-cpp.yml: {name} skips on pull requests only (merge queue, "
+          f"push, schedule)",
+          OFF_PR in cond(j) and "!cancelled()" in cond(j) and GATE in cond(j))
+bj = cc.get("build") or {}
+bsteps = bj.get("steps") or []
+bgate = bsteps[0] if bsteps else {}
+bgate_text = str(bgate.get("env", "")) + str(bgate.get("run", ""))
+check("c-cpp.yml: build needs the variant-build legs and still runs when "
+      "one fails (!cancelled(), never a tier condition)",
+      sorted(needs(bj)) == sorted(VARIANT_BUILDS)
+      and cond(bj).strip() == "${{ !cancelled() }}")
+check("c-cpp.yml: build's first step fails unless each variant-build leg "
+      "succeeded, accepting a skip on pull requests only",
+      all(f"needs.{n}.result" in bgate_text for n in VARIANT_BUILDS)
+      and "pull_request" in bgate_text and "success" in bgate_text
+      and 'exit "$bad"' in bgate_text and "uses" not in bgate)
 
 for status, label in results:
     print(f"  {status} {label}")

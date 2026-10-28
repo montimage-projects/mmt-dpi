@@ -129,19 +129,25 @@ fail-closed — it reads `!= 'false'`, so a failed `changes` job runs
 everything.
 
 Queue-only legs (issue #658): `unit-tests-unsigned-char` (the x86 mirror of
-`unit-tests-arm`) and the `-fsigned-char` leg of `unit-tests` (x86's default
-signedness) skip on every pull request and run in the merge queue, on push
-and on the schedule. The merge queue waits only for the contexts branch
-protection requires, so a leg may leave the PR path only when protection
-requires its context: `check-required-checks.sh` fails a job that skips on
-pull requests in an always-on workflow unless that workflow triggers on
-`merge_group` and the job reports a context of `required-checks.txt` (or a
-required aggregate needs it), and `--live` fails when such a context is not
-live-required. `toolchain-floor`, `toolchain-ceiling`, `assertions-live`,
-`coverage` and the full package matrix still run on pull requests: their
-move waits on the maintainer step below (`packages-gate`, `toolchain-*` and
-`assertions-live` are not live-required yet) and on the coverage-cadence
-decision of `docs/ci-audit-2026-10.md` §8.
+`unit-tests-arm`), the `-fsigned-char` leg of `unit-tests` (x86's default
+signedness), `coverage` (whole-repo floors, checked once per merge),
+`toolchain-floor`, `toolchain-ceiling` and `assertions-live` skip on every
+pull request and run in the merge queue, on push and on the schedule. The
+merge queue waits only for the contexts branch protection requires, so a leg
+may leave the PR path only when protection requires its context or that of
+an aggregate needing it: `check-required-checks.sh` fails a job that skips
+on pull requests in an always-on workflow unless that workflow triggers on
+`merge_group` and the job reports a context of `required-checks.txt` or a
+required aggregate needs it — one whose job-level `if:` keeps it running
+after a failed need (`always()` or `!cancelled()`) and that reads the
+need's result — and `--live` fails when that context is not live-required.
+The first three report their own required contexts; the three variant-build
+legs are needed by `build`, whose first step fails unless each succeeded (a
+skip passes on a pull request only). The full package matrix still runs on
+pull requests: `packages-gate` is not live-required, so a failed package leg
+in the queue would not block the merge. Once a maintainer requires it
+(below), `release-packages.yml` can keep one deb, one rpm and one
+reproducibility leg on pull requests and move the rest to the queue.
 
 Retired contexts (issue #659): a job folded into another keeps an `if: false`
 stub under its old name while protection may still require that context — a
