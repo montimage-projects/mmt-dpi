@@ -534,6 +534,10 @@ static void test_ddl(mmt_handler_t *h) {
                            "Host: %s\r\n"
                            "User-Agent: mmt-dpi-test/1.0\r\n"
                            "Accept: */*\r\n\r\n", i, ddl_hosts[i]);
+        if (len < 0 || (size_t) len >= sizeof req) {
+            fprintf(stderr, "DDL request for %s does not fit\n", ddl_hosts[i]);
+            exit(2);
+        }
         const seg_t seg = { C2S, req, (unsigned) len };
         const case_t c = { "DDL", PROTO_DIRECT_DOWNLOAD_LINK, 1, 80, &seg, 1 };
         if (replay(h, &c, (uint16_t)(47000 + i)))
