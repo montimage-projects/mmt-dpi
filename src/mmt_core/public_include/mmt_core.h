@@ -1132,7 +1132,8 @@ MMTAPI void MMTCALL disable_protocol_statistics(
 );
 
 /**
- * Enables the analysis sub-process for the protocol with the given id
+ * Enables the analysis sub-process for the protocol with the given id on
+ * \p mmt_handler only; every other handler keeps its own setting.
  * @param mmt_handler mmt handler
  * @param proto_id protocol identifier
  */
@@ -1142,7 +1143,8 @@ MMTAPI void MMTCALL enable_protocol_analysis(
 );
 
 /**
- * Disables the analysis sub-process for the protocol with the given id
+ * Disables the analysis sub-process for the protocol with the given id on
+ * \p mmt_handler only; every other handler keeps its own setting.
  * @param mmt_handler mmt handler
  * @param proto_id protocol identifier
  */
@@ -1152,7 +1154,8 @@ MMTAPI void MMTCALL disable_protocol_analysis(
 );
 
 /**
- * Enables the classification sub-process for the protocol with the given id
+ * Enables the classification sub-process for the protocol with the given id on
+ * \p mmt_handler only; every other handler keeps its own setting.
  * @param mmt_handler mmt handler
  * @param proto_id protocol identifier
  */
@@ -1162,7 +1165,8 @@ MMTAPI void MMTCALL enable_protocol_classification(
 );
 
 /**
- * Disables the classification sub-process for the protocol with the given id
+ * Disables the classification sub-process for the protocol with the given id on
+ * \p mmt_handler only; every other handler keeps its own setting.
  * @param mmt_handler mmt handler
  * @param proto_id protocol identifier
  */

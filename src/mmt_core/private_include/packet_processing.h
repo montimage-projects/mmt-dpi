@@ -414,7 +414,6 @@ struct mmt_classify_proto_struct {
 };
 
 struct mmt_classify_next_struct {
-    int status; /**< indicates if classification is enabled or disabled */
     generic_classification_function pre_classify;
     mmt_classify_proto_t * classify_protos;
     generic_classification_function post_classify;
@@ -428,7 +427,6 @@ struct mmt_proto_data_analysis_proc_struct {
 };
 
 struct mmt_proto_data_analysis_struct {
-    int status; /**< indicates if analysis is enabled or disabled */
     int (*pre_analyse) (ipacket_t * ipacket, unsigned index);
     mmt_analyse_me_t * analyse;
     int (*post_analyse) (ipacket_t * ipacket, unsigned index);
@@ -520,6 +518,13 @@ struct protocol_instance_struct {
     proto_statistics_internal_t * proto_stats; /**< pointer to the protocol stats (linked list) */
     void * sessions_map; /**< For internal use. MUST not be changed. */
     void * args; /**< For internal use. MUST not be changed. */
+    /* Issue #549 (F-BUG-012): the analysis/classification switches belong to
+     * this handler's snapshot, not to the shared global protocol_t, so
+     * enable_/disable_protocol_analysis() and _classification() on one
+     * handler leave every other handler untouched. Accessed only through
+     * proto_status_load()/proto_status_store() below. */
+    int analysis_enabled; /**< 1: proto_packet_analyze() runs the analysis chain */
+    int classify_enabled; /**< 1: proto_packet_classify_next() runs the classification chain */
 };
 
 /* Issue #245 (F-PERF-003): pooled reassembly ipacket — a slot owns the
@@ -809,27 +814,25 @@ void clean_packet_with_reassembly(ipacket_t * ipacket);
  * ======================================================================== */
 
 /*
- * Issue #69: the analysis/classification "status" flags live on the SHARED
- * global protocol descriptors (each handler's configured_protocols[i].protocol
- * aliases the same global protocol_t). The enable/disable helpers write
- * them from mmt_init_handler(), while proto_packet_analyze() and
- * proto_packet_classify_next() read them LOCK-FREE on the per-packet hot path.
- * Creating the very first
- * handlers concurrently from cold therefore races on these flags.
+ * Issue #69, reworked by issue #549: the analysis/classification switches are
+ * per-handler state (protocol_instance_t.analysis_enabled / classify_enabled
+ * in each handler's configured_protocols[] snapshot). mmt_init_handler() and
+ * the enable_/disable_protocol_analysis() and _classification() APIs write
+ * them; proto_packet_analyze() and proto_packet_classify_next() read them
+ * LOCK-FREE on the per-packet hot path. Before #549 they lived on the SHARED
+ * global protocol_t, so one handler's choice changed every other handler and
+ * concurrent cold handler creation raced on them.
  *
- * We make every access to these flags an atomic operation (relaxed ordering)
- * using the compiler __atomic_* builtins. This keeps the hot-path read
- * lock-free -- a relaxed atomic load of an int is a plain load on common
- * targets (no fence, no lock) -- while making the concurrent idempotent writes
- * plus reads race-free under the C memory model, which is exactly what TSan
- * checks. Relaxed ordering is sufficient because the flag only gates whether
+ * Every access stays an atomic operation (relaxed ordering) through the
+ * compiler __atomic_* builtins: a relaxed atomic load of an int is a plain
+ * load on common targets (no fence, no lock), so the hot path pays nothing,
+ * and a caller toggling a handler's switch from a thread other than the one
+ * feeding it packets stays race-free under the C memory model. Relaxed
+ * ordering is sufficient because the flag only gates whether
  * analysis/classification runs for a protocol: the function pointers and
  * analyse/classify lists it guards are populated during single-threaded
- * init_extraction()/registration and are stable before any worker thread can
- * observe the flag, so no other data is published through it.
- *
- * The flag remains a plain int in the struct (no ABI/layout change); only the
- * accesses are made atomic.
+ * init_extraction()/registration and are stable before any worker thread
+ * can observe the flag, so no other data is published through it.
  */
 static inline int proto_status_load(const int *status) {
     return __atomic_load_n(status, __ATOMIC_RELAXED);

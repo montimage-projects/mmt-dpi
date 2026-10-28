@@ -744,11 +744,9 @@ void init_protocol_struct(protocol_t * proto) {
     proto->session_data_init = NULL;
     proto->session_data_cleanup = NULL;
     proto->session_context_cleanup = NULL;
-    proto_status_store(&proto->classify_next.status, 0);
     proto->classify_next.pre_classify = NULL;
     proto->classify_next.classify_protos = NULL;
     proto->classify_next.post_classify = NULL;
-    proto_status_store(&proto->data_analyser.status, 0);
     proto->data_analyser.pre_analyse = NULL;
     proto->data_analyser.analyse = NULL;
     proto->data_analyser.post_analyse = NULL;
@@ -1196,11 +1194,8 @@ void mmt_close_handler(mmt_handler_t *mmt_handler) {
  */
 void enable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler && _is_valid_protocol_id(proto_id) > 0) {
-        // Add this condition checking to reduce conflict in multi-thread
-        int *status = &mmt_handler->configured_protocols[proto_id].protocol->data_analyser.status;
-        if (proto_status_load(status) == 0) {
-            proto_status_store(status, 1);
-        }
+        // Issue #549: this handler's own switch, never the shared protocol_t.
+        proto_status_store(&mmt_handler->configured_protocols[proto_id].analysis_enabled, 1);
     }
 }
 
@@ -1211,11 +1206,8 @@ void enable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id) {
  */
 void disable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler && _is_valid_protocol_id(proto_id) > 0) {
-        // Add this condition checking to reduce conflict in multi-thread
-        int *status = &mmt_handler->configured_protocols[proto_id].protocol->data_analyser.status;
-        if (proto_status_load(status) == 1) {
-            proto_status_store(status, 0);
-        }
+        // Issue #549: this handler's own switch, never the shared protocol_t.
+        proto_status_store(&mmt_handler->configured_protocols[proto_id].analysis_enabled, 0);
     }
 }
 
@@ -1226,11 +1218,8 @@ void disable_protocol_analysis(mmt_handler_t *mmt_handler, uint32_t proto_id) {
  */
 void enable_protocol_classification(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler && _is_valid_protocol_id(proto_id) > 0) {
-        // Add this condition checking to reduce conflict in multi-thread
-        int *status = &mmt_handler->configured_protocols[proto_id].protocol->classify_next.status;
-        if (proto_status_load(status) == 0) {
-            proto_status_store(status, 1);
-        }
+        // Issue #549: this handler's own switch, never the shared protocol_t.
+        proto_status_store(&mmt_handler->configured_protocols[proto_id].classify_enabled, 1);
     }
 }
 
@@ -1241,11 +1230,8 @@ void enable_protocol_classification(mmt_handler_t *mmt_handler, uint32_t proto_i
  */
 void disable_protocol_classification(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler && _is_valid_protocol_id(proto_id) > 0) {
-        // Add this condition checking to reduce conflict in multi-thread
-        int *status = &mmt_handler->configured_protocols[proto_id].protocol->classify_next.status;
-        if (proto_status_load(status) == 1) {
-            proto_status_store(status, 0);
-        }
+        // Issue #549: this handler's own switch, never the shared protocol_t.
+        proto_status_store(&mmt_handler->configured_protocols[proto_id].classify_enabled, 0);
     }
 }
 
@@ -1270,12 +1256,6 @@ bool init_extraction()
         }
         memset(configured_protocols[i], '\0', sizeof (protocol_t));
         configured_protocols[i]->is_registered = PROTO_NOT_REGISTERED;
-        // Issue #69: keep all accesses to these flags atomic (relaxed) so the
-        // hot-path reader and the enable_*/disable_* writers never mix atomic
-        // and non-atomic accesses to the same location. This runs single-
-        // threaded before any worker, but consistency keeps it well-defined.
-        proto_status_store(&configured_protocols[i]->data_analyser.status, 0);
-        proto_status_store(&configured_protocols[i]->classify_next.status, 0);
     }
 
     // Issue #19: create the protocol name -> id index before any protocol is
