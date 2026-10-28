@@ -150,7 +150,10 @@ minus_one = []
 for name, rt in sorted(rettype.items()):
     if "*" in rt or not unsigned_re.search(rt):
         continue
-    for m in re.finditer(r"\b" + re.escape(name) + r"\s*\([^;{}]*\)\s*\{", src_nc):
+    # A definition starts its line with the return type; a call opening a
+    # block (`if (fn(x)) {`) does not, so a caller's body is never scanned.
+    for m in re.finditer(r"(?m)^[A-Za-z_][^\n;{}()=]*\b" + re.escape(name)
+                         + r"\s*\([^;{}]*\)\s*\{", src_nc):
         depth, end = 0, len(src_nc)
         for j in range(m.end() - 1, len(src_nc)):
             if src_nc[j] == "{":

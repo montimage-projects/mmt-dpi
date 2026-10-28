@@ -36,7 +36,7 @@ one of those declarations, or misses one of them.
 > (`nm -D local_install/dpi/lib/libmmt_core.so | grep ' T '` confirms) but have **0 callers**
 > outside their definition/headers (`grep -r <symbol> src sdk/tests sdk/examples tests examples`
 > shows only declaration+definition). They are now marked
-> `__attribute__((deprecated))` in `src/mmt_core/public_include/mmt_core.h:938,795,640`
+> `__attribute__((deprecated))` in `src/mmt_core/public_include/mmt_core.h:939,795,640`
 > (and mirrored in `sdk/include/mmt_core.h`) and are scheduled for removal in
 > release 2.0.0 — recorded in `CHANGELOG.md` (issue #232):
 > `setDataLinkType` (obsolete, @obsolete since long), `get_attribute_extracted_data_encap_index`
