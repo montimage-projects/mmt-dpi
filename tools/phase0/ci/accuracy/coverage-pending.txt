@@ -6,8 +6,9 @@
 # and requires, for each one, a positive and a negative/ambiguous case in
 # corpus.json naming it in "classifiers" -- or an entry here. The list only
 # shrinks: an entry whose classifier gained both cases, or that is no longer
-# registered, fails the oracle until it is removed. Adding an entry needs the
-# same review as a corpus change.
+# registered, fails the oracle until it is removed. An entry for a classifier
+# the base commit already registers but did not list fails too: CI runs the
+# oracle with --base HEAD^1, so only a newly registered classifier may enter.
 #
 # Format: <classifier>  # <why it is pending>
 mmt_check_stun_tcp                     # no reviewed case yet

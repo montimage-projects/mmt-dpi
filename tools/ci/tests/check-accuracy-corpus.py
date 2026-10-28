@@ -23,10 +23,17 @@ classifier registered in src/mmt_tcpip/lib/inter_proto_classif_list.def
 negative/ambiguous case naming it, or an entry in coverage-pending.txt next to
 corpus.json. The pending list only shrinks: an entry for a covered or no
 longer registered classifier fails, as does a case naming a classifier the
-chains do not register.
+chains do not register. With --base REF the oracle also reads
+tools/phase0/ci/accuracy/coverage-pending.txt and the chain definition at REF
+(`git show`) and fails on a pending entry that REF's list lacks although REF's
+chains already register it -- a covered classifier cannot move back to
+pending; only a newly registered one may enter. A REF that does not resolve,
+or lacks the chain file, is an environment error; a REF without the pending
+file (it predates issue #527) skips this ratchet with a note.
 
 The oracle:
-  0. checks classifier coverage against the chains and the pending list;
+  0. checks classifier coverage against the chains and the pending list
+     (and, with --base, the pending list against the base commit's);
   1. validates the manifest strictly -- a missing capture, a capture on disk
      that has no manifest entry, a missing label/provenance/review field, a
      sha256 mismatch, a generator that no longer reproduces the committed
@@ -59,7 +66,10 @@ Usage:
   check-accuracy-corpus.py --classify-bin BIN  # use a prebuilt phase0_classify
   check-accuracy-corpus.py --offline           # manifest + reproducibility only
   options: --corpus DIR (default tools/phase0/ci/accuracy), --json,
-           --chain FILE (default src/mmt_tcpip/lib/inter_proto_classif_list.def)
+           --chain FILE (default src/mmt_tcpip/lib/inter_proto_classif_list.def),
+           --base REF (shrink-only ratchet against the pending list at REF;
+           CI passes HEAD^1), --base-repo DIR (git repository REF is read
+           from, default this checkout)
 
 Exit: 0 = pass, 1 = corpus/expectation failure, 2 = usage or environment error.
 """
@@ -81,6 +91,9 @@ CLASSIFY_SRC = os.path.join(REPO_ROOT, "tools", "phase0", "phase0_classify.c")
 CHAIN_DEF = os.path.join(REPO_ROOT, "src", "mmt_tcpip", "lib",
                          "inter_proto_classif_list.def")
 PENDING_FILE = "coverage-pending.txt"
+# Canonical repo-relative paths read at the --base REF.
+BASE_PENDING = "tools/phase0/ci/accuracy/" + PENDING_FILE
+BASE_CHAIN = "src/mmt_tcpip/lib/inter_proto_classif_list.def"
 CLASSIFIER_RE = re.compile(r"^mmt_check_[a-z0-9_]+$")
 
 CASE_KINDS = ("positive", "negative", "ambiguous", "unknown")
@@ -272,14 +285,18 @@ def load_manifest(corpus_dir):
 # --------------------------------------------------------------------------
 
 def load_chain(path):
-    """Ordered distinct classifiers registered in the default TCP/UDP chains:
-    every MMT_INTER_PROTO(PROTO_TCP|PROTO_UDP, fn, weight) row outside a
-    comment."""
     try:
         with open(path, "r", encoding="utf-8") as fh:
             text = fh.read()
     except OSError as e:
         raise EnvError("cannot read classifier chain %s: %s" % (path, e))
+    return parse_chain(text, path)
+
+
+def parse_chain(text, path):
+    """Ordered distinct classifiers registered in the default TCP/UDP chains:
+    every MMT_INTER_PROTO(PROTO_TCP|PROTO_UDP, fn, weight) row outside a
+    comment."""
     text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
     text = re.sub(r"//[^\n]*", " ", text)
     rows = re.findall(r"\bMMT_INTER_PROTO\s*\(\s*PROTO_(TCP|UDP)\s*,"
@@ -295,18 +312,22 @@ def load_chain(path):
 
 def load_pending(corpus_dir):
     path = os.path.join(corpus_dir, PENDING_FILE)
-    pending = {}
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            lines = fh.readlines()
+            text = fh.read()
     except OSError as e:
         raise CorpusError("cannot read %s: %s" % (PENDING_FILE, e))
-    for lineno, line in enumerate(lines, 1):
+    return parse_pending(text, PENDING_FILE)
+
+
+def parse_pending(text, name):
+    pending = {}
+    for lineno, line in enumerate(text.splitlines(), 1):
         body, _, reason = line.partition("#")
         body = body.strip()
         if not body:
             continue
-        where = "%s:%d" % (PENDING_FILE, lineno)
+        where = "%s:%d" % (name, lineno)
         if not CLASSIFIER_RE.match(body):
             raise CorpusError("%s: %r is not an mmt_check_* name" % (where,
                                                                      body))
@@ -356,6 +377,57 @@ def check_coverage(man, chain, pending):
             "pending": len(pending),
             "covered_classifiers": covered,
             "pending_classifiers": [fn for fn in chain if fn in pending]}
+
+
+def _git_show(repo, ref, path):
+    """Text of `path` at `ref`, or None when `ref` lacks it. A `ref` that
+    does not resolve to a commit is an environment error."""
+    try:
+        rev = subprocess.run(["git", "-C", repo, "rev-parse", "--verify",
+                              "--quiet", ref + "^{commit}"],
+                             capture_output=True, text=True)
+        if rev.returncode != 0:
+            raise EnvError("--base %s does not resolve to a commit in %s "
+                           "(fetch it, e.g. checkout fetch-depth: 2)"
+                           % (ref, repo))
+        commit = rev.stdout.strip()
+        if subprocess.run(["git", "-C", repo, "cat-file", "-e",
+                           "%s:%s" % (commit, path)],
+                          capture_output=True).returncode != 0:
+            return None
+        show = subprocess.run(["git", "-C", repo, "show",
+                               "%s:%s" % (commit, path)],
+                              capture_output=True, text=True)
+    except OSError as e:
+        raise EnvError("cannot run git for --base %s: %s" % (ref, e))
+    if show.returncode != 0:
+        raise EnvError("git show %s:%s failed: %s"
+                       % (ref, path, show.stderr.strip()))
+    return show.stdout
+
+
+def check_base_ratchet(pending, ref, repo):
+    """The pending list only shrinks: an entry REF's list lacks is allowed
+    only for a classifier REF's chains do not register yet. Returns a status
+    line, or None when REF predates the pending list."""
+    chain_text = _git_show(repo, ref, BASE_CHAIN)
+    if chain_text is None:
+        raise EnvError("--base %s has no %s" % (ref, BASE_CHAIN))
+    base_chain = parse_chain(chain_text, "%s:%s" % (ref, BASE_CHAIN))
+    pending_text = _git_show(repo, ref, BASE_PENDING)
+    if pending_text is None:
+        return None
+    base_pending = parse_pending(pending_text, "%s:%s" % (ref, BASE_PENDING))
+    added = [fn for fn in pending
+             if fn not in base_pending and fn in base_chain]
+    if added:
+        raise CorpusError("%s adds classifier(s) the base %s already "
+                          "registered: %s -- the list only shrinks; add their "
+                          "cases instead" % (PENDING_FILE, ref,
+                                             ", ".join(sorted(added))))
+    return ("✓ ratchet: %s adds no classifier registered at the base %s "
+            "(%d pending there, %d now)" % (PENDING_FILE, ref,
+                                            len(base_pending), len(pending)))
 
 
 def check_files(man, corpus_dir):
@@ -644,6 +716,12 @@ def main(argv):
     ap.add_argument("--corpus", default=DEFAULT_CORPUS)
     ap.add_argument("--chain", default=CHAIN_DEF,
                     help="classifier chain definition (default: %(default)s)")
+    ap.add_argument("--base", metavar="REF",
+                    help="fail on a pending entry REF's list lacks for a "
+                         "classifier REF already registers (shrink-only)")
+    ap.add_argument("--base-repo", metavar="DIR", default=REPO_ROOT,
+                    help="git repository --base is read from "
+                         "(default: %(default)s)")
     ap.add_argument("--prefix", help="SDK install prefix (default: a temp dir)")
     ap.add_argument("--no-build", action="store_true",
                     help="reuse the SDK already installed under --prefix")
@@ -658,8 +736,10 @@ def main(argv):
     corpus = os.path.abspath(args.corpus)
     try:
         man = load_manifest(corpus)
-        coverage = check_coverage(man, load_chain(args.chain),
-                                  load_pending(corpus))
+        pending = load_pending(corpus)
+        coverage = check_coverage(man, load_chain(args.chain), pending)
+        ratchet = (check_base_ratchet(pending, args.base, args.base_repo)
+                   if args.base else "")
         check_files(man, corpus)
         check_reproducible(man, corpus)
         print("✓ manifest: %d cases, %d families; files, labels, provenance, "
@@ -669,6 +749,11 @@ def main(argv):
               "and a negative case; %d pending (%s)"
               % (coverage["covered"], coverage["classifiers"],
                  coverage["pending"], PENDING_FILE), flush=True)
+        if ratchet is None:
+            print("note: shrink-only ratchet skipped: %s has no %s"
+                  % (args.base, BASE_PENDING), flush=True)
+        elif ratchet:
+            print(ratchet, flush=True)
         if args.offline:
             return 0
         workdir = tempfile.mkdtemp(prefix="acc-oracle.")

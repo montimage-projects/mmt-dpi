@@ -25,7 +25,13 @@ replays canned fingerprints, asserting that
     naming it, or a coverage-pending.txt entry -- a classifier missing either
     case, a new chain row, a stale or already-covered pending entry, a
     pending entry without a reason and a case naming an unregistered
-    classifier all FAIL, while commented-out registrations are ignored.
+    classifier all FAIL, while commented-out registrations are ignored;
+  - the shrink-only ratchet (--base REF, against a throwaway git repository):
+    moving a covered classifier back to pending FAILS against the base (and,
+    without --base, passes -- which is why CI passes --base), an unchanged
+    corpus and a pending entry for a classifier the base does not register
+    pass, a base without coverage-pending.txt skips the ratchet, and a REF
+    that does not resolve or a base without the chain file exits 2.
 
 Usage: python3 tools/ci/tests/test-accuracy-corpus.py
 Exit: 0 = all checks passed, 1 = at least one failed.
@@ -180,6 +186,28 @@ class Scratch:
         with open(CHAIN) as src, open(path, "w") as dst:
             dst.write(src.read() + extra)
         return path
+
+    def base_repo(self, pending=True, chain=True):
+        """A throwaway git repository whose HEAD holds the committed pending
+        list and chain definition at their canonical paths."""
+        repo = os.path.join(self.root, "base")
+        files = []
+        if pending:
+            files.append((os.path.join(CORPUS, "coverage-pending.txt"),
+                          "tools/phase0/ci/accuracy/coverage-pending.txt"))
+        if chain:
+            files.append((CHAIN,
+                          "src/mmt_tcpip/lib/inter_proto_classif_list.def"))
+        files.append((ORACLE, "README"))   # never commit an empty tree
+        for src, rel in files:
+            os.makedirs(os.path.dirname(os.path.join(repo, rel)), exist_ok=True)
+            shutil.copy(src, os.path.join(repo, rel))
+        git = ["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t",
+               "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "base"], check=True)
+        return repo
 
     def run(self, **env):
         return oracle("--corpus", self.corpus, "--classify-bin", self.fake,
@@ -478,6 +506,54 @@ with Scratch() as s:
     rc, out = s.offline()
     check("unknown case naming a classifier fails",
           rc == 1 and "exercises no classifier" in out, out)
+
+# --- shrink-only ratchet against the base commit (issue #527) ---------------
+with Scratch() as s:
+    repo = s.base_repo()
+    man = s.manifest()
+    for c in man["cases"]:
+        c["classifiers"] = [x for x in c.get("classifiers", [])
+                            if x != "mmt_check_ssh"]
+    s.save(man)
+    s.pending(s.pending() + "mmt_check_ssh  # moved back\n")
+    rc, out = s.offline()
+    check("covered classifier moved back to pending passes without --base",
+          rc == 0, out)
+    rc, out = s.offline("--base", "HEAD", "--base-repo", repo)
+    check("covered classifier moved back to pending fails against the base",
+          rc == 1 and "already registered: mmt_check_ssh" in out
+          and "only shrinks" in out, out)
+
+with Scratch() as s:
+    rc, out = s.offline("--base", "HEAD", "--base-repo", s.base_repo())
+    check("unchanged corpus passes the ratchet against the base",
+          rc == 0 and "✓ ratchet" in out, out)
+
+with Scratch() as s:
+    repo = s.base_repo()
+    s.pending(s.pending() + "mmt_check_new_one  # registered here\n")
+    rc, out = s.offline("--chain", s.chain(
+        "MMT_INTER_PROTO(PROTO_UDP, mmt_check_new_one, 50)\n"),
+        "--base", "HEAD", "--base-repo", repo)
+    check("newly registered classifier may enter the pending list",
+          rc == 0 and "✓ ratchet" in out, out)
+
+with Scratch() as s:
+    rc, out = s.offline("--base", "HEAD", "--base-repo",
+                        s.base_repo(pending=False))
+    check("base without coverage-pending.txt skips the ratchet",
+          rc == 0 and "ratchet skipped" in out, out)
+
+with Scratch() as s:
+    rc, out = s.offline("--base", "no-such-ref", "--base-repo", s.base_repo())
+    check("unresolvable base REF exits 2",
+          rc == 2 and "does not resolve" in out, out)
+
+with Scratch() as s:
+    rc, out = s.offline("--base", "HEAD", "--base-repo",
+                        s.base_repo(chain=False))
+    check("base without the chain definition exits 2",
+          rc == 2 and "inter_proto_classif_list.def" in out, out)
 
 print()
 print("%d passed, %d failed" % (PASS, FAIL))
