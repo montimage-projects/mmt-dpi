@@ -40,7 +40,7 @@ Three pieces of state are global and shared across all handlers/threads:
 - `configured_protocols[PROTO_MAX_IDENTIFIER]` and
   `configured_protocols_names_map` (`src/mmt_core/src/packet_registry.c`) -
   the table of protocol descriptors and the name->descriptor index.
-- `mmt_configured_handlers_map` (`src/mmt_core/src/packet_registry.c`) -
+- `mmt_configured_handlers_map` (`src/mmt_core/src/packet_registry_handler.c`) -
   handler-lifecycle bookkeeping: the set of live `mmt_handler_t` instances, used
   by `iterate_through_mmt_handlers()` and force-closed at teardown. It is *not*
   touched on the per-packet hot path.
