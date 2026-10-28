@@ -113,8 +113,9 @@ pe="$(compile_line plugins_engine.o MMT_BASE=/tmp/mmt-p1 GIT_VERSION=c0ffee1)"
 pp="$(compile_line packet_processing.o MMT_BASE=/tmp/mmt-p1 GIT_VERSION=c0ffee1)"
 hm1="$(compile_line hashmap.o MMT_BASE=/tmp/mmt-p1 GIT_VERSION=c0ffee1)"
 hm2="$(compile_line hashmap.o MMT_BASE=/tmp/mmt-p2 GIT_VERSION=deadbee)"
-[ -n "$pe" ] && [ -n "$pp" ] && [ -n "$hm1" ] || {
-    echo "✗ no compile line found (plugins_engine.o, packet_processing.o, hashmap.o)" >&2; exit 2; }
+if [ -z "$pe" ] || [ -z "$pp" ] || [ -z "$hm1" ]; then
+    echo "✗ no compile line found (plugins_engine.o, packet_processing.o, hashmap.o)" >&2; exit 2
+fi
 case "$pe" in
     *'-DPLUGINS_REPOSITORY_OPT=\"/tmp/mmt-p1/plugins\"'*) pass "plugins_engine.o gets the plugin directory" ;;
     *) fail "plugins_engine.o gets the plugin directory"; echo "      $pe" ;;

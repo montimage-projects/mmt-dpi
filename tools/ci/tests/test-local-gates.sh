@@ -93,6 +93,7 @@ else
 fi
 run_args="$(tr '\n' ' ' < "${WORK}/docker.run" 2>/dev/null || true)"
 for want in "-v ${REPO_ROOT}:${REPO_ROOT}" "-w ${REPO_ROOT}" "-u $(id -u):$(id -g)" \
+            "--tmpfs ${REPO_ROOT}/docs/.jekyll-cache:mode=1777" \
             "--in-container --full --keep-going" "mmt-dpi-local-gates:"; do
     case " ${run_args}" in
         *" ${want}"*) pass "docker run: ${want}" ;;

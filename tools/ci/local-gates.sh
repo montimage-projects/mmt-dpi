@@ -40,7 +40,8 @@
 # lint job's per-file cppcheck results, reused by the next run),
 # cppcheck-report.xml, and an SDK build — docs_onboarding (verify-helpers)
 # and the --full suites run `make -C sdk clean` first, like every
-# SDK-building suite.
+# SDK-building suite. In the container, Jekyll's docs/.jekyll-cache is a
+# fresh tmpfs, as on a CI checkout.
 #
 # Usage: bash tools/ci/local-gates.sh [--fast|--full] [--host] [--list] [--keep-going]
 #   --list        print the steps the tier runs (`<job> :: <step>`) and exit
@@ -137,7 +138,10 @@ EOF
     # A linked worktree's git directory lives outside the checkout.
     # (Outside a git checkout there is nothing to add; the git-reading
     # gates then fail as they would in CI.)
-    common="$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd || true)"
+    common=""
+    if gitdir="$(cd "$ROOT" && git rev-parse --git-common-dir 2>/dev/null)"; then
+        common="$(cd "$ROOT" && cd "$gitdir" && pwd)"
+    fi
     case "$common/" in "/"|"$ROOT"/*) ;; *) run_args+=(-v "$common:$common") ;; esac
     if [ "$(basename "$runtime")" = podman ]; then
         run_args+=(--userns=keep-id)
@@ -149,6 +153,10 @@ EOF
         mkdir -p "$cache"
         run_args+=(-e "MMT_CCACHE=$MMT_CCACHE" -e "CCACHE_DIR=$cache" -v "$cache:$cache")
     fi
+    # Jekyll's cache starts empty, as on a fresh CI checkout, and a cache the
+    # host left behind (another user's files included) is neither read nor
+    # written.
+    run_args+=(--tmpfs "$ROOT/docs/.jekyll-cache:mode=1777")
     [ -t 1 ] && run_args+=(-t)
     inner=(--in-container "--$TIER")
     [ "$LIST" -eq 1 ] && inner+=(--list)
