@@ -95,8 +95,17 @@ install: --check-built --check-prefix
 # Runtime (SONAME) links, issue #536: lib<name>.so.$(SOVERSION) is what a
 # consumer's NEEDED entry names, so the loader needs it even when ldconfig
 # never runs (an unprivileged install). Only for the libraries installed.
+# Any other lib<name>.so.<n> there is a stale earlier version: one from v1.9.1
+# or before has SONAME lib<name>.so, so ldconfig would repoint the development
+# link at it. Removed (regular files and links only) before ldconfig runs.
 	@ for l in $(MMT_SONAME_LIBS); do \
-		if [ -f $(MMT_LIB)/$$l.so.$(VERSION) ]; then ln -sf $$l.so.$(VERSION) $(MMT_LIB)/$$l.so.$(SOVERSION); fi; \
+		if [ -f $(MMT_LIB)/$$l.so.$(VERSION) ]; then \
+			for f in $(MMT_LIB)/$$l.so.[0-9]*; do \
+				case "$${f##*/}" in $$l.so.$(VERSION)|$$l.so.$(SOVERSION)) continue ;; esac; \
+				if [ -L "$$f" ] || [ -f "$$f" ]; then rm -f -- "$$f" && echo "[MMT-]> Removed stale $$f"; fi; \
+			done; \
+			ln -sf $$l.so.$(VERSION) $(MMT_LIB)/$$l.so.$(SOVERSION); \
+		fi; \
 	done
 
 	@ echo "[MMT-]> Installed  "$(SDKLIB)" at "$(MMT_LIB)

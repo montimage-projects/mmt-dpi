@@ -92,6 +92,14 @@ for lib in "${MMT_LIBS[@]}"; do
     ln -snf "$MMT_LIB/$base" "$MMT_LIB/$lib.so"
     # The SONAME link a consumer's NEEDED entry names (issue #536).
     ln -snf "$base" "$MMT_LIB/$lib.so.$SOVERSION"
+    # Any other $lib.so.<n> is a stale earlier version: one from v1.9.1 or
+    # before has SONAME $lib.so, so ldconfig would repoint the development
+    # link at it. Remove it (regular files and links only), as make install does.
+    for f in "$MMT_LIB/$lib.so."[0-9]*; do
+        name="$(basename "$f")"
+        if [ "$name" = "$lib.so.$SOVERSION" ] || [ -e "$SDKLIB/$name" ]; then continue; fi
+        if [ -L "$f" ] || [ -f "$f" ]; then rm -f -- "$f" && echo "[MMT-]> Removed stale $f"; fi
+    done
 done
 shopt -u nullglob
 echo "[MMT-]> Installed  $SDKLIB at $MMT_LIB"

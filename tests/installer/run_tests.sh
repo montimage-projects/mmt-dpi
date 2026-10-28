@@ -259,6 +259,12 @@ cp "${REPO_ROOT}/LICENSE" "${REPO_ROOT}/THIRD-PARTY-NOTICES" "${Z}/"
 cp "${REPO_ROOT}/LICENSES/GPL-3.0-or-later.txt" "${Z}/COPYING"
 
 ZPREFIX="${WORK}/prefix"
+# Issue #536: an upgrade in place over an earlier version — its stale library
+# files (and links to them) must go; a foreign library must stay.
+mkdir -p "${ZPREFIX}/dpi/lib"
+: > "${ZPREFIX}/dpi/lib/libmmt_core.so.1.7.0"
+ln -s libmmt_core.so.1.7.0 "${ZPREFIX}/dpi/lib/libmmt_core.so.1.7"
+: > "${ZPREFIX}/dpi/lib/libmmt_corex.so.1.7.0"
 check "ZIP install into temp prefix (unprivileged)" \
     bash -c "cd '${Z}' && MMT_BASE='${ZPREFIX}' bash install.sh"
 check "installed lib present"  test -f "${ZPREFIX}/dpi/lib/libmmt_core.so.1.8.0"
@@ -274,6 +280,9 @@ check "make zip restamps SOVERSION" \
     bash -c "sed -n '/^zip:/,/^clean:/p' '${REPO_ROOT}/sdk/Makefile' | grep -qF 'SOVERSION=\"\$(SOVERSION)\"'"
 check "ZIP install lays down the SONAME link" \
     bash -c "[ \"\$(readlink '${ZPREFIX}/dpi/lib/libmmt_core.so.${SOV}')\" = libmmt_core.so.1.8.0 ]"
+check "ZIP install removes a stale earlier library and its link" \
+    bash -c "[ ! -e '${ZPREFIX}/dpi/lib/libmmt_core.so.1.7.0' ] && [ ! -L '${ZPREFIX}/dpi/lib/libmmt_core.so.1.7' ]"
+check "ZIP install keeps another product's library" test -f "${ZPREFIX}/dpi/lib/libmmt_corex.so.1.7.0"
 check "installed plugin"       test -f "${ZPREFIX}/plugins/libmmt_tcpip.so"
 check "installed examples dir" test -f "${ZPREFIX}/examples/stub.c"
 check "ZIP install lays down LICENSE, THIRD-PARTY-NOTICES and COPYING" \
@@ -455,6 +464,21 @@ check "make install writes the install manifest" \
     bash -c "grep -qx 'dpi/lib/libmmt_core.so' '${PREFIX2}/.mmt-dpi-manifest' && grep -qx 'examples/extract_all.c' '${PREFIX2}/.mmt-dpi-manifest'"
 check "the manifest records the SONAME links (issue #536)" \
     bash -c "grep -qx 'dpi/lib/libmmt_core.so.${SOV}' '${PREFIX2}/.mmt-dpi-manifest' && grep -qx 'dpi/lib/libmmt_tcpip.so.${SOV}' '${PREFIX2}/.mmt-dpi-manifest'"
+# Issue #536: upgrading in place over v1.9.1 or before. The stale library has
+# SONAME libmmt_core.so, so if it survived, ldconfig would repoint the
+# development link libmmt_core.so at it; install removes it first.
+printf 'int mmt_stale_core;\n' > "${WORK}/stale.c"
+"${CC}" -shared -fPIC -Wl,--soname=libmmt_core.so -o "${LIB}/libmmt_core.so.1.8.0" "${WORK}/stale.c"
+check "make install over a stale earlier library succeeds" \
+    "${SDKM[@]}" MMT_BASE="${PREFIX2}" "${STAGE[@]}" LDCONF=0 install
+check "make install removes the stale earlier library" test ! -e "${LIB}/libmmt_core.so.1.8.0"
+REAL_LDCONFIG="$(PATH="${PATH}:/sbin:/usr/sbin" command -v ldconfig || true)"
+if [ -n "${REAL_LDCONFIG}" ]; then
+    check "after ldconfig, libmmt_core.so still resolves to libmmt_core.so.${VER}" \
+        bash -c "'${REAL_LDCONFIG}' -n '${LIB}' && [ \"\$(basename \"\$(readlink -f '${LIB}/libmmt_core.so')\")\" = libmmt_core.so.${VER} ]"
+else
+    echo "  - ldconfig not found: skipped the development-link check"
+fi
 DOC2="${PREFIX2}/dpi/share/doc/mmt-dpi"
 check "make install lays down LICENSE and THIRD-PARTY-NOTICES (0644)" \
     bash -c "cmp -s '${REPO_ROOT}/LICENSE' '${DOC2}/LICENSE' && cmp -s '${REPO_ROOT}/THIRD-PARTY-NOTICES' '${DOC2}/THIRD-PARTY-NOTICES' && [ \"\$(stat -c %a '${DOC2}/LICENSE' '${DOC2}/THIRD-PARTY-NOTICES' | sort -u)\" = 644 ]"

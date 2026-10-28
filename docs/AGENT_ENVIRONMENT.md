@@ -503,7 +503,7 @@ documents link here.
   root install out; `LDCONF=1` forces registration; `LDCONF_DIR` and
   `LDCONFIG` relocate the drop-in and the command (the installer suite uses
   a staged directory and a fake `ldconfig`).
-- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:174-215`)
+- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:183-224`)
   removes exactly the entries `install` recorded in
   `<prefix>/.mmt-dpi-manifest` (one path per line, relative to the prefix,
   merged across reinstalls), then the SDK directories left empty (`rmdir`,
@@ -538,7 +538,7 @@ documents link here.
 
 ### The `make test` trap
 
-`sdk/Makefile`'s `test` target (`sdk/Makefile:612-617`) compiles the
+`sdk/Makefile`'s `test` target (`sdk/Makefile:621-626`) compiles the
 `proto_attributes_iterator` example **from the installed prefix**:
 
 ```
@@ -671,7 +671,7 @@ next build of any profile deletes them, so harvest them first with
 
 - Object/header selection: `rules/common.mk:201-203, 225-228, 310-313`
 - Link rules and libxml2 wiring: `rules/common-linux.mk:6-12, 249-252, 260-264, 297-313`
-- Install symlinks for both engines: `sdk/Makefile:89-90, 332-333`
+- Install symlinks for both engines: `sdk/Makefile:89-90, 341-342`
 
 Usage (requires `libxml2-dev`):
 
