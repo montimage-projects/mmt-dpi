@@ -27,7 +27,7 @@
 # fails a context that a merge-queue run would not report (see its header).
 # A job that skips on pull requests and runs only in the queue (issue #658)
 # must report a context listed here, or be needed by one that runs after a
-# failed need (always() / !cancelled()) and reads its result, or the queue
+# failed need (always() / !cancelled() / failure()) and reads its result, or the queue
 # would not wait for it. The queue waits only for contexts protection
 # requires LIVE: check with `check-required-checks.sh --live`.
 #

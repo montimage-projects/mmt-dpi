@@ -440,8 +440,10 @@ def aggregate_flaw(agg, job_id):
     # A static heuristic: it proves the aggregate runs after a failed need
     # and looks at the result, not that its verdict is right — the wiring
     # self-tests run each aggregate's verdict over every outcome.
-    if not re.search(r"(?<!!)\balways\(\)|!\s*cancelled\(\)|\bfailure\(\)",
-                     agg["cond"]):
+    runs_after_failure = re.search(r"!\s*cancelled\(\)", agg["cond"]) or any(
+        not neg for neg in re.findall(r"(!?)\s*\b(?:always|failure)\(\)",
+                                      agg["cond"]))
+    if not runs_after_failure:
         return ("has no job-level `if:` with always(), !cancelled() or "
                 "failure(), so a failed need skips it and the skip reports "
                 "success")

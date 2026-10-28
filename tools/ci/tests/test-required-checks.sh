@@ -426,7 +426,7 @@ jobs:
         run: test "$R" = success
   never:
     needs: [leg]
-    if: ${{ !always() }}
+    if: ${{ ! always() || !failure() }}
     runs-on: ubuntu-24.04
     steps:
       - env: { R: "${{ needs.leg.result }}" }
@@ -445,7 +445,7 @@ expect 0 "queue: an aggregate reading needs.*.result under !cancelled() gates it
 expect 0 "queue: success() || failure() and needs['leg'].result also gate it" \
     "ok   ci.yml:leg  gated by bracket" -- \
     --workflows "$QA" --contexts "$(ctx bracket)"
-expect 1 "queue: an aggregate under !always() does not gate it" \
+expect 1 "queue: an aggregate under negated always()/failure() does not gate it" \
     "gated through the aggregate ci.yml:never, which has no job-level" -- \
     --workflows "$QA" --contexts "$(ctx never)"
 

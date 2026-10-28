@@ -131,7 +131,8 @@ everything.
 Queue-only legs (issue #658): `unit-tests-unsigned-char` (the x86 mirror of
 `unit-tests-arm`), the `-fsigned-char` leg of `unit-tests` (x86's default
 signedness), `coverage` (whole-repo floors, checked once per merge),
-`toolchain-floor` and `assertions-live` skip on every pull request and run in the merge queue, on push and on the schedule. The
+`toolchain-floor` and `assertions-live` skip on every pull request and run
+in the merge queue, on push and on the schedule. The
 merge queue waits only for the contexts branch protection requires, so a leg
 may leave the PR path only when protection requires its context or that of
 an aggregate needing it: `check-required-checks.sh` fails a job that skips
@@ -148,7 +149,8 @@ although neither context is required live. `toolchain-ceiling` stays on pull
 requests: it runs on the `ubuntu-26.04` preview label, and a stalled or
 retired preview runner would hold `build` until the queue's 120-minute
 timeout evicted every entry — moving it waits for the maintainer to require
-its context. The full package matrix still runs on pull requests: `packages-gate` is not live-required, so a failed package leg
+its context. The full package matrix still runs on pull requests:
+`packages-gate` is not live-required, so a failed package leg
 in the queue would not block the merge. Once a maintainer requires it
 (below), `release-packages.yml` can keep one deb, one rpm and one
 reproducibility leg on pull requests and move the rest to the queue.
