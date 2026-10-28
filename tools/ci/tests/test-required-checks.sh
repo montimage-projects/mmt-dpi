@@ -17,8 +17,8 @@
 # must fail while an `if:` naming both events resolves. Queue-only jobs (issue
 # #658), skipped on pull requests, must be gated by a required context (their
 # own or an aggregate's) in a workflow with a merge_group trigger — an
-# aggregate only when it runs after a failed need (always() / !cancelled())
-# and reads the need's result — while a path-filtered workflow's job is
+# aggregate only when its job-level `if:` is exactly always() or !cancelled()
+# and it reads the need's result — while a path-filtered workflow's job is
 # exempt; retired contexts (issue #659) must
 # name `if: false` stubs and never also be required. `--live` runs against a
 # stub `gh` on PATH, so the suite needs no network and no token.
@@ -419,10 +419,31 @@ jobs:
         run: exit 1
   bracket:
     needs: [leg]
-    if: success() || failure()
+    if: always()
     runs-on: ubuntu-24.04
     steps:
       - env: { R: "${{ needs['leg'].result }}" }
+        run: test "$R" = success
+  either:
+    needs: [leg]
+    if: success() || failure()
+    runs-on: ubuntu-24.04
+    steps:
+      - env: { R: "${{ needs.leg.result }}" }
+        run: test "$R" = success
+  onfail:
+    needs: [leg]
+    if: failure()
+    runs-on: ubuntu-24.04
+    steps:
+      - env: { R: "${{ needs.leg.result }}" }
+        run: test "$R" = success
+  conj:
+    needs: [leg]
+    if: ${{ !cancelled() && needs.leg.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - env: { R: "${{ needs.leg.result }}" }
         run: test "$R" = success
   never:
     needs: [leg]
@@ -433,7 +454,7 @@ jobs:
         run: test "$R" = success
 EOF
 expect 1 "queue: an aggregate a failed need would skip does not gate it" \
-    "gated through the aggregate ci.yml:skips, which has no job-level" -- \
+    "gated through the aggregate ci.yml:skips, which has a job-level \`if:\` other than" -- \
     --workflows "$QA" --contexts "$(ctx skips)"
 expect 1 "queue: an aggregate that never reads the need's result does not gate it" \
     "gated through the aggregate ci.yml:blind, which reads neither needs.leg.result" -- \
@@ -442,11 +463,22 @@ expect 1 "queue: an aggregate that never reads the need's result does not gate i
 expect 0 "queue: an aggregate reading needs.*.result under !cancelled() gates it" \
     "ok   ci.yml:leg  gated by star" -- \
     --workflows "$QA" --contexts "$(ctx star)"
-expect 0 "queue: success() || failure() and needs['leg'].result also gate it" \
+expect 0 "queue: always() and needs['leg'].result also gate it" \
     "ok   ci.yml:leg  gated by bracket" -- \
     --workflows "$QA" --contexts "$(ctx bracket)"
+# Any job-level `if:` but always() / !cancelled() can be false on a failed,
+# cancelled or skipped need, and the skipped aggregate reports success.
+expect 1 "queue: an aggregate under success() || failure() does not gate it" \
+    "gated through the aggregate ci.yml:either, which has a job-level \`if:\` other than" -- \
+    --workflows "$QA" --contexts "$(ctx either)"
+expect 1 "queue: an aggregate under failure() does not gate it" \
+    "gated through the aggregate ci.yml:onfail, which has a job-level \`if:\` other than" -- \
+    --workflows "$QA" --contexts "$(ctx onfail)"
+expect 1 "queue: an aggregate under !cancelled() && a need's success does not gate it" \
+    "gated through the aggregate ci.yml:conj, which has a job-level \`if:\` other than" -- \
+    --workflows "$QA" --contexts "$(ctx conj)"
 expect 1 "queue: an aggregate under negated always()/failure() does not gate it" \
-    "gated through the aggregate ci.yml:never, which has no job-level" -- \
+    "gated through the aggregate ci.yml:never, which has a job-level \`if:\` other than" -- \
     --workflows "$QA" --contexts "$(ctx never)"
 
 QN="${WORK}/queue-nogroup"

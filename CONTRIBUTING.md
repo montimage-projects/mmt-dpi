@@ -138,9 +138,9 @@ may leave the PR path only when protection requires its context or that of
 an aggregate needing it: `check-required-checks.sh` fails a job that skips
 on pull requests in an always-on workflow unless that workflow triggers on
 `merge_group` and the job reports a context of `required-checks.txt` or a
-required aggregate needs it — one whose job-level `if:` keeps it running
-after a failed need (`always()`, `!cancelled()` or `failure()`) and that
-reads the need's result — and `--live` fails when that context is not
+required aggregate needs it — one whose job-level `if:` is exactly
+`always()` or `!cancelled()`, so it runs whatever the need's outcome, and
+that reads the need's result — and `--live` fails when that context is not
 live-required. The first three report their own required contexts; the two
 variant-build legs are needed by `build`, whose first step fails unless each
 succeeded (a skip passes on a pull request only). So a failed or flaky

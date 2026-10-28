@@ -40,11 +40,13 @@
 # report a context of the committed list, or be in the `needs` of a job that
 # does (an aggregate). Path-filtered workflows (install-smoke, bootstrap-smoke)
 # are not checked: their jobs never gate a pull request. An aggregate gates a
-# queue-only job only when it still runs after that job fails — a job-level
-# `if:` with `always()`, `!cancelled()` or `failure()`, since a job skipped by
-# a failed need reports success — and reads its result (`needs.<job>.result`,
-# `needs['<job>'].result` or `needs.*.result`) in a step. That is a static
-# heuristic; whether the verdict is right is the workflow self-tests' job.
+# queue-only job only when it still runs whatever that job's outcome — its
+# job-level `if:` is exactly `always()` or `!cancelled()` (any other condition
+# can be false when a need fails, is cancelled or is skipped, and a job
+# skipped that way reports success) — and reads its result
+# (`needs.<job>.result`, `needs['<job>'].result` or `needs.*.result`) in a
+# step. The step-side read is a static heuristic; whether the verdict is
+# right is the workflow self-tests' job.
 #
 # Retired contexts (issue #659): .github/retired-checks.txt, same format, lists
 # contexts folded into other jobs that protection may still require. Each must
@@ -437,16 +439,15 @@ def matches_ctx(names, ctx):
 
 def aggregate_flaw(agg, job_id):
     """Why `agg` would not fail when its need `job_id` fails, or ''."""
-    # A static heuristic: it proves the aggregate runs after a failed need
-    # and looks at the result, not that its verdict is right — the wiring
-    # self-tests run each aggregate's verdict over every outcome.
-    runs_after_failure = re.search(r"!\s*cancelled\(\)", agg["cond"]) or any(
-        not neg for neg in re.findall(r"(!?)\s*\b(?:always|failure)\(\)",
-                                      agg["cond"]))
-    if not runs_after_failure:
-        return ("has no job-level `if:` with always(), !cancelled() or "
-                "failure(), so a failed need skips it and the skip reports "
-                "success")
+    # The job-level half is exact: only `always()` or `!cancelled()` keeps
+    # the aggregate running whatever its needs' outcome. The step-side read
+    # is a static heuristic: it proves the aggregate looks at the result,
+    # not that its verdict is right — the wiring self-tests run each
+    # aggregate's verdict over every outcome.
+    if not NEVER_SKIPS_IF.match(agg["cond"]):
+        return ("has a job-level `if:` other than always() or !cancelled(), "
+                "so a failed, cancelled or skipped need can skip it and the "
+                "skip reports success")
     if not re.search(r"needs(?:\.(?:\*|" + re.escape(job_id) + r")|\[\s*'"
                      + re.escape(job_id) + r"'\s*\])\.result",
                      agg["step_text"]):
