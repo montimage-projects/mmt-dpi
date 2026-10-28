@@ -127,6 +127,8 @@ RUN cd /opt/mmt-gates/docs \\
  && gem install --no-document bundler -v "\$(sed -n '/^BUNDLED WITH/{n;s/ //gp}' Gemfile.lock)" \\
  && BUNDLE_FROZEN=true bundle install \\
  && chmod -R a+rX /opt/mmt-gates
+# The hosted runners' locale: Ruby reads the docs-site scripts as UTF-8.
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 EOF
     tag="mmt-dpi-local-gates:$(cat "$ctx"/* | sha256sum | cut -c1-16)"
     if ! "$runtime" image inspect "$tag" >/dev/null 2>&1; then
