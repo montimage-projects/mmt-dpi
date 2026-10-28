@@ -59,10 +59,16 @@ fi
 # print different seeds; MMT_DETERMINISTIC_SEED=1 restores the fixed legacy
 # sequence (asserted inside the binary), identical across runs.
 echo "Checking table seeds across runs..."
-seed_run() { # [VAR=value ...]: the seeds one `seed` run prints
-    env -u MMT_DETERMINISTIC_SEED "$@" "$SCRIPT_DIR/test_session_table" seed 2>/dev/null |
-        sed -n 's/^table seed: //p'
+seed_run() { # [VAR=value ...]: the seeds one `seed` run prints; fails with it
+    local out
+    if ! out="$(env -u MMT_DETERMINISTIC_SEED "$@" "$SCRIPT_DIR/test_session_table" seed)"; then
+        echo "✗ test_session_table seed failed ($*)" >&2
+        return 1
+    fi
+    printf '%s\n' "$out" | sed -n 's/^table seed: //p'
 }
+# A failing run (e.g. MMT_DETERMINISTIC_SEED=1 not giving the legacy seeds,
+# asserted inside the binary) fails the assignment, so set -e stops here.
 seed1="$(seed_run)"
 seed2="$(seed_run)"
 det1="$(seed_run MMT_DETERMINISTIC_SEED=1)"
