@@ -118,7 +118,7 @@ RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
 COPY install-build-deps.sh install-cppcheck.sh /opt/mmt-gates/
 RUN bash /opt/mmt-gates/install-build-deps.sh ubuntu-24.04 deb \\
  && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \\
-      curl shellcheck python3-yaml jq pkg-config ccache ruby ruby-dev zlib1g-dev libssl-dev libyaml-dev libffi-dev \\
+      curl gawk shellcheck python3-yaml jq pkg-config ccache ruby ruby-dev zlib1g-dev libssl-dev libyaml-dev libffi-dev \\
  && rm -rf /var/lib/apt/lists/*
 RUN bash /opt/mmt-gates/install-cppcheck.sh
 COPY Gemfile Gemfile.lock /opt/mmt-gates/docs/
