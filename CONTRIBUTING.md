@@ -135,7 +135,7 @@ or a new `tools/phase0/tests/run_<stem>.sh` needs an entry:
 `tools/ci/check-test-map.sh` (run by `verify-helpers` and the
 `release_gates` suite) fails on a missing or stale entry, on an entry whose
 files load a family's library without that family's tag (or `smoke`), and on
-a family-only entry that names none of the family's source files — tag
+a family-only entry that names no source file of one of its families — tag
 anything that exercises the whole SDK `smoke`.
 
 Renaming a job whose check is required: update `.github/required-checks.txt`

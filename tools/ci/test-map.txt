@@ -40,8 +40,9 @@
 #         docs      runs when a docs path is part of a non-docs change
 #         build     install/packaging suites (documents the role; selected by
 #                   their family tags)
-#       An entry without `smoke` must name a source file of one of its
-#       families, and an entry whose files load a family's library or
+#       An entry without `smoke` must name a source file of each of its
+#       tcpip, mobile, dicom and business_app tags (so a whole-SDK test that
+#       carries tcpip only because it loads the SDK is `smoke`), and an entry whose files load a family's library or
 #       sources must carry that family's tag (or `smoke`): see
 #       tools/ci/check-test-map.sh.
 
@@ -143,10 +144,10 @@ suite mmt_inet_ntop core
 suite avltree core,tcpip
 suite citrix_ica_detection tcpip
 suite http_header_case tcpip
-suite s1ap_ngap_decode mobile,tcpip
-suite rule_engine security,tcpip,mobile
+suite s1ap_ngap_decode mobile,tcpip,smoke
+suite rule_engine security,tcpip,mobile,smoke
 suite radius_hardening tcpip
-suite nas_ies_tail mobile,tcpip
+suite nas_ies_tail mobile,tcpip,smoke
 suite installer build,tcpip,mobile,dicom,business_app
 suite dicom_dissector dicom
 suite ndn_dissector tcpip
@@ -166,13 +167,14 @@ suite docs_onboarding docs,tcpip
 
 # --- phase0 harnesses (tools/phase0/tests/run_<stem>.sh) ---------------------
 # Whole-SDK harnesses (sessions, memory, L3/L4, the pcap and thread
-# harnesses) and those that name no dissector source are smoke.
+# harnesses) and those that name no source of each of their families are
+# smoke.
 harness arena_alloc_test smoke
 harness bitmask_oob_test smoke
 harness caplen_clamp_test smoke
 harness classified_flow_fastpath_test smoke
 harness classifier_init_test smoke
-harness dicom_test dicom,tcpip
+harness dicom_test dicom,tcpip,smoke
 harness dns_parser_test smoke
 harness dtls_classify_guard_test tcpip
 harness dtls_registration_test smoke

@@ -16,9 +16,11 @@
 #     or sources (the patterns in FAMILY_RE below) and the entry carries
 #     neither that family's tag nor `smoke`;
 #   - an entry tagged only with families (no smoke, tooling, docs, build or
-#     site tag) names no source file of any of them: an entry is
-#     family-selective only when it targets dissector sources by name;
-#     anything else exercising the SDK must be `smoke`;
+#     site tag) names no source file of one of them — each tagged family
+#     but core and security (whose sources are `full`) needs one: an entry
+#     is family-selective only when it targets each of its families'
+#     sources by name; anything else exercising the SDK (a whole-SDK test
+#     tagged tcpip only through its runtime dependency) must be `smoke`;
 #   - no suite or no harness is tagged `smoke`.
 #
 # Usage: bash tools/ci/check-test-map.sh [MAP [RUNNER [HARNESS_DIR]]]
@@ -153,7 +155,7 @@ done
 
 # check_entry <kind> <name> <tags> <file>... — the two tag rules above.
 check_entry() {
-    local kind="$1" name="$2" taglist="$3" fam named=0 families=0 shown
+    local kind="$1" name="$2" taglist="$3" fam shown
     shift 3
     [ "$#" -gt 0 ] || { problem "${kind} ${name}: no file to read"; return; }
     for fam in "${!FAMILY_RE[@]}"; do
@@ -165,18 +167,15 @@ check_entry() {
         fi
     done
     case "${taglist}" in *,smoke,*|*,tooling,*|*,docs,*|*,build,*|*,site,*) return ;; esac
-    for fam in "${!FAMILY_SRC[@]}"; do
+    shown="${taglist#,}"
+    shown="${shown%,}"
+    # core and security sources are `full`, so those two tags never select.
+    for fam in tcpip mobile dicom business_app; do
         case "${taglist}" in *",${fam},"*) ;; *) continue ;; esac
-        families=1
-        if [ -s "${WORK}/${fam}.src" ] && grep -sqIF -f "${WORK}/${fam}.src" -- "$@"; then
-            named=1
+        if [ ! -s "${WORK}/${fam}.src" ] || ! grep -sqIF -f "${WORK}/${fam}.src" -- "$@"; then
+            problem "${kind} ${name}: tagged ${shown} without smoke but names no ${fam} source file — tag it smoke"
         fi
     done
-    if [ "${families}" -eq 1 ] && [ "${named}" -eq 0 ]; then
-        shown="${taglist#,}"
-        shown="${shown%,}"
-        problem "${kind} ${name}: tagged ${shown} without smoke but names no source file of those families — tag it smoke"
-    fi
 }
 
 # dir_files <dir> — its files: tracked and new ones in a checkout (no build

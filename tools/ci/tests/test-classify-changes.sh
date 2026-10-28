@@ -8,8 +8,9 @@
 #     after every fixture:
 #       - docs/ and root-level Markdown are docs (code=false);
 #       - one tcpip dissector is the family tier: the tcpip suites and
-#         harnesses (dicom_test and s1ap_ngap_decode through their tcpip
-#         tag), the smoke set, nothing of another family;
+#         harnesses, the smoke set (which holds the whole-SDK dicom_test,
+#         s1ap_ngap_decode, nas_ies_tail and rule_engine), nothing of
+#         another family's own tests;
 #       - the core, any header, a transport dissector, rules/, sdk/, a
 #         workflow or action, the runners, the map, an unmapped path and an
 #         empty list are full with empty lists;
@@ -18,7 +19,8 @@
 #         full when something outside references them.
 #     Then tools/ci/check-test-map.sh passes on the tree and fails on map
 #     copies missing a suite or a harness, with a stale entry, an unknown
-#     tag, a missing family tag or a mis-tagged dissector harness.
+#     tag, a missing family tag, a mis-tagged dissector harness or an
+#     entry naming a source of only some of its families without smoke.
 # (2) Reads .github/workflows/c-cpp.yml and phase0-baseline.yml and pins the
 #     wiring that keeps every required context reporting on every tier:
 #       - each workflow has a `changes` job with the same classify step and
@@ -176,19 +178,21 @@ for h in ${SMOKE_HARNESSES} dns_parser_test ssl_record_test dicom_test; do harn_
 L="dicom.c (dicom family)"
 expect_tier family "$L" src/mmt_dicom/dicom.c
 for s in ${SMOKE_SUITES} dicom_dissector; do suite_in "$L" "$s"; done
-for s in citrix_ica_detection s1ap_ngap_decode business_app; do suite_out "$L" "$s"; done
+for s in s1ap_ngap_decode nas_ies_tail rule_engine; do suite_in "$L" "$s"; done
+for s in citrix_ica_detection business_app; do suite_out "$L" "$s"; done
 for h in ${SMOKE_HARNESSES} dicom_test; do harn_in "$L" "$h"; done
 for h in ssl_record_test http2_parser_test; do harn_out "$L" "$h"; done
 L="proto_s1ap.c (mobile family)"
 expect_tier family "$L" src/mmt_mobile/proto_s1ap.c
 for s in s1ap_ngap_decode nas_ies_tail; do suite_in "$L" "$s"; done
 for s in dicom_dissector citrix_ica_detection; do suite_out "$L" "$s"; done
-harn_in "$L" mobile_pcap_harness_test
-harn_out "$L" dicom_test
+for h in mobile_pcap_harness_test dicom_test; do harn_in "$L" "$h"; done
+harn_out "$L" ssl_record_test
 L="proto_ips_data.c (business_app family)"
 expect_tier family "$L" src/mmt_business_app/proto_ips_data.c
-suite_in "$L" business_app
+for s in business_app s1ap_ngap_decode nas_ies_tail rule_engine; do suite_in "$L" "$s"; done
 suite_out "$L" dicom_dissector
+harn_in "$L" dicom_test
 expect_tier family "two tcpip dissectors" src/mmt_tcpip/lib/protocols/proto_dns.c \
     src/mmt_tcpip/lib/protocols/proto_ssl.c
 
@@ -324,6 +328,8 @@ expect_map_fail "with a malformed line" "\$a suite"
 expect_map_fail "with a duplicate entry" "\$a suite hexdump core"
 expect_map_fail "without tcpip on dicom_test (two-way tag)" '/^harness dicom_test /s/.*/harness dicom_test dicom/'
 expect_map_fail "without tcpip on s1ap_ngap_decode (two-way tag)" '/^suite s1ap_ngap_decode /s/.*/suite s1ap_ngap_decode mobile/'
+expect_map_fail "with s1ap_ngap_decode (mobile,tcpip) naming only a mobile source" '/^suite s1ap_ngap_decode /s/,smoke$//'
+expect_map_fail "with dicom_test (dicom,tcpip) naming only a dicom source" '/^harness dicom_test /s/,smoke$//'
 expect_map_fail "with a family-selective harness naming no source" '/^harness dns_parser_test /s/smoke/tcpip/'
 expect_map_fail "with no smoke harness" '/^harness /s/smoke/tcpip/; /^harness /s/,smoke//; /^harness /s/tcpip,tcpip/tcpip/'
 bash "${CHECKER}" a b c d >/dev/null 2>&1
