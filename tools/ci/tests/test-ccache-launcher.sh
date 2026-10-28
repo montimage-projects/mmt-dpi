@@ -126,8 +126,10 @@ case "$pp" in
 esac
 # Without git history GIT_VERSION falls back to `nogit` for the package
 # revision (rules/common.mk) only after CFLAGS is set; the define keeps the
-# value it had there — empty — as the global define did.
-pp0="$(GIT_DIR=/nonexistent compile_line packet_processing.o MMT_BASE=/tmp/mmt-p1)"
+# value it had there — empty — as the global define did. CI is cleared for
+# this one evaluation: under CI (every hosted runner sets it) a build without
+# git history is a hard error by design.
+pp0="$(CI='' GIT_DIR=/nonexistent compile_line packet_processing.o MMT_BASE=/tmp/mmt-p1)"
 case "$pp0" in
     *'-DGIT_VERSION=\"\"'*) pass "without git, packet_processing.o keeps an empty GIT_VERSION (not nogit)" ;;
     *) fail "without git, packet_processing.o keeps an empty GIT_VERSION (not nogit)"; echo "      $pp0" ;;

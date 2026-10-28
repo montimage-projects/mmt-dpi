@@ -158,6 +158,9 @@ EOF
     # Jekyll's cache starts empty, as on a fresh CI checkout, and a cache the
     # host left behind (another user's files included) is neither read nor
     # written.
+    # The mountpoint is created here, as the caller: the runtime would
+    # otherwise create a missing one as root inside the checkout.
+    mkdir -p "$ROOT/docs/.jekyll-cache"
     run_args+=(--tmpfs "$ROOT/docs/.jekyll-cache:mode=1777")
     [ -t 1 ] && run_args+=(-t)
     inner=(--in-container "--$TIER")
