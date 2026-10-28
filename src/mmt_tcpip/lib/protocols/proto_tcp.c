@@ -873,9 +873,11 @@ int tcp_pre_classification_function(ipacket_t * ipacket, unsigned index) {
     mmt_tcpip_internal_packet_t * packet = ipacket->internal_packet;
     int l4_offset = get_packet_offset_at_index(ipacket, index);
     /* Issue #530: doff, ports and flags are read below; an IP header whose
-     * options reach the end of the capture left none of them captured. */
+     * options reach the end of the capture left none of them captured.
+     * Synthetic harness packets may carry no p_hdr — skip the caplen check then. */
     if (l4_offset < 0
-     || !mmt_have_bytes(ipacket, (size_t) l4_offset, sizeof(struct tcphdr))) {
+     || (ipacket->p_hdr != NULL
+      && !mmt_have_bytes(ipacket, (size_t) l4_offset, sizeof(struct tcphdr)))) {
         return MMT_CLASSIFY_SKIP;
     }
     if (packet->iphv6) {
@@ -994,9 +996,11 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
     mmt_tcpip_internal_packet_t * packet = ipacket->internal_packet;
     int l4_offset = get_packet_offset_at_index(ipacket, index);
     /* Issue #530: doff, ports and flags are read below; an IP header whose
-     * options reach the end of the capture left none of them captured. */
+     * options reach the end of the capture left none of them captured.
+     * Synthetic harness packets may carry no p_hdr — skip the caplen check then. */
     if (l4_offset < 0
-     || !mmt_have_bytes(ipacket, (size_t) l4_offset, sizeof(struct tcphdr))) {
+     || (ipacket->p_hdr != NULL
+      && !mmt_have_bytes(ipacket, (size_t) l4_offset, sizeof(struct tcphdr)))) {
         return MMT_CLASSIFY_SKIP;
     }
     if (packet->iphv6) {
