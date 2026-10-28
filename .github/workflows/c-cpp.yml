@@ -132,8 +132,8 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/ccache
-        key: ccache-unit-tests${{ matrix.extra_cflags }}-${{ github.sha }}
-        restore-keys: ccache-unit-tests${{ matrix.extra_cflags }}-
+        key: ccache-unit-tests-${{ matrix.extra_cflags || 'default' }}-${{ github.sha }}
+        restore-keys: ccache-unit-tests-${{ matrix.extra_cflags || 'default' }}-
     - name: Run unit test suites
       if: needs.changes.outputs.code != 'false' && (matrix.extra_cflags == '' || github.event_name != 'pull_request')
       env:
@@ -155,7 +155,7 @@ jobs:
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/ccache
-        key: ccache-unit-tests${{ matrix.extra_cflags }}-${{ github.sha }}
+        key: ccache-unit-tests-${{ matrix.extra_cflags || 'default' }}-${{ github.sha }}
 
   unit-tests-arm:
     # Native ARM run of the full suite set (issue #528, F-TEST-010). Plain
