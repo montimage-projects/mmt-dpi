@@ -21,9 +21,11 @@
 # llhttp__debug() fprintf pair is dead code with no call site in the
 # generated release build.
 #
-# Counted (2), issue #545: a macro definition, in a .c or .h file of the
-# same trees or of src/mmt_core/private_include, whose body writes to stdout
-# (printf(, puts(, fprintf(stdout / xer_fprint(stdout). The macro-definition
+# Counted (2), issue #545: a macro definition line, in a .c or .h file of
+# the same trees or of src/mmt_core/private_include, that writes to stdout
+# (printf(, puts(, putchar(, fprintf(stdout / xer_fprint(stdout, or
+# fputs/fputc/putc/fwrite naming stdout). Only the #define line itself is
+# read, not its continuation lines. The macro-definition
 # exemption of (1) is how S1AP_ERROR/S1AP_WARN printed every malformed PDU
 # to stdout; no SDK diagnostic may target stdout.
 #
@@ -66,7 +68,7 @@ hits="$(git ls-files "${c_specs[@]}" "${vendor_excludes[@]}" \
 h_specs=("src/mmt_core/private_include/*.h")
 for d in "${PACKET_PATH_DIRS[@]}"; do h_specs+=("$d/*.c" "$d/*.h"); done
 stdout_macros="$(git ls-files "${h_specs[@]}" "${vendor_excludes[@]}" \
-    | xargs grep -nE '^[[:space:]]*#[[:space:]]*define.*(\b(printf|puts)[[:space:]]*\(|\b(fprintf|xer_fprint)[[:space:]]*\([[:space:]]*stdout\b)' \
+    | xargs grep -nE '^[[:space:]]*#[[:space:]]*define.*(\b(printf|puts|putchar)[[:space:]]*\(|\b(fprintf|xer_fprint)[[:space:]]*\([[:space:]]*stdout\b|\b(fputs|fputc|putc|fwrite)[[:space:]]*\(.*\bstdout\b)' \
     || true)"
 if [ -n "$stdout_macros" ]; then
     hits="$(printf '%s\n%s\n' "$hits" "$stdout_macros")"
