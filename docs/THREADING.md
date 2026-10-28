@@ -189,8 +189,8 @@ summaries — so two engines never see each other's state:
   rules' verdicts, to its own callback and `user_args`
   (`tests/rule_engine/test_rule_eval.c`, `two-engines`).
 - A handler runs at most one engine: a second `init_sec_lib()` on the same
-  handler returns `-1` ("Error 105") without allocating anything or touching
-  the loaded rules. The handler is claimed under the engine registry's mutex
+  handler returns `-1` ("Error 105") without touching the loaded rules (the
+  engine it allocated for the attempt is freed). The handler is claimed under the engine registry's mutex
   (`sec_engines_lock`), so of two threads that race to load an engine on one
   handler exactly one wins.
 - A load that fails — unreadable or malformed rule file, missing embedded
