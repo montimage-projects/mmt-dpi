@@ -64,6 +64,10 @@
 # scripts/validate-exported-symbols.sh (issue #534), which drives the real
 # validator on a fixture shared object and fixture documents (an unrecorded
 # export, a removed one, a missing section, --write; no SDK build).
+# It also runs the shared-build self-test beside tests/run_all_tests.sh
+# (issue #654), which drives a copy of the real runner over fake suites with
+# a stub make on PATH (one build per group, the incremental ENABLESEC=1
+# build, the prefixes handed to consumers, a failed build; no SDK build).
 set -e
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../tools/ci/tests"
 python3 "${TESTS_DIR}/test-release-gates.py" "$@"
@@ -84,3 +88,4 @@ bash "${TESTS_DIR}/test-commented-code-ratchet.sh"
 bash "${TESTS_DIR}/test-api-contracts.sh"
 bash "${TESTS_DIR}/test-abi-diff.sh"
 bash "${TESTS_DIR}/test-exported-symbols.sh"
+bash "${TESTS_DIR}/test-shared-sdk-build.sh"
