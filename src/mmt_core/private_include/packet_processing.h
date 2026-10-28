@@ -810,8 +810,8 @@ void clean_packet_with_reassembly(ipacket_t * ipacket);
  * packet_registry.c — the protocol table, protocol stacks, name/id lookups
  * and init_extraction()/close_extraction(); packet_registry_classify.c —
  * per-protocol classification/analysis/session callback registration;
- * packet_registry_handler.c — the handler lifecycle and bookkeeping map;
- * packet_registry_attr.c — per-handler attribute and packet-handler
+ * packet_registry_handler.c — the handler lifecycle and bookkeeping
+ * map; packet_registry_attr.c — per-handler attribute and packet-handler
  * registration), packet_session.c (session lifecycle and timeout — issue
  * #240) and packet_stats.c (protocol statistics — issue #240). The entry
  * points below keep external linkage so the units can call each other; they
