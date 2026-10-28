@@ -11,7 +11,7 @@ int get_packet_offset_at_index(const ipacket_t * ipacket, unsigned index) {
     // and is invalidated by set_classified_proto() and every reassignment of
     // proto_headers_offset, so the value returned is byte-identical to the old
     // re-summation for the current offset state.
-    ipacket_t * pkt = (ipacket_t *) ipacket; // mutable memoization cache only
+    ipacket_internal_t * pkt = ipacket_internal(ipacket); // mutable memoization cache only (issue #535: private extension)
     if (index >= (unsigned) PROTO_PATH_SIZE) {
         index = PROTO_PATH_SIZE - 1;
     }
@@ -35,8 +35,15 @@ int get_packet_offset_at_index(const ipacket_t * ipacket, unsigned index) {
     return pkt->internal_cumulative_offset[index];
 }
 
+void invalidate_packet_offset_cache(ipacket_t * ipacket) {
+    if (ipacket != NULL) {
+        ipacket_internal(ipacket)->internal_cumulative_offset_valid = 0;
+    }
+}
+
 unsigned get_protocol_index_by_id(const ipacket_t * ipacket, uint32_t proto_id) {
-    int retval = -1, i;
+    unsigned retval = MMT_NO_PROTO_INDEX;
+    int i;
     int nb_proto = ipacket->proto_hierarchy->len;
     for (i = nb_proto - 1 ; i >= 0; i--) {
         if (ipacket->proto_hierarchy->proto_path[i] == proto_id) {
@@ -49,7 +56,8 @@ unsigned get_protocol_index_by_id(const ipacket_t * ipacket, uint32_t proto_id) 
 
 unsigned get_protocol_index_by_name(const ipacket_t * ipacket, const char *proto_name) {
     uint32_t proto_id = get_protocol_id_by_name(proto_name);
-    int retval = -1, i;
+    unsigned retval = MMT_NO_PROTO_INDEX;
+    int i;
     if (proto_id) {
         int nb_proto = ipacket->proto_hierarchy->len;
         for (i = nb_proto - 1; i >= 0; i--) {
@@ -66,7 +74,7 @@ unsigned get_protocol_index_by_name(const ipacket_t * ipacket, const char *proto
 uint64_t get_session_id_from_packet( const ipacket_t *ipacket )
 {
     if(ipacket->session) return ipacket->session->session_id;
-    return -1;
+    return MMT_NO_SESSION_ID;
 }
 
 mmt_session_t * get_session_from_packet( const ipacket_t *ipacket )
@@ -328,11 +336,11 @@ uint8_t get_session_setup_direction( const mmt_session_t *session )
 
 uint32_t get_protocol_id_at_index(const ipacket_t * ipacket, unsigned index) {
     if (index >= PROTO_PATH_SIZE)
-        return -1;
+        return MMT_NO_PROTO_ID;
     if (index < ipacket->proto_hierarchy->len)
         return ipacket->proto_hierarchy->proto_path[index];
 
-    return -1;
+    return MMT_NO_PROTO_ID;
 }
 
 uint32_t get_data_size_by_data_type(uint32_t data_type) {

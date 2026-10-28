@@ -85,6 +85,7 @@ static int g_failures;
 #define AC_KEY            0x11223344u
 #define AC_SEC            1000
 #define AC_USEC           250
+#define AC_DIR_REPLY      0xD1 /* byte 4 of a packet travelling against the setup direction */
 
 #define AC_ATTR_U32       1    /* U32 at offset 0: the session key */
 #define AC_ATTR_U16       2    /* U16 at offset 6 */
@@ -145,13 +146,19 @@ static void *ac_sessionize(void *protocol_context, ipacket_t *ipacket,
     (void) previous_index;
     uint32_t k;
     memcpy(&k, ipacket->data, sizeof(k));
+    /* Packet direction, as the IP sessionizer sets it (proto_ip.c): byte 4
+     * equal to AC_DIR_REPLY marks a reply; every other packet travels in the
+     * session's setup direction. */
+    const unsigned dir = ipacket->data[4] == AC_DIR_REPLY;
     mmt_session_t *s = (mmt_session_t *)
             get_session_from_protocol_context_by_session_key(protocol_context, &k);
-    if (s != NULL) { *is_new = 0; return s; }
+    if (s != NULL) { *is_new = 0; s->last_packet_direction = dir; return s; }
     s = (mmt_session_t *) mmt_malloc(sizeof(*s) + sizeof(uint32_t));
     *is_new = 1;
     if (s == NULL) return NULL;
     memset(s, 0, sizeof(*s));
+    s->setup_packet_direction = dir;
+    s->last_packet_direction = dir;
     s->session_key = (void *) (s + 1);
     *(uint32_t *) s->session_key = k;
     if (insert_session_into_protocol_context(protocol_context, s->session_key, s) == 0) {
@@ -190,16 +197,21 @@ static int fixture_packet_handler(const ipacket_t *ipacket, void *args) {
     return 0;
 }
 
-static int send_packet(mmt_handler_t *h, uint32_t key, long sec, long usec) {
+static int send_packet_dir(mmt_handler_t *h, uint32_t key, long sec, long usec, int reply) {
     u_char buf[AC_PKT_LEN];
     pkthdr_t hdr;
     for (size_t i = 0; i < sizeof(buf); i++) buf[i] = (u_char) i;
     memcpy(buf, &key, sizeof(key));
+    if (reply) buf[4] = AC_DIR_REPLY;
     memset(&hdr, 0, sizeof(hdr));
     hdr.ts.tv_sec = sec;
     hdr.ts.tv_usec = usec;
     hdr.caplen = hdr.len = (unsigned) sizeof(buf);
     return packet_process(h, &hdr, buf);
+}
+
+static int send_packet(mmt_handler_t *h, uint32_t key, long sec, long usec) {
+    return send_packet_dir(h, key, sec, usec, 0);
 }
 
 /* Runs probe inside the fixture handler's packet callback, where the
@@ -265,7 +277,7 @@ static int fixture_setup(void) {
 /* fabricated records                                                        */
 
 typedef struct {
-    ipacket_t ip;
+    ipacket_internal_t ip;
     pkthdr_t hdr;
     u_char buf[AC_PKT_LEN];
 } fake_packet_t;
@@ -290,7 +302,7 @@ static ipacket_t *fake_packet(fake_packet_t *f, unsigned n, const uint32_t *ids,
     f->hdr.ts.tv_sec = AC_SEC;
     f->ip.p_hdr = &f->hdr;
     f->ip.data = f->ip.original_data = f->buf;
-    return &f->ip;
+    return &f->ip.pub;
 }
 
 static const uint32_t k_path_ma[] = { PROTO_META, AC_PROTO_A };
@@ -502,6 +514,18 @@ static void e_get_packet_offset_at_index(void) {
           "an index past PROTO_PATH_SIZE is clamped to the last slot");
 }
 
+static void b_invalidate_packet_offset_cache(void) {
+    static const uint32_t ids[] = { PROTO_META, AC_PROTO_A, AC_PROTO_C };
+    static const int offs[] = { 0, 14, 20 };
+    fake_packet_t f;
+    ipacket_t *p = fake_packet(&f, 3, ids, offs);
+    CHECK(get_packet_offset_at_index(p, 2) == 34, "offset cached as 0+14+20");
+    p->proto_headers_offset->proto_path[2] = 26; /* a plugin's in-place write */
+    invalidate_packet_offset_cache(p);
+    CHECK(get_packet_offset_at_index(p, 2) == 40, "dropped cache rebuilt: 0+14+26");
+    invalidate_packet_offset_cache(NULL); /* NULL is accepted and ignored */
+}
+
 static void b_get_protocol_id_at_index(void) {
     fake_packet_t f;
     ipacket_t *p = fake_packet(&f, 2, k_path_ma, k_off_ma);
@@ -513,6 +537,9 @@ static void e_get_protocol_id_at_index(void) {
     ipacket_t *p = fake_packet(&f, 2, k_path_ma, k_off_ma);
     CHECK(get_protocol_id_at_index(p, 2) == (uint32_t) -1, "index past the path -> -1");
     CHECK(get_protocol_id_at_index(p, PROTO_PATH_SIZE) == (uint32_t) -1, "index past PROTO_PATH_SIZE -> -1");
+    /* Issue #546: the named sentinel is the value -1 used to produce. */
+    CHECK(get_protocol_id_at_index(p, 2) == MMT_NO_PROTO_ID && MMT_NO_PROTO_ID == (uint32_t) -1,
+          "index past the path -> MMT_NO_PROTO_ID");
 }
 
 static void b_get_protocol_index_by_id(void) {
@@ -527,6 +554,10 @@ static void e_get_protocol_index_by_id(void) {
     fake_packet_t f;
     ipacket_t *p = fake_packet(&f, 2, k_path_ma, k_off_ma);
     CHECK(get_protocol_index_by_id(p, AC_PROTO_C) == (unsigned) -1, "absent id -> -1");
+    CHECK(get_protocol_index_by_id(p, AC_PROTO_C) == MMT_NO_PROTO_INDEX && MMT_NO_PROTO_INDEX == (unsigned) -1,
+          "absent id -> MMT_NO_PROTO_INDEX (#546)");
+    int as_int = (int) get_protocol_index_by_id(p, AC_PROTO_C);
+    CHECK(as_int == -1, "callers storing the index in an int still see -1");
 }
 
 static void b_get_protocol_index_by_name(void) {
@@ -540,6 +571,8 @@ static void e_get_protocol_index_by_name(void) {
     ipacket_t *p = fake_packet(&f, 2, k_path_ma, k_off_ma);
     CHECK(get_protocol_index_by_name(p, "no_such_proto") == (unsigned) -1, "unknown name -> -1");
     CHECK(get_protocol_index_by_name(p, "ac_proto_c") == (unsigned) -1, "registered but absent -> -1");
+    CHECK(get_protocol_index_by_name(p, "no_such_proto") == MMT_NO_PROTO_INDEX,
+          "unknown name -> MMT_NO_PROTO_INDEX (#546)");
 }
 
 static void b_get_session_id_from_packet(void) {
@@ -552,6 +585,8 @@ static void e_get_session_id_from_packet(void) {
     fake_packet_t f;
     ipacket_t *p = fake_packet(&f, 2, k_path_ma, k_off_ma);
     CHECK(get_session_id_from_packet(p) == (uint64_t) -1, "sessionless packet -> -1");
+    CHECK(get_session_id_from_packet(p) == MMT_NO_SESSION_ID && MMT_NO_SESSION_ID == (uint64_t) -1,
+          "sessionless packet -> MMT_NO_SESSION_ID (#546)");
 }
 
 static void b_get_user_session_context_from_packet(void) {
@@ -1315,7 +1350,7 @@ static void b_mmt_drop_packet(void) {
     g_expiry_calls = 0;
     mmt_drop_packet(p);
     CHECK(g_expiry_calls == 1 && get_active_session_count(h) == 0, "timed-out session swept");
-    CHECK(p->data == p->original_data, "packet cleaned: owned data released");
+    CHECK(p->data == ipacket_internal(p)->original_data, "packet cleaned: owned data released");
     mmt_close_handler(h);
 }
 
@@ -1389,6 +1424,7 @@ static void b_get_active_session_count(void) {
 }
 static void e_get_active_session_count(void) {
     CHECK(get_active_session_count(NULL) == (uint64_t) -1, "NULL handler -> -1");
+    CHECK(get_active_session_count(NULL) == MMT_INVALID_SESSION_COUNT, "NULL handler -> MMT_INVALID_SESSION_COUNT (#546)");
 }
 
 static void b_get_protocol_stack_name(void) {
@@ -1996,11 +2032,46 @@ static void e_get_extracted_attribute_at_index_by_name(void) {
 }
 
 /* --- statistics (the fixture handler has processed several packets) --- */
+
+/* Issue #546: the per-direction counters are written. A session-bearing
+ * layer splits its totals by the session's setup direction ([0] = uplink);
+ * meta, crossed before the session exists, counts the totals only. */
+static void protocol_stats_direction(void) {
+    mmt_handler_t *h = new_handler();
+    CHECK(h != NULL, "handler");
+    if (h == NULL) return;
+    send_packet_dir(h, 0xD1D1D1D1u, AC_SEC, 0, 0);      /* setup: uplink */
+    send_packet_dir(h, 0xD1D1D1D1u, AC_SEC, 1, 1);      /* reply: downlink */
+    send_packet_dir(h, 0xD1D1D1D1u, AC_SEC, 2, 1);      /* reply: downlink */
+    send_packet_dir(h, 0xD2D2D2D2u, AC_SEC, 3, 1);      /* a reply-marked first packet sets the setup direction */
+    proto_statistics_t *meta = get_protocol_stats(h, PROTO_META);
+    proto_statistics_t *a = get_protocol_stats(h, AC_PROTO_A);
+    CHECK(meta != NULL && a != NULL && a->packets_count == 4, "four packets on A");
+    if (meta == NULL || a == NULL) { mmt_close_handler(h); return; }
+    CHECK(a->packets_count_direction[0] == 2 && a->packets_count_direction[1] == 2,
+          "A: two uplink, two downlink packets");
+    CHECK(a->data_volume_direction[0] == 2 * AC_PKT_LEN && a->data_volume_direction[1] == 2 * AC_PKT_LEN
+          && a->data_volume_direction[0] + a->data_volume_direction[1] == a->data_volume,
+          "A: data volume split by direction");
+    CHECK(a->payload_volume_direction[0] + a->payload_volume_direction[1] == a->payload_volume
+          && a->payload_volume_direction[1] > 0, "A: payload volume split by direction");
+    CHECK(meta->packets_count == 4 && meta->packets_count_direction[0] == 0
+          && meta->packets_count_direction[1] == 0 && meta->data_volume_direction[0] == 0,
+          "meta has no session: totals only");
+    proto_statistics_t kids;
+    memset(&kids, 0xff, sizeof(kids));
+    get_children_stats(meta, &kids);
+    CHECK(kids.packets_count_direction[0] == 2 && kids.packets_count_direction[1] == 2
+          && kids.payload_volume_direction[1] == a->payload_volume_direction[1],
+          "children stats carry the direction split");
+    mmt_close_handler(h);
+}
 static void b_get_protocol_stats(void) {
     proto_statistics_t *meta = get_protocol_stats(g_h, PROTO_META);
     proto_statistics_t *a = get_protocol_stats(g_h, AC_PROTO_A);
     CHECK(meta != NULL && meta->packets_count >= 1, "meta statistics count the fixture packets");
     CHECK(a != NULL && a->packets_count == meta->packets_count, "A sees every packet meta sees");
+    protocol_stats_direction();
 }
 static void e_get_protocol_stats(void) {
     CHECK(get_protocol_stats(NULL, PROTO_META) == NULL, "NULL handler -> NULL");
@@ -2091,31 +2162,31 @@ static void e_disable_protocol_statistics(void) {
     CHECK(g_cfg->stats_reporting_status == 1, "NULL handler: no effect");
 }
 
-/* The analysis/classification status lives on the shared protocol_t; each
- * contract restores what it flips. */
+/* The analysis/classification switch lives on the handler's own protocol
+ * snapshot (issue #549); each contract restores what it flips. */
 #define AC_STATUS(enable, disable, member) \
 static void b_##enable(void) { \
-    int *st = &g_pc->member.status; \
+    int *st = &g_cfg->configured_protocols[AC_PROTO_C].member; \
     *st = 0; enable(g_cfg, AC_PROTO_C); \
     CHECK(*st == 1, #enable " sets the status"); \
 } \
 static void e_##enable(void) { \
-    int *st = &g_pc->member.status; \
+    int *st = &g_cfg->configured_protocols[AC_PROTO_C].member; \
     *st = 0; enable(g_cfg, PROTO_MAX_IDENTIFIER); enable(NULL, AC_PROTO_C); \
     CHECK(*st == 0, #enable ": invalid id or NULL handler, no effect"); \
 } \
 static void b_##disable(void) { \
-    int *st = &g_pc->member.status; \
+    int *st = &g_cfg->configured_protocols[AC_PROTO_C].member; \
     *st = 1; disable(g_cfg, AC_PROTO_C); \
     CHECK(*st == 0, #disable " clears the status"); \
 } \
 static void e_##disable(void) { \
-    int *st = &g_pc->member.status; \
+    int *st = &g_cfg->configured_protocols[AC_PROTO_C].member; \
     *st = 1; disable(g_cfg, PROTO_MAX_IDENTIFIER); disable(NULL, AC_PROTO_C); \
     CHECK(*st == 1, #disable ": invalid id or NULL handler, no effect"); \
 }
-AC_STATUS(enable_protocol_analysis, disable_protocol_analysis, data_analyser)
-AC_STATUS(enable_protocol_classification, disable_protocol_classification, classify_next)
+AC_STATUS(enable_protocol_analysis, disable_protocol_analysis, analysis_enabled)
+AC_STATUS(enable_protocol_classification, disable_protocol_classification, classify_enabled)
 
 static void b_is_valid_protocol_id(void) {
     CHECK(is_valid_protocol_id(0) && is_valid_protocol_id(PROTO_MAX_IDENTIFIER - 1), "range bounds");
@@ -2348,6 +2419,8 @@ static void b_hex2dec(void) {
 }
 static void e_hex2dec(void) {
     CHECK(hex2dec("fg") == (unsigned long) -1, "non-hex digit -> (unsigned long)-1");
+    CHECK(hex2dec("fg") == MMT_HEX2DEC_ERROR && MMT_HEX2DEC_ERROR == (unsigned long) -1,
+          "non-hex digit -> MMT_HEX2DEC_ERROR (#546)");
 }
 static void b_char2int(void) {
     CHECK(char2int('7') == 7 && char2int('a') == 10 && char2int('F') == 15, "hex digit -> 0..15");
@@ -2581,7 +2654,7 @@ static void b_register_sessionizer_function(void) {
     CHECK(p != NULL, "scratch protocol struct");
     if (p == NULL) return;
     register_sessionizer_function(p, ac_sessionize, ac_session_ctx_cleanup, ac_key_comp);
-    CHECK(p->sessionize == (void *) ac_sessionize && p->session_context_cleanup == (void *) ac_session_ctx_cleanup &&
+    CHECK(p->sessionize == ac_sessionize && p->session_context_cleanup == ac_session_ctx_cleanup &&
           p->session_key_compare == ac_key_comp && p->has_session == HAS_SESSION_CONTEXT,
           "sessionizer wired and the protocol marked session-bearing");
 }
@@ -2600,7 +2673,7 @@ static void ctx_cleanup(void *c, void *a) { (void) c; (void) a; }
 static void b_register_proto_context_init_cleanup_function(void) {
     int tag;
     register_proto_context_init_cleanup_function(g_pc, ctx_init, ctx_cleanup, &tag);
-    CHECK(g_pc->protocol_context_init == (void *) ctx_init && g_pc->protocol_context_cleanup == (void *) ctx_cleanup &&
+    CHECK(g_pc->protocol_context_init == ctx_init && g_pc->protocol_context_cleanup == ctx_cleanup &&
           g_pc->protocol_context_args == &tag, "init/cleanup and argument stored");
     register_proto_context_init_cleanup_function(g_pc, NULL, NULL, NULL);
 }
@@ -2609,11 +2682,11 @@ static void sd_init(ipacket_t *p, unsigned i) { (void) p; (void) i; }
 static void sd_cleanup(mmt_session_t *s, unsigned i) { (void) s; (void) i; }
 static void b_register_session_data_initialization_function(void) {
     register_session_data_initialization_function(g_pc, sd_init);
-    CHECK(g_pc->session_data_init == (void *) sd_init, "stored");
+    CHECK(g_pc->session_data_init == sd_init, "stored");
 }
 static void b_register_session_data_cleanup_function(void) {
     register_session_data_cleanup_function(g_pc, sd_cleanup);
-    CHECK(g_pc->session_data_cleanup == (void *) sd_cleanup, "stored");
+    CHECK(g_pc->session_data_cleanup == sd_cleanup, "stored");
 }
 
 static void b_register_session_data_analysis_function_with_protocol(void) {
@@ -2693,12 +2766,26 @@ static void e_unregister_protocol_stack(void) {
     CHECK(get_protocol_stack_name(AC_STACK_ID) != NULL, "registered stacks untouched");
 }
 
+static void b_is_free_protocol_id_for_registration(void) {
+    CHECK(is_free_protocol_id_for_registration(AC_FREE_ID) == 1, "unused id is free");
+    CHECK(is_free_protocol_id_for_registration(AC_PROTO_A) == 0, "registered id is taken");
+}
+static void e_is_free_protocol_id_for_registration(void) {
+    CHECK(is_free_protocol_id_for_registration(PROTO_MAX_IDENTIFIER) == 0, "invalid id -> 0");
+}
+
+/* Issue #546: the misspelled original stays exported, deprecated, and answers
+ * exactly as the correctly spelled function. */
 static void b_is_free_protocol_id_for_registractionl(void) {
+    AC_ALLOW_DEPRECATED_BEGIN
     CHECK(is_free_protocol_id_for_registractionl(AC_FREE_ID) == 1, "unused id is free");
     CHECK(is_free_protocol_id_for_registractionl(AC_PROTO_A) == 0, "registered id is taken");
+    AC_ALLOW_DEPRECATED_END
 }
 static void e_is_free_protocol_id_for_registractionl(void) {
+    AC_ALLOW_DEPRECATED_BEGIN
     CHECK(is_free_protocol_id_for_registractionl(PROTO_MAX_IDENTIFIER) == 0, "invalid id -> 0");
+    AC_ALLOW_DEPRECATED_END
 }
 
 static void b_get_protocol_struct_for_registration_if_free(void) {
@@ -2758,7 +2845,7 @@ static void b_unregister_protocol_by_id(void) {
 }
 static void e_unregister_protocol_by_id(void) {
     /* Finding (issue #525): unregister_protocol_by_id(PROTO_MAX_IDENTIFIER)
-     * writes past configured_protocols[] (is_free_protocol_id_for_registractionl
+     * writes past configured_protocols[] (is_free_protocol_id_for_registration
      * reports an out-of-range id as "not free"); ASan flags it, so the
      * out-of-range id is not exercised here. */
     CHECK(unregister_protocol_by_id(AC_FREE_ID + 8) == 0, "never-registered id -> 0");
@@ -2846,6 +2933,7 @@ static void e_is_valid_proto_attribute(void) {
 #define W_OOMONLY  "takes no input; its only failure value (0, mmt_core.h) is reached through allocation or plugin-init failure, which this binary cannot inject: it is linked without the --wrap allocator hooks"
 #define W_TOTAL    "total function over its argument domain: every input has a defined result, none is a failure"
 #define W_HANDLER  "takes a live handler and reports nothing: NULL or a closed handler is a dereferenced precondition violation"
+#define W_NOREPORT "returns nothing and rejects nothing: NULL is accepted and ignored, any packet the library handed out is valid"
 #define W_SETTER   "unconditional field store on a caller-owned record: no input is rejected and nothing is reported"
 
 AC_ALLOW_DEPRECATED_BEGIN /* the deprecated APIs are under contract too */
@@ -2855,6 +2943,7 @@ static const api_contract_t k_contracts[] = {
     CONTRACT(get_attribute_name_by_protocol_and_attribute_ids, b_get_attribute_name_by_protocol_and_attribute_ids,
              e_get_attribute_name_by_protocol_and_attribute_ids),
     CONTRACT(get_packet_offset_at_index, b_get_packet_offset_at_index, e_get_packet_offset_at_index),
+    NO_ERROR_PATH(invalidate_packet_offset_cache, b_invalidate_packet_offset_cache, W_NOREPORT),
     CONTRACT(get_protocol_id_at_index, b_get_protocol_id_at_index, e_get_protocol_id_at_index),
     CONTRACT(get_protocol_index_by_id, b_get_protocol_index_by_id, e_get_protocol_index_by_id),
     CONTRACT(get_protocol_index_by_name, b_get_protocol_index_by_name, e_get_protocol_index_by_name),
@@ -3143,6 +3232,8 @@ static const api_contract_t k_contracts[] = {
     CONTRACT(register_protocol_stack, b_register_protocol_stack, e_register_protocol_stack),
     CONTRACT(register_protocol_stack_full, b_register_protocol_stack_full, e_register_protocol_stack_full),
     CONTRACT(unregister_protocol_stack, b_unregister_protocol_stack, e_unregister_protocol_stack),
+    CONTRACT(is_free_protocol_id_for_registration, b_is_free_protocol_id_for_registration,
+             e_is_free_protocol_id_for_registration),
     CONTRACT(is_free_protocol_id_for_registractionl, b_is_free_protocol_id_for_registractionl,
              e_is_free_protocol_id_for_registractionl),
     CONTRACT(get_protocol_struct_for_registration_if_free, b_get_protocol_struct_for_registration_if_free,

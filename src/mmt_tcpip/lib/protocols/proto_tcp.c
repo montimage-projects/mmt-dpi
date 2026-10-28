@@ -175,7 +175,7 @@ static uint32_t tcp_reasm_image_append(mmt_session_t *session, mmt_tcp_reasm_t *
 static void tcp_reasm_drain(mmt_session_t *session, int dir) {
     mmt_tcp_reasm_t *r = session->tcp_reasm;
     if (r == NULL) return;
-    tcp_seg_t *seg = (tcp_seg_t *) r->seg_head[dir];
+    tcp_seg_t *seg = r->seg_head[dir];
     /* Issue #382: the drain empties the list from the head; the index is
      * dropped with it (and rebuilt lazily if an OOM leaves a suffix). */
     r->seg_root[dir] = NULL;
@@ -196,12 +196,12 @@ static void tcp_reasm_drain(mmt_session_t *session, int dir) {
                 /* OOM growing the image — re-link at head and stop: the
                  * pending list keeps the segment for the next read. The
                  * bytes are NOT counted dropped — the segment survives. */
-                seg->next = (tcp_seg_t *) r->seg_head[dir];
+                seg->next = r->seg_head[dir];
                 seg->prev = NULL;
-                if (r->seg_head[dir] != NULL) ((tcp_seg_t *) r->seg_head[dir])->prev = seg;
+                if (r->seg_head[dir] != NULL) r->seg_head[dir]->prev = seg;
                 else r->seg_tail[dir] = seg;
                 r->seg_head[dir] = seg;
-                tcp_seg_idx_reset((tcp_seg_t **) &r->seg_root[dir], seg);
+                tcp_seg_idx_reset(&r->seg_root[dir], seg);
                 return;
             }
             if (n < seg->len) {
@@ -244,8 +244,8 @@ static void tcp_reasm_offer(mmt_session_t *session, int dir, uint64_t packet_id,
 
     /* Locate the insert position: `before` is the node the new segment is
      * linked in front of, NULL for a tail append (or an empty list). */
-    tcp_seg_t *head = (tcp_seg_t *) r->seg_head[dir];
-    tcp_seg_t *tail = (tcp_seg_t *) r->seg_tail[dir];
+    tcp_seg_t *head = r->seg_head[dir];
+    tcp_seg_t *tail = r->seg_tail[dir];
     tcp_seg_t *before = NULL;
     tcp_seg_idx_path_t path;
     int indexed = 0;
@@ -257,7 +257,7 @@ static void tcp_reasm_offer(mmt_session_t *session, int dir, uint64_t packet_id,
         if (tcp_seq_before(seq, head->seq)) {
             before = head;  /* descending order prepends at head — O(1) */
         } else {
-            tcp_seg_t **root = (tcp_seg_t **) &r->seg_root[dir];
+            tcp_seg_t **root = &r->seg_root[dir];
             tcp_seg_idx_sync(root, head, tail);
             before = tcp_seg_idx_locate(root, seq, &path);
             if (before == NULL || tcp_seq_equal(before->seq, seq)) goto drop;
@@ -901,7 +901,6 @@ int tcp_pre_classification_function(ipacket_t * ipacket, unsigned index) {
     // would slip past the "l4_packet_len < tcphdr_len" check below for doff 0),
     // so reject the packet before deriving any offsets from it.
     if (packet->tcp->doff < TCP_DOFF_MIN_WORDS) {
-        MMT_LOG( PROTO_TCP, MMT_LOG_DEBUG, "*** Warning: malformed packet (tcp data offset < 5)\n" );
         return MMT_CLASSIFY_SKIP;
     }
     uint16_t tcphdr_len = packet->tcp->doff * TCP_DOFF_WORD_BYTES; //TCP header length
@@ -909,7 +908,6 @@ int tcp_pre_classification_function(ipacket_t * ipacket, unsigned index) {
     packet->l4_protocol = 6; /* TCP for sure ;) */
 
     if( packet->l4_packet_len < tcphdr_len ) {
-        MMT_LOG( PROTO_TCP, MMT_LOG_DEBUG, "*** Warning: malformed packet (tcp length mismatch)\n" );
         return MMT_CLASSIFY_SKIP;
     }
 
@@ -945,9 +943,6 @@ int tcp_pre_classification_function(ipacket_t * ipacket, unsigned index) {
          * kept: it costs one memset per new flow and guarantees a clean
          * detection state whatever ran on this packet before. */
         memset(packet->flow, 0, sizeof (*(packet->flow)));
-        MMT_LOG(PROTO_UNKNOWN, packet,
-                MMT_LOG_DEBUG,
-                "%s:%u: tcp syn packet for unknown protocol, reset detection state\n", __FUNCTION__, __LINE__);
         }
 
     mmt_connection_tracking(ipacket, index);
@@ -1024,7 +1019,6 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
     // would slip past the "l4_packet_len < tcphdr_len" check below for doff 0),
     // so reject the packet before deriving any offsets from it.
     if (packet->tcp->doff < TCP_DOFF_MIN_WORDS) {
-        MMT_LOG( PROTO_TCP, MMT_LOG_DEBUG, "*** Warning: malformed packet (tcp data offset < 5)\n" );
         return MMT_CLASSIFY_SKIP;
     }
     uint16_t tcphdr_len = packet->tcp->doff * TCP_DOFF_WORD_BYTES; //TCP header length
@@ -1032,7 +1026,6 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
     packet->l4_protocol = 6; /* TCP for sure ;) */
 
     if( packet->l4_packet_len < tcphdr_len ) {
-        MMT_LOG( PROTO_TCP, MMT_LOG_DEBUG, "*** Warning: malformed packet (tcp length mismatch)\n" );
         return MMT_CLASSIFY_SKIP;
     }
 
@@ -1068,9 +1061,6 @@ int tcp_pre_classification_function_with_reassemble(ipacket_t * ipacket, unsigne
          * kept: it costs one memset per new flow and guarantees a clean
          * detection state whatever ran on this packet before. */
         memset(packet->flow, 0, sizeof (*(packet->flow)));
-        MMT_LOG(PROTO_UNKNOWN, packet,
-                MMT_LOG_DEBUG,
-                "%s:%u: tcp syn packet for unknown protocol, reset detection state\n", __FUNCTION__, __LINE__);
         }
 
     mmt_connection_tracking(ipacket, index);

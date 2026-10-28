@@ -58,7 +58,10 @@ and with `-funsigned-char` on x86 (`unit-tests-unsigned-char`, through
 exercised (issue #528). The x86 mirror, like the `-fsigned-char` leg of
 `unit-tests`, runs in the merge queue (and on push and the schedule), not on
 pull requests (issue #658): both contexts are required, so the queue waits
-for them.
+for them. So do the `toolchain-floor` and `assertions-live` jobs below,
+which gate through the required `build` context: `build` needs them and
+fails unless each succeeded. `toolchain-ceiling`, on a preview runner
+label, still runs on every pull request.
 
 **Supported floor (issue #218, F-DEP-207):** GCC ≥ 11 with glibc ≥ 2.34 and
 libstdc++6 ≥ 11 — the oldest toolchain the release matrix
@@ -66,8 +69,10 @@ libstdc++6 ≥ 11 — the oldest toolchain the release matrix
 Rocky 9 / CentOS Stream 9 and Ubuntu 22.04. The constants live in
 `rules/common.mk` (`MMT_GCC_MIN`, `MMT_GLIBC_MIN`, `MMT_LIBSTDCXX_MIN`):
 `rules/arch-linux.mk` fails the build below GCC 11 with a message naming
-the detected compiler, the generated `.deb` declares the same glibc and
-libstdc++ floors in its `Depends:` line (`sdk/Makefile` `deb` target), and
+the detected compiler, the generated `.deb` declares the same glibc floor
+in its `Depends:` line (`sdk/Makefile` `deb` target) — and the libstdc++
+one only for a shipped library that NEEDs libstdc++, which none does since
+issue #539 ported the SDK's last C++ source to C — and
 the `toolchain-floor` job in `c-cpp.yml` builds the SDK and runs the full
 suite, unprivileged, in a digest-pinned `ubuntu:22.04` container (GCC 11.4)
 on an `ubuntu-24.04` runner, so the floor is exercised, not just asserted.
@@ -98,8 +103,10 @@ the `.rpm` `Requires:` are not hand-maintained lists (the `.rpm`
 `BuildRequires:` is a literal list, checked against `tools/ci/build-deps.txt`
 by `tools/ci/check-dependency-lists.sh` — issue #495) —
 `tools/ci/shlib-deps.sh` derives them at package-build time from the NEEDED
-entries `objdump -p` reports for the shipped `.so` files (the floors above
-survive as the `libc6`/`glibc` and `libstdc++6`/`libstdc++` entries).
+entries `objdump -p` reports for the shipped `.so` files (the glibc floor
+above survives as the `libc6`/`glibc` entry; a `libstdc++6`/`libstdc++`
+entry would carry the libstdc++ floor, but no shipped library NEEDs
+libstdc++ since issue #539).
 `tools/ci/build-package.sh` builds with `ENABLESEC=1` and verifies each
 artifact with `tools/ci/check-package-deps.sh --verify-package`, which
 compares `dpkg-deb -f` / `rpm -qp` output against the derived set and fails
@@ -135,8 +142,11 @@ Notes:
 
 - Clang is available via `make ARCH=linux-clang`; icc via `ARCH=linux-icc`
   (rule files in `rules/arch-*.mk`). GCC is the default and best-tested path.
-- A C++ compiler (`g++`, pulled in by `build-essential`) is required because
-  shared libraries are linked with `$(CXX)` (`rules/common-linux.mk:271`).
+- The SDK is plain C: the shared libraries are linked with `$(CC)`
+  (`rules/common-linux.mk:271`), so no library NEEDs libstdc++ (issue #539).
+  `g++` (pulled in by `build-essential`) stays in the toolchain line for
+  the tooling that still compiles C++ — the pinned cppcheck build and the
+  hardening self-test's `CXX` case.
 - `cppcheck` is not in the toolchain line: only the `lint` job needs it.
   `tools/ci/run-cppcheck.sh` pins the release its findings ratchet
   (`tools/ci/cppcheck-ratchet.txt`) was measured with —
@@ -160,7 +170,7 @@ Notes:
 ### Documentation-site toolchain
 
 The C SDK does not require Ruby. For the documentation site, use Ruby **3.4**
-as in CI (`.github/workflows/c-cpp.yml:456-461`), with Bundler to install
+as in CI (`.github/workflows/c-cpp.yml:517-522`), with Bundler to install
 the gems and run Jekyll; every workflow's `ruby-version:` is that same
 release (issue #517). CI enables `bundler-cache` through `ruby/setup-ruby`
 and verifies the committed `docs/Gemfile.lock` under `BUNDLE_FROZEN=true`
@@ -176,7 +186,7 @@ gem install bundler
 ```
 
 `docs/Gemfile:12-17` defines Jekyll and its plugins. CI builds the site with
-`tools/ci/build-docs-site.sh` (`.github/workflows/c-cpp.yml:474`): source and
+`tools/ci/build-docs-site.sh` (`.github/workflows/c-cpp.yml:535`): source and
 built-site link checks around a frozen Jekyll 4 build, the lock-unchanged
 check, and a `docs/_site/build-manifest.json` recording the renderer versions,
 the lock digest and a site digest. GitHub Pages publishes the artifact that
@@ -225,11 +235,12 @@ All flags are passed as make variables, e.g. `make -C sdk DEBUG=1`.
 |------|--------|--------|
 | `DEBUG=1` | `-g` instead of `-O3`; asserts/debug() stay active | `rules/common.mk:87-93` |
 | `NDEBUG=1` | Keep debug/assert active (suppress `-DNDEBUG`; default build defines `-DNDEBUG`) | `rules/common.mk:38-43` |
-| `SHOWLOG=1` | Show `MMT_LOG()` output (`-DDEBUG`). ⚠ Prints decoded, subscriber-identifying fields (IMSI, M-TMSI, UE/eNB IPs, URLs) — build only for captures you may expose, never ship where output is collected (F-SEC-016, #214) | `rules/common.mk:159-171` |
+| `SHOWLOG=1` | Compile in the debug-level log lines (`mmt_log_debug()`, `-DDEBUG`) and default the logger to `debug`; any build reads `MMT_DPI_LOG_LEVEL=off\|error\|warn\|info\|debug` at run time (default `off`, stderr only, issue #545). ⚠ Prints decoded, subscriber-identifying fields (IMSI, M-TMSI, UE/eNB IPs, URLs) — build only for captures you may expose, never ship where output is collected (F-SEC-016, #214) | `rules/common.mk:159-171` |
 | `VALGRIND=1` | Valgrind-friendly instrumentation | `rules/common.mk:94-98` |
 | `TUNE=native` | Opt-in `-march=native` (unsafe for redistributed binaries — off by default) | `rules/common-linux.mk:177-185` |
 | `VERBOSE=1` | Print full compile commands | `rules/common.mk:21-24` |
 | `MMT_EXTRA_CFLAGS=...` | Extra C flags appended after the gnu17 dialect pin (the last `-std` wins, e.g. `-std=gnu2x`); default GCC toolchain only | `rules/arch-linux.mk:20-21` |
+| `MMT_CCACHE=ccache` | Opt-in compiler cache (issue #553): the launcher goes in front of `$(CC)`/`$(CXX)`; unset changes nothing. Make reads it from the environment, so `MMT_CCACHE=ccache bash tests/run_all_tests.sh` caches every SDK the suites build. `CCACHE_BASEDIR` defaults to the checkout; `BUILD=coverage` stays uncached; a missing launcher stops the build. Default GCC toolchain only | `rules/arch-linux.mk:73-85` |
 
 ## 3. Testing
 
@@ -279,9 +290,11 @@ test-map checker `tools/ci/check-test-map.sh`, the public-API contract
 checker self-test `test-api-contracts.sh` and the ABI-diff self-test
 `test-abi-diff.sh`, issue #525, and the plugin export-gate self-test
 `test-exported-symbols.sh`, issue #534, the phase0 harness-shard self-test
-`test-harness-shards.sh`, issue #655, and the shared-build self-test
+`test-harness-shards.sh`, issue #655, the shared-build self-test
 `test-shared-sdk-build.sh`, issue #654, which drives a copy of the runner
-over fake suites with a stub `make`) and the SDK integration coverage path (`test-sdk-coverage.sh`, issue
+over fake suites with a stub `make`, and the weak-type ratchet self-test
+`test-weak-types.sh`, issue #539, which proves the `opaque` metric of
+`tools/ci/count-weak-types.sh` fails on fixture headers) and the SDK integration coverage path (`test-sdk-coverage.sh`, issue
 #387); the first three build nothing, `sdk_coverage` builds its own
 `BUILD=coverage` SDK whatever the mode and cleans `sdk/` afterwards. `installed_consumer` (issue #374) drives the
 other
@@ -352,9 +365,13 @@ until it has a contract. `tools/ci/abi-diff.sh` builds the v1.9.1 tag and
 `HEAD` in temporary git worktrees (release profile plus `-g`; the checkout's
 `sdk/` is untouched) and runs libabigail's `abidiff` per library; the
 `abi-diff` job in `c-cpp.yml` runs it, plus a symbol-level leg against the
-shipped v1.9.1 `.deb`, as a report-only check that is not a required
-context. Locally it needs `abigail-tools` (or `ABIDIFF=/path/to/abidiff`)
-and a fetched `v1.9.1` tag: `bash tools/ci/abi-diff.sh --report abi.txt`.
+shipped v1.9.1 `.deb`, both with `--fail-on incompatible`, as a required
+context (issue #536): an incompatible change fails unless the library's
+SONAME moved — every library is linked as `lib<name>.so.$(SOVERSION)`
+(`SOVERSION` at the end of `rules/common.mk`), and `make install` and the
+packages add the `lib<name>.so.$(SOVERSION)` runtime link. Locally it needs
+`abigail-tools` (or `ABIDIFF=/path/to/abidiff`) and a fetched `v1.9.1` tag:
+`bash tools/ci/abi-diff.sh --fail-on incompatible --report abi.txt`.
 
 ### Suite modes: sanitizers and coverage
 
@@ -459,8 +476,10 @@ whole SDK drops below `sdk.whole_sdk_line_pct` (measured 65.53% at issue
 `tools/ci/report-uncovered-runs.sh` as a gate: a contiguous run of more than
 10 uncovered lines in `coverage.info` fails it (issue #524).
 
-CI runs both modes on every push/PR to main (`.github/workflows/c-cpp.yml`,
-jobs `sanitizer-tests` and `coverage`); the coverage job uploads
+CI runs both modes on every push to main (`.github/workflows/c-cpp.yml`,
+jobs `sanitizer-tests` and `coverage`); `sanitizer-tests` also runs on every
+pull request, `coverage` in the merge queue instead (issue #658: the floors
+are whole-repo metrics, checked once per merge). The coverage job uploads
 `tests/coverage/` as a workflow artifact.
 
 ## 4. `MMT_BASE` Install-Prefix Behavior
@@ -489,7 +508,7 @@ documents link here.
   root install out; `LDCONF=1` forces registration; `LDCONF_DIR` and
   `LDCONFIG` relocate the drop-in and the command (the installer suite uses
   a staged directory and a fake `ldconfig`).
-- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:168-209`)
+- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:183-224`)
   removes exactly the entries `install` recorded in
   `<prefix>/.mmt-dpi-manifest` (one path per line, relative to the prefix,
   merged across reinstalls), then the SDK directories left empty (`rmdir`,
@@ -524,7 +543,7 @@ documents link here.
 
 ### The `make test` trap
 
-`sdk/Makefile`'s `test` target (`sdk/Makefile:597-602`) compiles the
+`sdk/Makefile`'s `test` target (`sdk/Makefile:621-626`) compiles the
 `proto_attributes_iterator` example **from the installed prefix**:
 
 ```
@@ -560,9 +579,9 @@ and restores a clean default build on exit:
 )
 ```
 
-The plugin repository path is baked into compiled code as
+The plugin repository path is baked into `plugins_engine.o` as
 `PLUGINS_REPOSITORY_OPT` (`-DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"`,
-`rules/common.mk:30`). `plugins_engine.o` depends on a stamp file holding
+`rules/common.mk:630`; only that object carries it, issue #553). `plugins_engine.o` depends on a stamp file holding
 the plugin directory it was compiled with (`sdk/Makefile:25-29`): a build
 with a different `MMT_BASE` recompiles exactly that object, a rebuild with
 the same one compiles nothing, and `make install` — which never builds —
@@ -632,8 +651,10 @@ symbols are intentionally left undefined (`rules/common-linux.mk:236-248`).
 In a release build the block is keyed on the compiler's identity, read from
 its preprocessor macros, so `CC=/usr/bin/gcc` or `CC=gcc-13` is hardened like
 `CC=gcc`; a `$(CC)` identified as neither GCC nor Clang skips it with a build
-`$(warning)`, and LTO needs `$(CC)` and `$(CXX)` to be the same GCC release
-(issue #508). `bash tools/ci/check-hardening-flags.sh --built [DIR...]`
+`$(warning)`, and LTO needs only `$(CC)` to be GCC: the libraries are
+compiled and linked by `$(CC)` since issue #539 (issue #508 had required
+`$(CC)` and `$(CXX)` to be the same GCC release while the link ran through
+`$(CXX)`). `bash tools/ci/check-hardening-flags.sh --built [DIR...]`
 checks built libraries (default `sdk/lib/`); the release workflow runs it
 on the installed packages.
 
@@ -655,7 +676,7 @@ next build of any profile deletes them, so harvest them first with
 
 - Object/header selection: `rules/common.mk:201-203, 225-228, 310-313`
 - Link rules and libxml2 wiring: `rules/common-linux.mk:6-12, 249-252, 260-264, 297-313`
-- Install symlinks for both engines: `sdk/Makefile:89-90, 324-325`
+- Install symlinks for both engines: `sdk/Makefile:89-90, 341-342`
 
 Usage (requires `libxml2-dev`):
 
@@ -725,6 +746,14 @@ Facts a later agent cannot infer from the build system alone (issue #480).
   suites plus every phase0 harness (§3). Run it before pushing a change to
   core sources, `rules/*.mk` or anything a harness exercises; it takes
   minutes.
+- **Local gate runner (issue #553).** `bash tools/ci/local-gates.sh --fast`
+  runs the `run:` steps of the required `lint`, `verify-helpers` and
+  `doc-validators` jobs, read from `.github/workflows/c-cpp.yml` itself, so
+  it cannot drift from them; `--full` adds `bash tests/run_all_tests.sh` and
+  the two phase0 gates. By default it runs them in a container built once
+  from the `lint` job's digest-pinned `ubuntu:24.04` with the pinned cppcheck
+  (needs docker or podman, else exit 2); `--host` runs them on this machine,
+  `--list` prints them. The image's Ruby is Ubuntu 24.04's 3.2, not CI's 3.4.
 - **Pull-request test selection (issue #656).** On a pull request CI runs
   only the tests the changed paths select: `tools/ci/classify-changes.sh`
   reads `tools/ci/test-map.txt` (the five tiers are in `CONTRIBUTING.md`,

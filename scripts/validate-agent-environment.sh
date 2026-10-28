@@ -152,11 +152,11 @@ rules/common-linux.mk:177-185	^# TUNE=native \(opt-in, NEVER the default	^endif	
 rules/common-linux.mk:236-248	^# -Wl,-z,defs	^endif	the self-containedness guard, skipped for sanitizers	filter asan tsan,\$\(BUILD\)
 rules/common-linux.mk:249-252	^ifdef ENABLESEC	^endif	the ENABLESEC engines link against libxml2	LIBXML2_LIBS
 rules/common-linux.mk:260-264	^ifdef ENABLESEC	^endif	ENABLESEC adds both engines to the libraries target	LIBSECURITY
-rules/common-linux.mk:271	\$\(CXX\) .*-shared .*\$\(LIBCORE\)\.so	-	shared libraries are linked with $(CXX)
+rules/common-linux.mk:271	\$\(CC\) .*-shared .*\$\(LIBCORE\)\.so	-	shared libraries are linked with $(CC)
 rules/common-linux.mk:297-313	^ifdef ENABLESEC	^endif	the engine link rules are ENABLESEC-gated	LIBSECURITY
 rules/common.mk:3	^MMT_BASE \?=/opt/mmt	-	MMT_BASE defaults to /opt/mmt
 rules/common.mk:21-24	^ifndef VERBOSE	^endif	VERBOSE=1 prints full compile commands	QUIET := @
-rules/common.mk:30	^CFLAGS .*-DPLUGINS_REPOSITORY_OPT=	-	the plugin repository path is baked into the objects
+rules/common.mk:630	plugins_engine\.o: CFLAGS \+= -DPLUGINS_REPOSITORY_OPT=	-	the plugin repository path is baked into plugins_engine.o
 rules/common.mk:38-43	^ifdef NDEBUG	^endif	NDEBUG=1 keeps assert()/debug() active	\+= \-DNDEBUG
 rules/common.mk:76-84	^# libxml2 \(only the ENABLESEC	^endif	libxml2 is resolved for the ENABLESEC engines	libxml-2\.0
 rules/common.mk:87-93	^ifdef DEBUG	^endif	DEBUG=1 swaps -O3 for -g	\+= \-g$
@@ -165,7 +165,7 @@ rules/common.mk:100-127	^# BUILD=asan to compile with AddressSanitizer	^endif	th
 rules/common.mk:120-127	^ifeq \(\$\(BUILD\),asan\)	^endif	the ASan+UBSan flag set the suites mirror	\-fsanitize=address,undefined
 rules/common.mk:129-157	^# BUILD=tsan to compile with ThreadSanitizer	^endif	the BUILD=tsan profile is defined here	\-fsanitize=thread
 rules/common.mk:150-157	^ifeq \(\$\(BUILD\),tsan\)	^endif	the TSan flag set the suites mirror	\-fsanitize=thread
-rules/common.mk:159-171	^# SHOWLOG = 1	^endif	SHOWLOG=1 enables MMT_LOG() output	\-DDEBUG
+rules/common.mk:159-171	^# SHOWLOG = 1	^endif	SHOWLOG=1 compiles in the debug-level log lines	\-DDEBUG
 rules/common.mk:201-203	^ifdef ENABLESEC	^endif	ENABLESEC selects the fuzz include directory	SDKINC_FUZZ
 rules/common.mk:225-228	^ifdef ENABLESEC	^endif	ENABLESEC names the two optional libraries	LIBSECURITY
 rules/common.mk:251-265	^# Extra diagnostic warnings	^MMT_WARN_FLAGS \?=	extra diagnostics are deliberately not -Werror	NOT -Werror
@@ -175,11 +175,11 @@ sdk/Makefile:8-12	^ifdef MMT_BASE	^endif	an unset MMT_BASE targets /opt/mmt	MMT_
 sdk/Makefile:25-29	^PLUGINS_PATH_STAMP :=	^FORCE:	plugins_engine.o depends on a plugin-directory stamp	plugins_engine\.o: \$\(PLUGINS_PATH_STAMP\)
 sdk/Makefile:58-68	^LDCONF +\?= auto	^[[:space:]]+esac$	the loader is registered by privilege (LDCONF=auto|0|1)	id -u
 sdk/Makefile:70-80	^--check-built:	^[[:space:]]+fi$	make install refuses a missing or mismatched build	PLUGINS_PATH_STAMP
-sdk/Makefile:168-209	^uninstall:	Done!	make uninstall removes the install and its drop-in	LDCONF_FILE
+sdk/Makefile:183-224	^uninstall:	Done!	make uninstall removes the install and its drop-in	LDCONF_FILE
 sdk/Makefile:88-94	ln -sf .*libmmt_core\.so	ln -sf .*LIBDICOM	make install creates the unversioned .so symlinks	LIBMOBILE
 sdk/Makefile:89-90	ln -sf .*libmmt_fuzz\.so	ln -sf .*libmmt_security\.so	install symlinks both ENABLESEC engines	libmmt_fuzz\.so\.\$\(VERSION\) +\$\(MMT_LIB\)/libmmt_fuzz\.so$
-sdk/Makefile:324-325	ln -s .*libmmt_fuzz\.so	ln -s .*libmmt_security\.so	the dist tree symlinks both ENABLESEC engines	libmmt_security\.so\.\$\(VERSION\) +\$\(BUILD_DIR\)\$\(MMT_LIB\)/libmmt_security\.so$
-sdk/Makefile:597-602	^test:	\./proto_attributes_iterator	the make test target builds from the installed prefix	\$\(MMT_EXAMS\)/proto_attributes_iterator\.c
+sdk/Makefile:341-342	ln -s .*libmmt_fuzz\.so	ln -s .*libmmt_security\.so	the dist tree symlinks both ENABLESEC engines	libmmt_security\.so\.\$\(VERSION\) +\$\(BUILD_DIR\)\$\(MMT_LIB\)/libmmt_security\.so$
+sdk/Makefile:621-626	^test:	\./proto_attributes_iterator	the make test target builds from the installed prefix	\$\(MMT_EXAMS\)/proto_attributes_iterator\.c
 tests/run_all_tests.sh:8-118	^# Modes:	^esac	the runner has two opt-in sanitizer modes	\-fsanitize=thread
 tests/run_all_tests.sh:106-109	command -v setarch	^ *fi$	TSan re-execs once with ASLR disabled	exec setarch .*\-R
 tests/run_all_tests.sh:245-276	^DEFAULT_SUITES=\(	^\)$	the default suite list lives in DEFAULT_SUITES	docs_onboarding
@@ -194,9 +194,10 @@ tests/run_all_tests.sh:174-186	^sdk_group_of\(\)	^}$	the suite-to-group map of t
 sdk/Makefile:1	^ARCH +\?= linux	-	default architecture is Linux
 rules/arch-linux.mk:2-3	^CXX := g\+\+	^CC  := gcc	Linux uses GCC and G++
 rules/arch-linux.mk:20-21	^CFLAGS \+= -std=gnu17$	^CFLAGS \+= \$\(MMT_EXTRA_CFLAGS\)$	the GCC toolchain pins gnu17, MMT_EXTRA_CFLAGS comes after
-.github/workflows/c-cpp.yml:456-461	Set up Ruby	bundler-cache: true	docs CI uses Ruby 3.4	ruby-version: "3.4"
+rules/arch-linux.mk:73-85	^ifneq \(\$\(strip \$\(MMT_CCACHE\)\),\)	^endif$	MMT_CCACHE is an opt-in launcher in front of CC/CXX	override CC  := \$\(MMT_CCACHE\) \$\(CC\)
+.github/workflows/c-cpp.yml:517-522	Set up Ruby	bundler-cache: true	docs CI uses Ruby 3.4	ruby-version: "3.4"
 docs/Gemfile:12-17	^source	^gem "jekyll-seo-tag"	documentation gems	jekyll
-.github/workflows/c-cpp.yml:474	bash tools/ci/build-docs-site.sh	-	CI builds Jekyll
+.github/workflows/c-cpp.yml:535	bash tools/ci/build-docs-site.sh	-	CI builds Jekyll
 rules/common.mk:3-8	^MMT_BASE	^MMT_EXAMS	Make install configuration
 tests/fault_injection/run_tests.sh:115-117	^ *make .* clean	^ *make .* install	fault injection builds and installs SDK
 tests/fault_injection/run_tests.sh:97-102	^if .*SDK_BUILD_PROFILE	^fi	sanitizers skip fault injection engine leg	exit 0

@@ -6,15 +6,21 @@
 # memoized packet-offset cache.
 #
 # The suite source-compiles packet_processing.c and the objects it needs from
-# src/mmt_core (packet_registry, packet_pipeline, packet_session,
+# src/mmt_core (packet_registry*, packet_pipeline, packet_session,
 # packet_stats, memory, hashmap, mmt_data, mmt_inet_ntop, proto_meta,
 # plugins_engine, extraction_lib, mmt_init, dpi_profiles) plus
-# hash_utils.cpp, so gcov records them under --coverage and ASan/UBSan
+# hash_utils.c, so gcov records them under --coverage and ASan/UBSan
 # instrument them under SANITIZE=*.
 #
 # -Wl,--wrap=malloc/--wrap=calloc route the library's libc allocations through
-# the budget counters in test_core_engine.c; test_core_engine_new.cpp replaces
-# operator new so the C++ allocation sites in hash_utils.cpp can be failed too.
+# the budget counters in test_core_engine.c — since issue #539 that covers
+# hash_utils.c too (its last operator-new sites, and the interposer that
+# failed them, are gone with the C++ TU).
+#
+# Issue #545: test_mmt_log compiles src/mmt_core/src/mmt_log.c, the SDK
+# logger, with its unit test (levels, MMT_DPI_LOG_LEVEL, stderr-only output,
+# per-site rate limit, counters under concurrent writers — under TSan in the
+# SANITIZE=tsan mode).
 #
 # Issue #525: the same library objects (plus mmt_attr_sprintf_compat.c and,
 # since #533, mmt_utils.c) also
@@ -33,18 +39,27 @@ CORE_PRIVATE_INC="$PROJECT_DIR/src/mmt_core/private_include"
 CORE_PUBLIC_INC="$PROJECT_DIR/src/mmt_core/public_include"
 
 CC="${CC:-gcc}"
-CXX="${CXX:-g++}"
 read -r -a extra_cflags <<< "${EXTRA_CFLAGS:-}"
 
 INCS=(-I"$CORE_PRIVATE_INC" -I"$CORE_PUBLIC_INC" -I"$PROJECT_DIR/src/mmt_tcpip/lib")
 
+# Issue #546: the classifier typedef returns mmt_classify_verdict_t in C and
+# keeps its int view in C++; an int-returning classifier must still register
+# from both languages, through the public headers alone, without a warning.
+echo "Compiling the classifier-typedef probe (C and C++)..."
+"$CC" -std=gnu17 -Wall -Wextra -Werror -c -I"$CORE_PUBLIC_INC" \
+    "$SCRIPT_DIR/verdict_typedef_probe.c" -o /dev/null
+"${CXX:-g++}" -x c++ -std=c++11 -Wall -Wextra -Werror -fsyntax-only -I"$CORE_PUBLIC_INC" \
+    "$SCRIPT_DIR/verdict_typedef_probe.c"
+
 echo "Compiling core-engine tests..."
 
-C_SOURCES="packet_processing.c packet_registry.c packet_pipeline.c \
+C_SOURCES="packet_processing.c packet_registry.c packet_registry_classify.c \
+packet_registry_handler.c packet_registry_attr.c packet_pipeline.c \
 packet_session.c packet_stats.c memory.c \
 hashmap.c mmt_data.c mmt_inet_ntop.c \
 proto_meta.c plugins_engine.c extraction_lib.c mmt_init.c \
-dpi_profiles.c"
+dpi_profiles.c hash_utils.c"
 
 # lib_objects: the library under test, shared by both binaries (one set of
 # .o files, so --coverage counters from both runs merge).
@@ -55,10 +70,6 @@ for src in $C_SOURCES; do
         -c "$CORE_SRC/$src" -o "$obj"
     lib_objects+=("$obj")
 done
-
-"$CXX" "${extra_cflags[@]}" -Wall -Wextra -std=c++11 "${INCS[@]}" \
-    -c "$CORE_SRC/hash_utils.cpp" -o "$SCRIPT_DIR/hash_utils.o"
-lib_objects+=("$SCRIPT_DIR/hash_utils.o")
 
 # Issue #242: the classification-utility unit under test lives in
 # src/mmt_tcpip/lib. Compile it and its avltree dependency here; the unit's
@@ -80,11 +91,7 @@ objects=("${lib_objects[@]}")
     -c "$SCRIPT_DIR/test_core_engine.c" -o "$SCRIPT_DIR/test_core_engine.o"
 objects+=("$SCRIPT_DIR/test_core_engine.o")
 
-"$CXX" "${extra_cflags[@]}" -Wall -Wextra -std=c++11 "${INCS[@]}" \
-    -c "$SCRIPT_DIR/test_core_engine_new.cpp" -o "$SCRIPT_DIR/test_core_engine_new.o"
-objects+=("$SCRIPT_DIR/test_core_engine_new.o")
-
-"$CXX" "${extra_cflags[@]}" -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc \
+"$CC" "${extra_cflags[@]}" -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc \
     -o "$SCRIPT_DIR/test_core_engine" "${objects[@]}" -lm -lpthread -ldl
 
 # Issue #525: the public-API contract binary — library objects only, no wraps.
@@ -95,9 +102,14 @@ objects+=("$SCRIPT_DIR/test_core_engine_new.o")
     -c "$CORE_SRC/mmt_utils.c" -o "$SCRIPT_DIR/mmt_utils.o"
 "$CC" "${extra_cflags[@]}" -Wall -Wextra -std=gnu11 "${INCS[@]}" \
     -c "$SCRIPT_DIR/test_api_contracts.c" -o "$SCRIPT_DIR/test_api_contracts.o"
-"$CXX" "${extra_cflags[@]}" -o "$SCRIPT_DIR/test_api_contracts" "${lib_objects[@]}" \
+"$CC" "${extra_cflags[@]}" -o "$SCRIPT_DIR/test_api_contracts" "${lib_objects[@]}" \
     "$SCRIPT_DIR/mmt_attr_sprintf_compat.o" "$SCRIPT_DIR/mmt_utils.o" \
     "$SCRIPT_DIR/test_api_contracts.o" -lm -lpthread -ldl
+
+# Issue #545: the logger and its unit test.
+"$CC" "${extra_cflags[@]}" -Wall -Wextra -std=gnu11 "${INCS[@]}" \
+    -o "$SCRIPT_DIR/test_mmt_log" "$CORE_SRC/mmt_log.c" "$SCRIPT_DIR/test_mmt_log.c" \
+    -lpthread
 
 # Run from a scratch directory: load_plugins() scans ./plugins first, and an
 # empty/missing one deterministically takes the no-plugin early return. The
@@ -130,5 +142,15 @@ if bash "$PROJECT_DIR/tools/ci/check-api-contracts.sh" --decls "$WORK/api_decls.
     echo "Public-API contract tests: PASSED"
 else
     echo "Public-API contract tests: FAILED"
+    exit 1
+fi
+
+echo "Running logger tests (issue #545)..."
+if ( cd "$WORK" && "$SCRIPT_DIR/test_mmt_log" > "$WORK/mmt_log.log" 2>&1 ); then
+    tail -n 1 "$WORK/mmt_log.log"
+    echo "Logger tests: PASSED"
+else
+    cat "$WORK/mmt_log.log"
+    echo "Logger tests: FAILED"
     exit 1
 fi
