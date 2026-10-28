@@ -458,11 +458,23 @@ for j in pr_jobs:
               f"before merge")
         failures += 1
         continue
-    gov = [c for c in committed if matches_ctx(j["names"], c)]
+    gov = []
+    for k in pr_jobs:
+        if k["wf"] == j["wf"] and j["job_id"] in k["needs"]:
+            gov += [c for c in committed if matches_ctx(k["names"], c)]
     if not gov:
-        for k in pr_jobs:
-            if k["wf"] == j["wf"] and j["job_id"] in k["needs"]:
-                gov += [c for c in committed if matches_ctx(k["names"], c)]
+        # Gated by its own contexts: every one of them — each matrix leg —
+        # must be required, since any leg may be the one that skips.
+        ungated = [n for n, g in j["names"]
+                   if not any((fnmatchcase(c, n) if g else c == n)
+                              for c in committed)]
+        if ungated:
+            print(f"  FAIL queue-only: {where} skips on pull requests, and "
+                  f"no required context reports {', '.join(map(repr, ungated))}"
+                  f" or needs the job, so the merge queue would not wait for it")
+            failures += 1
+            continue
+        gov = [c for c in committed if matches_ctx(j["names"], c)]
     if not gov:
         print(f"  FAIL queue-only: {where} skips on pull requests, and no "
               f"required context reports it or needs it, so the merge queue "

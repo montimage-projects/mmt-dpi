@@ -327,6 +327,16 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     steps: [ { run: "true" } ]
+  legs:
+    strategy:
+      matrix:
+        include:
+          - { flag: "" }
+          - { flag: "-x" }
+    runs-on: ubuntu-24.04
+    steps:
+      - if: matrix.flag == '' || github.event_name != 'pull_request'
+        run: "true"
   stub:
     name: Old Gate
     if: false
@@ -349,22 +359,25 @@ jobs:
 EOF
 expect 0 "queue: a skipped-on-PR job reporting a required context resolves" \
     "ok   ci.yml:gated  gated by gated" -- \
-    --workflows "$QX" --contexts "$(ctx base gated agg)"
+    --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)')"
 expect 0 "queue: a step skipped on PRs is gated through the aggregate needing it" \
     "ok   ci.yml:leg  gated by agg" -- \
-    --workflows "$QX" --contexts "$(ctx base gated agg)"
+    --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)')"
 expect 1 "queue: a skipped-on-PR job no required context gates fails" \
     "ci.yml:gated skips on pull requests, and no required context" -- \
-    --workflows "$QX" --contexts "$(ctx base agg)"
+    --workflows "$QX" --contexts "$(ctx base agg legs 'legs (-x)')"
 expect 1 "queue: a step skipped on PRs whose aggregate is not required fails" \
     "ci.yml:leg skips on pull requests, and no required context" -- \
-    --workflows "$QX" --contexts "$(ctx base gated)"
-if bash "$HELPER" --workflows "$QX" --contexts "$(ctx base gated agg)" 2>&1 \
+    --workflows "$QX" --contexts "$(ctx base gated legs 'legs (-x)')"
+if bash "$HELPER" --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)')" 2>&1 \
         | grep -q 'smoke.yml'; then
     bad "queue: a path-filtered workflow's report job is checked"
 else
     ok "queue: a path-filtered workflow's report job is not checked"
 fi
+expect 1 "queue: a matrix leg that skips on PRs must itself be required" \
+    "ci.yml:legs skips on pull requests, and no required context reports 'legs (-x)'" -- \
+    --workflows "$QX" --contexts "$(ctx base gated agg legs)"
 QN="${WORK}/queue-nogroup"
 mkdir -p "$QN"
 cat > "${QN}/ci.yml" <<'EOF'
@@ -393,21 +406,21 @@ expect 1 "queue: a skipped-on-PR job in a workflow without merge_group fails" \
 printf '%s\n' '# retired' 'Old Gate' > "${WORK}/retired.txt"
 expect 0 "retired: a context reported by an if: false stub resolves" \
     "ok   Old Gate  <- ci.yml:stub" -- \
-    --workflows "$QX" --contexts "$(ctx base gated agg)" --retired "${WORK}/retired.txt"
+    --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)')" --retired "${WORK}/retired.txt"
 printf '%s\n' base > "${WORK}/retired-real.txt"
 expect 1 "retired: a context whose job still runs fails" \
     "is retired but its job is not a stub" -- \
-    --workflows "$QX" --contexts "$(ctx gated agg)" --retired "${WORK}/retired-real.txt"
+    --workflows "$QX" --contexts "$(ctx gated agg legs 'legs (-x)')" --retired "${WORK}/retired-real.txt"
 expect 1 "retired: a context both required and retired fails" \
     "is also in the committed list" -- \
-    --workflows "$QX" --contexts "$(ctx base gated agg 'Old Gate')" --retired "${WORK}/retired.txt"
+    --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)' 'Old Gate')" --retired "${WORK}/retired.txt"
 expect 1 "committed: a context only a stub reports fails" \
     "names only a retired stub" -- \
-    --workflows "$QX" --contexts "$(ctx base gated agg 'Old Gate')"
+    --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)' 'Old Gate')"
 expect 2 "retired: a missing --retired file is a broken helper" "" -- \
-    --workflows "$QX" --contexts "$(ctx base gated agg)" --retired "${WORK}/absent.txt"
+    --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)')" --retired "${WORK}/absent.txt"
 mkdir -p "${WORK}/lists"
-printf '%s\n' base gated agg > "${WORK}/lists/required-checks.txt"
+printf '%s\n' base gated agg legs 'legs (-x)' > "${WORK}/lists/required-checks.txt"
 printf '%s\n' base > "${WORK}/lists/retired-checks.txt"
 expect 1 "retired: retired-checks.txt beside the context list is read by default" \
     "is retired but its job is not a stub" -- \
@@ -435,17 +448,17 @@ PATH="${STUB}:${PATH}" STUB_LIVE="${WORK}/live-bad.txt" \
     expect 1 "--live: a live context that names no job fails" \
     "FAIL live: 'Old Job Name' names no workflow job" -- \
     --workflows "$FX" --contexts "$(ctx build)" --live example/repo
-printf '%s\n' base gated agg 'Old Gate' > "${WORK}/live-queue.txt"
+printf '%s\n' base gated agg legs 'legs (-x)' 'Old Gate' > "${WORK}/live-queue.txt"
 PATH="${STUB}:${PATH}" STUB_LIVE="${WORK}/live-queue.txt" \
     expect 0 "--live: a retired context still required live is reported" \
     "retired: Old Gate is still required live" -- \
-    --workflows "$QX" --contexts "$(ctx base gated agg)" \
+    --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)')" \
     --retired "${WORK}/retired.txt" --live example/repo
-printf '%s\n' base agg > "${WORK}/live-noqueue.txt"
+printf '%s\n' base agg legs 'legs (-x)' > "${WORK}/live-noqueue.txt"
 PATH="${STUB}:${PATH}" STUB_LIVE="${WORK}/live-noqueue.txt" \
     expect 1 "--live: a queue-only job's context that is not live-required fails" \
     "FAIL live: 'gated' gates queue-only ci.yml:gated" -- \
-    --workflows "$QX" --contexts "$(ctx base gated agg)" --live example/repo
+    --workflows "$QX" --contexts "$(ctx base gated agg legs 'legs (-x)')" --live example/repo
 PATH="${STUB}:${PATH}" STUB_LIVE="${WORK}/absent.txt" \
     expect 2 "--live: an unreadable protection is a broken helper" "" -- \
     --workflows "$FX" --contexts "$(ctx build)" --live example/repo
