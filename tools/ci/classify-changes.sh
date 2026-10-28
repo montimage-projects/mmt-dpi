@@ -19,7 +19,8 @@
 #   tests    files of one unit suite or phase0 harness — those, the smoke
 #            set and the golden/precision gates
 #   family   one family's own sources (tcpip dissectors, mobile, dicom,
-#            business_app) — that family's suites and harnesses, the smoke
+#            business_app) — that family's suites and harnesses, those that
+#            name the file or reach it through a tools/ci delegate, the smoke
 #            set, the gates, CodeQL and fuzzing
 #   full     everything else — the whole suite and harness set, coverage,
 #            root-install, enablesec, abi-diff
@@ -338,7 +339,10 @@ classify() {
     esac
 }
 
-# A family source also selects every suite and harness that names it.
+# A family source also selects every suite and harness that names it, and
+# every suite that a tools/ci or scripts file naming it reaches (the
+# self-test a suite delegates to), followed as a tooling change is: a
+# consumer outside tools/ci, scripts and the suites makes it full.
 family_file() {
     local c
     lookup "${1##*/}"
@@ -349,6 +353,8 @@ family_file() {
                 [ -z "${SUITE}" ] || SEL_S["${SUITE}"]=1 ;;
             tools/phase0/tests/*)
                 resolve "${c}" family ;;
+            tools/ci/*|scripts/*)
+                tooling "${c}" ;;
         esac
         [ "${TIER}" -lt 5 ] || return 0
     done <<< "${CONS}"
@@ -398,9 +404,14 @@ harness_file() {
 }
 
 # Tooling: follow the references through tools/ci and scripts; a consumer
-# anywhere but there, a mapped suite or a root dotfile makes it full.
+# anywhere but there, a mapped suite or a root dotfile makes it full. Each
+# start file is followed once (family_file reaches the same delegate from
+# many sources).
+declare -A TOOLING_DONE=()
 tooling() {
     local queue=("$1") q c n=0
+    [ -z "${TOOLING_DONE[$1]+x}" ] || return 0
+    TOOLING_DONE["$1"]=1
     declare -A seen=(["$1"]=1)
     while [ "${#queue[@]}" -gt 0 ]; do
         q="${queue[0]}"

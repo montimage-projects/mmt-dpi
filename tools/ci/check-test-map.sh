@@ -11,10 +11,13 @@
 #   - a suite of DEFAULT_SUITES (tests/run_all_tests.sh, read, not run) or a
 #     tools/phase0/tests/run_<stem>.sh has no entry, or an entry names one
 #     that does not exist (stale);
-#   - an entry's own files — every file of tests/<suite>/, or run_<stem>.sh
-#     plus the tools/phase0/tests files it names — load a family's library
-#     or sources (the patterns in FAMILY_RE below) and the entry carries
-#     neither that family's tag nor `smoke`;
+#   - an entry's files — every file of tests/<suite>/, or run_<stem>.sh
+#     plus the tools/phase0/tests files it names; then the tools/ci and
+#     tools/phase0 files the suite's files or the run_<stem>.sh name, and
+#     the ones each such tools/ci file names, transitively (a suite that
+#     delegates to tools/ci/tests carries what the delegate loads) — load a
+#     family's library or sources (the patterns in FAMILY_RE below) and the
+#     entry carries neither that family's tag nor `smoke`;
 #   - an entry tagged only with families (no smoke, tooling, docs, build or
 #     site tag) names no source file of one of them — each tagged family
 #     but core and security (whose sources are `full`) needs one: an entry
@@ -189,9 +192,63 @@ dir_files() {
     fi | sort
 }
 
+# --- delegates: the tools/ci and tools/phase0 files an entry's files name ------
+# Named by basename (what a reference contains). Markdown and the files that
+# only describe the selection — the map, this checker, the classifier's
+# self-test — name paths as data and are never followed (as in
+# classify-changes.sh).
+DELEG_LIST="${WORK}/delegates"
+if git -C "${ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "${ROOT}" ls-files --cached --others --exclude-standard -- tools/ci tools/phase0
+else
+    (cd "${ROOT}" && find tools/ci tools/phase0 -type f 2>/dev/null)
+fi | grep -vE '\.md$|^tools/ci/test-map\.txt$|^tools/ci/check-test-map\.sh$|^tools/ci/tests/test-classify-changes\.sh$' \
+   | while IFS= read -r f; do [ ! -f "${ROOT}/${f}" ] || echo "${f}"; done | sort > "${DELEG_LIST}"
+declare -A DELEG_BY_BASE=()
+while IFS= read -r f; do
+    DELEG_BY_BASE["${f##*/}"]+="${ROOT}/${f}"$'\n'
+done < "${DELEG_LIST}"
+sed 's|.*/||' "${DELEG_LIST}" | sort -u > "${WORK}/delegate-names"
+
+# named_by <file> — NAMED: the delegate files <file> names (cached).
+declare -A NAMED_CACHE=()
+named_by() {
+    local b out=""
+    if [ -z "${NAMED_CACHE[$1]+x}" ]; then
+        while IFS= read -r b; do
+            [ -n "${b}" ] && [ -n "${DELEG_BY_BASE[${b}]+x}" ] || continue
+            out+="${DELEG_BY_BASE[${b}]}"
+        done < <(grep -ohsIF -f "${WORK}/delegate-names" -- "$1" | sort -u)
+        NAMED_CACHE["$1"]="${out}"
+    fi
+    NAMED="${NAMED_CACHE[$1]}"
+}
+
+# add_delegates <seed>... — append to `files` the delegate files the seeds
+# name — the entry's own files: a suite's, a harness's run_<stem>.sh (its
+# test sources' shared headers are not followed) — and, in turn, the ones
+# each tools/ci delegate names (bounded by the visited set).
+add_delegates() {
+    local -A seen=()
+    local queue=("$@") f c
+    for f in "${files[@]}"; do seen["${f}"]=1; done
+    while [ "${#queue[@]}" -gt 0 ]; do
+        f="${queue[0]}"
+        queue=("${queue[@]:1}")
+        named_by "${f}"
+        while IFS= read -r c; do
+            [ -n "${c}" ] && [ -z "${seen[${c}]+x}" ] || continue
+            seen["${c}"]=1
+            files+=("${c}")
+            case "${c}" in "${ROOT}/tools/ci/"*) queue+=("${c}") ;; esac
+        done <<< "${NAMED}"
+    done
+}
+
 for s in "${!SUITE_TAGS[@]}"; do
     [ -d "${SUITE_DIR}/${s}" ] || continue
     mapfile -t files < <(dir_files "${SUITE_DIR}/${s}")
+    add_delegates "${files[@]}"
     check_entry suite "${s}" "${SUITE_TAGS[${s}]}" "${files[@]}"
 done
 mapfile -t HFILES < <(dir_files "${HDIR}" | sed -n 's|.*/||; /^run_.*\.sh$/!p')
@@ -203,6 +260,7 @@ for h in "${!HARN_TAGS[@]}"; do
     for g in "${HFILES[@]}"; do
         [[ ${text} != *"${g}"* ]] || files+=("${HDIR}/${g}")
     done
+    add_delegates "${run}"
     check_entry harness "${h}" "${HARN_TAGS[${h}]}" "${files[@]}"
 done
 

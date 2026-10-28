@@ -43,7 +43,9 @@
 #       An entry without `smoke` must name a source file of each of its
 #       tcpip, mobile, dicom and business_app tags (so a whole-SDK test that
 #       carries tcpip only because it loads the SDK is `smoke`), and an entry whose files load a family's library or
-#       sources must carry that family's tag (or `smoke`): see
+#       sources must carry that family's tag (or `smoke`) — its files
+#       include the tools/ci and tools/phase0 files they name, followed
+#       through tools/ci, so a suite carries what its delegate loads: see
 #       tools/ci/check-test-map.sh.
 
 # --- shared sources: headers, generated tables, the core -------------------
@@ -151,17 +153,17 @@ suite nas_ies_tail mobile,tcpip,smoke
 suite installer build,tcpip,mobile,dicom,business_app
 suite dicom_dissector dicom
 suite ndn_dissector tcpip
-suite business_app business_app
+suite business_app business_app,tcpip,smoke
 suite proto_classifiers tcpip,mobile,smoke
 suite dpi_profiles tcpip,smoke
-suite fuzz_verdicts tooling
-suite precision_metrics tooling
-suite installed_consumer build,tcpip,dicom
-suite release_gates tooling
+suite fuzz_verdicts tooling,tcpip,mobile
+suite precision_metrics tooling,tcpip
+suite installed_consumer build,tcpip,mobile,dicom,business_app
+suite release_gates tooling,tcpip,mobile,dicom,business_app
 suite parser_boundaries tcpip,mobile,smoke
 suite resource_bounds core,tcpip
 suite tcp_pending_order core,tcpip
-suite sdk_coverage build,tcpip
+suite sdk_coverage build,tcpip,mobile,dicom,business_app
 suite docs_lifecycle docs,tcpip
 suite docs_onboarding docs,tcpip
 

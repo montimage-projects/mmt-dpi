@@ -173,26 +173,34 @@ expect_tier() {   # expect_tier <tier> <label> <path>...
 L="proto_dns.c (tcpip family)"
 expect_tier family "$L" src/mmt_tcpip/lib/protocols/proto_dns.c
 for s in ${SMOKE_SUITES} citrix_ica_detection radius_hardening s1ap_ngap_decode; do suite_in "$L" "$s"; done
-for s in dicom_dissector business_app hexdump mmt_inet_ntop fuzz_verdicts; do suite_out "$L" "$s"; done
+for s in dicom_dissector hexdump mmt_inet_ntop; do suite_out "$L" "$s"; done
 for h in ${SMOKE_HARNESSES} dns_parser_test ssl_record_test dicom_test; do harn_in "$L" "$h"; done
 L="dicom.c (dicom family)"
 expect_tier family "$L" src/mmt_dicom/dicom.c
 for s in ${SMOKE_SUITES} dicom_dissector; do suite_in "$L" "$s"; done
 for s in s1ap_ngap_decode nas_ies_tail rule_engine; do suite_in "$L" "$s"; done
-for s in citrix_ica_detection business_app; do suite_out "$L" "$s"; done
+suite_out "$L" citrix_ica_detection
 for h in ${SMOKE_HARNESSES} dicom_test; do harn_in "$L" "$h"; done
 for h in ssl_record_test http2_parser_test; do harn_out "$L" "$h"; done
 L="proto_s1ap.c (mobile family)"
 expect_tier family "$L" src/mmt_mobile/proto_s1ap.c
-for s in s1ap_ngap_decode nas_ies_tail; do suite_in "$L" "$s"; done
+for s in s1ap_ngap_decode nas_ies_tail sdk_coverage installed_consumer; do suite_in "$L" "$s"; done
 for s in dicom_dissector citrix_ica_detection; do suite_out "$L" "$s"; done
 for h in mobile_pcap_harness_test dicom_test; do harn_in "$L" "$h"; done
 harn_out "$L" ssl_record_test
 L="proto_ips_data.c (business_app family)"
 expect_tier family "$L" src/mmt_business_app/proto_ips_data.c
-for s in business_app s1ap_ngap_decode nas_ies_tail rule_engine; do suite_in "$L" "$s"; done
+for s in business_app s1ap_ngap_decode nas_ies_tail rule_engine installed_consumer; do suite_in "$L" "$s"; done
 suite_out "$L" dicom_dissector
 harn_in "$L" dicom_test
+# A suite that delegates to tools/ci is selected through the delegate, not
+# only through its tags: with mobile stripped from sdk_coverage, the mobile
+# source its delegate (tools/ci/tests) asserts on still selects it.
+sed '/^suite sdk_coverage /s/.*/suite sdk_coverage build,tcpip/' "${MAP}" > "${TMP}/sdkcov-no-mobile.txt"
+L="proto_s1ap.c through the sdk_coverage delegate"
+CLASSIFY_TEST_MAP="${TMP}/sdkcov-no-mobile.txt" run_case "$L" src/mmt_mobile/proto_s1ap.c
+want_tier "$L" family
+suite_in "$L" sdk_coverage
 expect_tier family "two tcpip dissectors" src/mmt_tcpip/lib/protocols/proto_dns.c \
     src/mmt_tcpip/lib/protocols/proto_ssl.c
 
@@ -330,6 +338,8 @@ expect_map_fail "without tcpip on dicom_test (two-way tag)" '/^harness dicom_tes
 expect_map_fail "without tcpip on s1ap_ngap_decode (two-way tag)" '/^suite s1ap_ngap_decode /s/.*/suite s1ap_ngap_decode mobile/'
 expect_map_fail "with s1ap_ngap_decode (mobile,tcpip) naming only a mobile source" '/^suite s1ap_ngap_decode /s/,smoke$//'
 expect_map_fail "with dicom_test (dicom,tcpip) naming only a dicom source" '/^harness dicom_test /s/,smoke$//'
+expect_map_fail "without business_app on installed_consumer (its delegate loads it)" '/^suite installed_consumer /s/,business_app//'
+expect_map_fail "without mobile on sdk_coverage (its delegate loads it)" '/^suite sdk_coverage /s/,mobile//'
 expect_map_fail "with a family-selective harness naming no source" '/^harness dns_parser_test /s/smoke/tcpip/'
 expect_map_fail "with no smoke harness" '/^harness /s/smoke/tcpip/; /^harness /s/,smoke//; /^harness /s/tcpip,tcpip/tcpip/'
 bash "${CHECKER}" a b c d >/dev/null 2>&1

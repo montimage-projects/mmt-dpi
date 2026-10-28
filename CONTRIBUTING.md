@@ -114,7 +114,7 @@ any changed path reaches (issues #552, #656):
 | `docs` | `docs/`, Markdown at the repository root | nothing else: the C jobs skip |
 | `tooling` | `tools/ci/`, `scripts/`, non-workflow `.github/` files, root dotfiles — that only tooling and unit suites reference | `unit-tests` on the tooling self-test suites and the suites that reference the file, `lint` |
 | `tests` | one suite's `tests/<suite>/` files, one harness's `tools/phase0/tests/` files | those plus the smoke set, on every suite leg (sanitizers, ARM, unsigned char, toolchains, assertions), the selected harnesses and the phase0 gates |
-| `family` | one family's own sources (a tcpip dissector, `src/mmt_mobile`, `src/mmt_dicom`, `src/mmt_business_app`) | the family's suites and harnesses plus the smoke set, as above, and `codeql`, `fuzz` |
+| `family` | one family's own sources (a tcpip dissector, `src/mmt_mobile`, `src/mmt_dicom`, `src/mmt_business_app`) | the family's suites and harnesses, those that name the file or reach it through a `tools/ci` self-test they delegate to, plus the smoke set, as above, and `codeql`, `fuzz` |
 | `full` | everything else: `src/mmt_core`, any header, the transport dissectors, shared tcpip code, `rules/`, `sdk/`, workflows, actions, the runners, the map, an unmapped or quoted path | every job on the whole suite and harness set, plus `coverage`, `root-install`, `enablesec`, `abi-diff` |
 
 The always-on jobs are `build`, `verify-helpers`, `version-agreement`,
@@ -134,7 +134,9 @@ harness carries tags — its families, `smoke` for the set that runs on every
 or a new `tools/phase0/tests/run_<stem>.sh` needs an entry:
 `tools/ci/check-test-map.sh` (run by `verify-helpers` and the
 `release_gates` suite) fails on a missing or stale entry, on an entry whose
-files load a family's library without that family's tag (or `smoke`), and on
+files — including the `tools/ci` and `tools/phase0` files they name, followed
+through `tools/ci`, so a suite carries what its delegate loads — load a
+family's library without that family's tag (or `smoke`), and on
 a family-only entry that names no source file of one of its families — tag
 anything that exercises the whole SDK `smoke`.
 
