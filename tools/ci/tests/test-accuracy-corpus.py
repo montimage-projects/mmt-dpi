@@ -19,7 +19,13 @@ replays canned fingerprints, asserting that
     classifier run and a negative case that expects a family verdict all FAIL;
   - heuristic application attribution beneath the wire label (ssl.google) is
     counted as wire + attribution, never as a different protocol, while a
-    family protocol beneath another (ngap.nas_5g) is not attribution at all.
+    family protocol beneath another (ngap.nas_5g) is not attribution at all;
+  - classifier coverage (issue #527): every classifier registered in the
+    default TCP/UDP chains needs a positive and a negative/ambiguous case
+    naming it, or a coverage-pending.txt entry -- a classifier missing either
+    case, a new chain row, a stale or already-covered pending entry, a
+    pending entry without a reason and a case naming an unregistered
+    classifier all FAIL, while commented-out registrations are ignored.
 
 Usage: python3 tools/ci/tests/test-accuracy-corpus.py
 Exit: 0 = all checks passed, 1 = at least one failed.
@@ -81,6 +87,25 @@ GOOD_FP = {
     "acc_unknown_tcp.pcap": "5\tmeta.ethernet.ip.tcp.unknown\n",
 }
 
+
+def derived_fp(case, families):
+    """Fingerprint matching a case's reviewed expectation, for the captures
+    GOOD_FP does not spell out (issue #527 cases carry no attribution)."""
+    exp = case["expected"]
+    labels = families[case["family"]]["wire_labels"]
+    rows = []
+    if exp["wire"]:
+        rows.append("%d\tmeta.ethernet.ip.tcp.%s" % (exp["wire"], labels[0]))
+    for name, n in sorted(exp["other"].items()):
+        rows.append("%d\tmeta.ethernet.ip.tcp.%s" % (n, name))
+    if exp["abstain"]:
+        rows.append("%d\tmeta.ethernet.ip.tcp.unknown" % exp["abstain"])
+    return "\n".join(rows) + "\n"
+
+
+CHAIN = os.path.join(REPO_ROOT, "src", "mmt_tcpip", "lib",
+                     "inter_proto_classif_list.def")
+
 PASS = FAIL = 0
 
 
@@ -110,8 +135,10 @@ class Scratch:
         shutil.copytree(CORPUS, self.corpus)
         self.fp_dir = os.path.join(self.root, "fp")
         os.makedirs(self.fp_dir)
-        for name, text in GOOD_FP.items():
-            self.write_fp(name, text)
+        man = self.manifest()
+        for c in man["cases"]:
+            self.write_fp(c["pcap"], GOOD_FP.get(c["pcap"])
+                          or derived_fp(c, man["families"]))
         self.fake = os.path.join(self.root, "fake_classify")
         with open(self.fake, "w") as fh:
             fh.write(FAKE_CLASSIFY)
@@ -136,8 +163,23 @@ class Scratch:
     def case(self, man, pcap):
         return next(c for c in man["cases"] if c["pcap"] == pcap)
 
-    def offline(self):
-        return oracle("--corpus", self.corpus, "--offline")
+    def offline(self, *extra):
+        return oracle("--corpus", self.corpus, "--offline", *extra)
+
+    def pending(self, text=None):
+        path = os.path.join(self.corpus, "coverage-pending.txt")
+        if text is not None:
+            with open(path, "w") as fh:
+                fh.write(text)
+        with open(path) as fh:
+            return fh.read()
+
+    def chain(self, extra):
+        """A copy of the default-chain definition with `extra` appended."""
+        path = os.path.join(self.root, "chain.def")
+        with open(CHAIN) as src, open(path, "w") as dst:
+            dst.write(src.read() + extra)
+        return path
 
     def run(self, **env):
         return oracle("--corpus", self.corpus, "--classify-bin", self.fake,
@@ -179,9 +221,9 @@ with Scratch() as s:
     except ValueError:
         fams = {}
     check("--json reports the abstention family with its own keys",
-          rc == 0 and fams.get("unknown") == {"unknown_cases": 5,
-                                              "packets": 11, "abstain": 9,
-                                              "accepted": 2}
+          rc == 0 and fams.get("unknown") == {"unknown_cases": 6,
+                                              "packets": 16, "abstain": 12,
+                                              "accepted": 4}
           and not any("unknown_cases" in v for k, v in fams.items()
                       if k != "unknown"), out)
 
@@ -356,6 +398,86 @@ with Scratch() as s:
 with Scratch() as s:
     rc, out = s.run(FAKE_RC="3")
     check("failing classifier run fails", rc == 1 and "exited 3" in out, out)
+
+# --- classifier coverage (issue #527) ---------------------------------------
+rc, out = oracle("--offline")
+check("committed corpus reports its classifier coverage",
+      rc == 0 and "default-chain classifiers have a positive" in out, out)
+
+with Scratch() as s:
+    man = s.manifest()
+    for c in man["cases"]:
+        if c["case"] == "positive":
+            c["classifiers"] = [x for x in c.get("classifiers", [])
+                                if x != "mmt_check_ssh"]
+    s.save(man)
+    rc, out = s.offline()
+    check("classifier without a positive case fails",
+          rc == 1 and "mmt_check_ssh (no positive case)" in out, out)
+
+with Scratch() as s:
+    man = s.manifest()
+    s.case(man, "acc_redis_negative.pcap")["classifiers"] = []
+    s.save(man)
+    rc, out = s.offline()
+    check("classifier without a negative case fails",
+          rc == 1 and "mmt_check_redis (no negative/ambiguous case)" in out,
+          out)
+
+with Scratch() as s:
+    s.pending(s.pending().replace("mmt_check_eclipse_tcf", "#"))
+    rc, out = s.offline()
+    check("uncovered classifier missing from the pending list fails",
+          rc == 1 and "mmt_check_eclipse_tcf" in out
+          and "not in coverage-pending.txt" in out, out)
+
+with Scratch() as s:
+    s.pending(s.pending() + "mmt_check_ntp  # re-added\n")
+    rc, out = s.offline()
+    check("pending entry for a covered classifier fails (list only shrinks)",
+          rc == 1 and "only shrinks" in out and "mmt_check_ntp" in out, out)
+
+with Scratch() as s:
+    s.pending(s.pending() + "mmt_check_gone_away  # removed classifier\n")
+    rc, out = s.offline()
+    check("pending entry the chains no longer register fails",
+          rc == 1 and "no longer register" in out, out)
+
+with Scratch() as s:
+    s.pending(s.pending() + "mmt_check_new_one\n")
+    rc, out = s.offline("--chain",
+                        s.chain("MMT_INTER_PROTO(PROTO_TCP, mmt_check_new_one, 50)\n"))
+    check("pending entry without a reason fails",
+          rc == 1 and "needs a '# reason'" in out, out)
+
+with Scratch() as s:
+    rc, out = s.offline("--chain",
+                        s.chain("MMT_INTER_PROTO(PROTO_UDP, mmt_check_new_one, 50)\n"))
+    check("newly registered classifier without cases fails",
+          rc == 1 and "mmt_check_new_one" in out, out)
+
+with Scratch() as s:
+    rc, out = s.offline("--chain", s.chain(
+        "/* MMT_INTER_PROTO(PROTO_TCP, mmt_check_off1, 50) */\n"
+        "// MMT_INTER_PROTO(PROTO_UDP, mmt_check_off2, 50)\n"))
+    check("commented-out registrations are not required", rc == 0, out)
+
+with Scratch() as s:
+    man = s.manifest()
+    s.case(man, "acc_http_positive.pcap")["classifiers"].append(
+        "mmt_check_not_registered")
+    s.save(man)
+    rc, out = s.offline()
+    check("case naming an unregistered classifier fails",
+          rc == 1 and "is not registered" in out, out)
+
+with Scratch() as s:
+    man = s.manifest()
+    s.case(man, "acc_unknown_tcp.pcap")["classifiers"] = ["mmt_check_http"]
+    s.save(man)
+    rc, out = s.offline()
+    check("unknown case naming a classifier fails",
+          rc == 1 and "exercises no classifier" in out, out)
 
 print()
 print("%d passed, %d failed" % (PASS, FAIL))
