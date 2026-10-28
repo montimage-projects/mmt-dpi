@@ -92,7 +92,13 @@ run_case() {
     shift
     : > "${WORK}/make.log"; : > "${WORK}/suites.log"
     RC=0
-    env -u SANITIZE -u MMT_SDK_PREBUILT -u MMT_PREFIX -u MMT_FI_PREFIX \
+    # Scrub every variable the runner reads from its environment: run from
+    # the coverage or sanitizer mode of the real runner, this test inherits
+    # SDK_BUILD_PROFILE, EXTRA_CFLAGS, SANITIZE... which would switch the
+    # copied runner's mode. A scenario sets SANITIZE itself.
+    env -u SANITIZE -u SDK_BUILD_PROFILE -u EXTRA_CFLAGS -u ASAN_OPTIONS \
+        -u MMT_TSAN_REEXEC -u VERBOSE_COVERAGE -u JOBS \
+        -u MMT_SDK_PREBUILT -u MMT_PREFIX -u MMT_FI_PREFIX \
         PATH="${WORK}/bin:${PATH}" MAKE_LOG="${WORK}/make.log" \
         SUITE_LOG="${WORK}/suites.log" "${envs[@]}" \
         bash "${T}/tests/run_all_tests.sh" "$@" > "${WORK}/out.log" 2>&1 || RC=$?
