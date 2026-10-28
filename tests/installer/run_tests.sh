@@ -556,6 +556,15 @@ else
             check "dpkg-deb -c mmt-dpi-security lists ${f}" \
                 grep -q "/dpi/share/doc/mmt-dpi-security/${f}\$" "${WORK}/sec.list"
         done
+        # Issue #536: each package carries its libraries' SONAME links.
+        for l in libmmt_core libmmt_tcpip libmmt_tmobile libmmt_business_app libmmt_tdicom; do
+            check "dpkg-deb -c mmt-dpi lists ${l}.so.${SOV} -> ${l}.so.${VER}" \
+                grep -qF "/dpi/lib/${l}.so.${SOV} -> ${l}.so.${VER}" "${WORK}/main.list"
+        done
+        for l in libmmt_security libmmt_fuzz; do
+            check "dpkg-deb -c mmt-dpi-security lists ${l}.so.${SOV} -> ${l}.so.${VER}" \
+                grep -qF "/dpi/lib/${l}.so.${SOV} -> ${l}.so.${VER}" "${WORK}/sec.list"
+        done
         check "mmt-dpi holds neither engine nor the fuzz headers" \
             bash -c "! grep -Eq 'libmmt_(security|fuzz)|/include/fuzz/' '${WORK}/main.list'"
         check "mmt-dpi-security depends on exactly its own mmt-dpi version" \

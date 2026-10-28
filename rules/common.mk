@@ -638,8 +638,10 @@ $(TOPDIR)/src/mmt_core/src/packet_processing.o: CFLAGS += -DGIT_VERSION=\"$(MMT_
 # unversioned lib<name>.so is the development (link-time) link only. A
 # consumer records the SONAME at link time, so bump SOVERSION with any change
 # that breaks the binary interface of an installed library (a public struct
-# layout, a removed or re-typed export): the loader then refuses to pair an
-# old consumer with the new library instead of corrupting memory. The
+# layout, a removed or re-typed export): the loader then refuses to pair a
+# consumer linked against an older SOVERSION with the new library instead of
+# corrupting memory (consumers linked before SOVERSION 1, against the
+# unversioned name, and dlopen'ed plugins are not refused — rebuild them). The
 # `abi-diff` job (tools/ci/abi-diff.sh --fail-on incompatible) fails on an
 # incompatible change against the last release tag unless the SONAME moved.
 # SOVERSION 1 is the first versioned SONAME (v1.9.1 and earlier linked the

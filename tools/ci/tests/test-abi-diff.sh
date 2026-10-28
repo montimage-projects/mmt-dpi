@@ -17,7 +17,7 @@
 #     the same SONAME on both sides                         -> 1, INCOMPATIBLE
 #     a SONAME bump (libmmt_tcpip.so -> libmmt_tcpip.so.1)  -> 0, RECORDED
 #       (and 1 under --fail-on change)
-#     an unreadable SONAME on either side                   -> 1, INCOMPATIBLE
+#     an unreadable SONAME on either side, a failing readelf -> 1, INCOMPATIBLE
 #     a SONAME bump with abidiff 4 (no break)               -> 0, CHANGED
 #     a nonexistent READELF                                 -> 2
 #   a library missing on both sides, two versions of one    -> 2
@@ -235,6 +235,16 @@ run -- --baseline-dir "${S_OLD}" --head-dir "${S_NONE}" --fail-on incompatible
 expect_rc 1 "an unreadable head SONAME is unrecorded (fail-closed)"
 run -- --baseline-dir "${S_NONE}" --head-dir "${S_BUMP}" --fail-on incompatible
 expect_rc 1 "an unreadable baseline SONAME is unrecorded (fail-closed)"
+cat > "${WORK}/readelf-broken" <<'EOF2'
+#!/usr/bin/env bash
+# A readelf that cannot read its input: the SONAME is unreadable, never a crash.
+echo "readelf: Error: Not an ELF file" >&2
+exit 1
+EOF2
+chmod +x "${WORK}/readelf-broken"
+run READELF="${WORK}/readelf-broken" -- --baseline-dir "${S_OLD}" --head-dir "${S_BUMP}" --fail-on incompatible
+expect_rc 1 "a failing readelf leaves the break unrecorded"
+expect_out "Result: 1 incompatible, 0 recorded by a SONAME bump, 0 changed (--fail-on incompatible)" "a failing readelf still reaches the result line"
 setmap "libmmt_tcpip 4"
 run -- --baseline-dir "${S_OLD}" --head-dir "${S_BUMP}" --fail-on incompatible
 expect_rc 0 "a SONAME bump without an incompatible change"

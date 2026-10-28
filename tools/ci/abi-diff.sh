@@ -38,8 +38,10 @@
 #
 # Recorded breaks (issue #536, the SOVERSION policy in rules/common.mk): an
 # INCOMPATIBLE library whose SONAME differs between the two sides (read with
-# READELF -d) is RECORDED — the SONAME bump is what makes the loader refuse
-# to pair an old consumer with the new library, so the break is announced.
+# READELF -d) is RECORDED — the bump is announced, and the loader refuses to
+# pair a consumer linked against the old SONAME with the new library (from
+# SOVERSION 1 on: a pre-SOVERSION consumer still resolves the unversioned
+# development link, and dlopen'ed plugins carry no NEEDED on libmmt_core).
 # A SONAME that cannot be read on either side, or a library missing on one
 # side, stays INCOMPATIBLE (fail-closed). --fail-on incompatible counts only
 # the unrecorded INCOMPATIBLE verdicts; --fail-on change counts RECORDED too.
@@ -196,7 +198,9 @@ find_lib() {
 # soname_of <file>: the DT_SONAME of <file>, or "" when it has none or
 # READELF cannot read it.
 soname_of() {
-    "$READELF" -d "$1" 2>/dev/null \
+    local out
+    out="$("$READELF" -d "$1" 2>/dev/null)" || return 0
+    printf '%s\n' "$out" \
         | sed -n 's/.*(SONAME)[[:space:]]*Library soname: \[\(.*\)\].*/\1/p' | head -n 1
 }
 
