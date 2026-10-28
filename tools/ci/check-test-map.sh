@@ -216,7 +216,7 @@ named_by() {
     local b out=""
     if [ -z "${NAMED_CACHE[$1]+x}" ]; then
         while IFS= read -r b; do
-            [ -n "${b}" ] && [ -n "${DELEG_BY_BASE[${b}]+x}" ] || continue
+            if [ -z "${b}" ] || [ -z "${DELEG_BY_BASE[${b}]+x}" ]; then continue; fi
             out+="${DELEG_BY_BASE[${b}]}"
         done < <(grep -ohsIF -f "${WORK}/delegate-names" -- "$1" | sort -u)
         NAMED_CACHE["$1"]="${out}"
@@ -237,7 +237,7 @@ add_delegates() {
         queue=("${queue[@]:1}")
         named_by "${f}"
         while IFS= read -r c; do
-            [ -n "${c}" ] && [ -z "${seen[${c}]+x}" ] || continue
+            if [ -z "${c}" ] || [ -n "${seen[${c}]+x}" ]; then continue; fi
             seen["${c}"]=1
             files+=("${c}")
             case "${c}" in "${ROOT}/tools/ci/"*) queue+=("${c}") ;; esac

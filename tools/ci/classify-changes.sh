@@ -282,7 +282,7 @@ resolve() {
     ref_key "${file}"
     lookup "${KEY}"
     while IFS= read -r c; do
-        [ -n "${c}" ] && [ "${c}" != "${file}" ] || continue
+        if [ -z "${c}" ] || [ "${c}" = "${file}" ]; then continue; fi
         case "${c}" in
             tools/phase0/tests/*/*)
                 go_full "${c} references ${file}" ;;
@@ -421,7 +421,7 @@ tooling() {
         ref_key "${q}"
         lookup "${KEY}"
         while IFS= read -r c; do
-            [ -n "${c}" ] && [ "${c}" != "${q}" ] || continue
+            if [ -z "${c}" ] || [ "${c}" = "${q}" ]; then continue; fi
             case "${c}" in
                 tools/ci/*|scripts/*)
                     if [ -z "${seen[${c}]+x}" ]; then
