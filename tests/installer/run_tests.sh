@@ -525,7 +525,7 @@ if command -v pkg-config >/dev/null 2>&1; then
     read -r -a PC_FLAGS <<< "$(pc2 --cflags --libs)"
     check "extract_all built through pkg-config runs with LD_LIBRARY_PATH unset" \
         bash -c "'${CC}' -O1 -o '${WORK}/extract_all_pc' '${PREFIX2}/examples/extract_all.c' \"\$@\" -lpcap \
-            && cd '${WORK}' && env -u LD_LIBRARY_PATH '${WORK}/extract_all_pc' -t '${REPO_ROOT}/src/examples/google-fr.pcap' >/dev/null 2>&1" _ "${PC_FLAGS[@]}"
+            && cd '${WORK}' && env -u LD_LIBRARY_PATH '${WORK}/extract_all_pc' -t '${REPO_ROOT}/src/examples/google-fr.pcap' >/dev/null 2>&1" _ "${extra_cflags[@]}" "${PC_FLAGS[@]}"
 else
     echo "  ○ pkg-config unavailable — mmt-dpi.pc contents not exercised"
 fi
