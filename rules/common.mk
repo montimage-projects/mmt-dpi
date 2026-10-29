@@ -447,7 +447,10 @@ documentation: $(SDKDOC)
 #  E X A M P L E S
 #  - - - - - - - -
 
-MMT_EXAMPLES_SRC = attribute_handler_session_counter.c extract_all.c google-fr.pcap html_integration.c html_integration.h MAC_extraction.c packet_handler.c proto_attributes_iterator.c reconstruct_body.c simple_traffic_reporting.c
+# The example sources installed under $(MMT_EXAMS): every program in
+# src/examples (issue #550 — the list named three files that do not exist and a
+# capture no rule copies; tests/installer checks it against src/examples).
+MMT_EXAMPLES_SRC = attribute_handler_session_counter.c extract_all.c MAC_extraction.c mmt_export_info.c packet_handler.c proto_attributes_iterator.c simple_traffic_reporting.c
 SDK_EXAMPLES_SRC = $(addprefix $(SDKXAM)/,$(MMT_EXAMPLES_SRC))
 
 examples: $(SDK_EXAMPLES_SRC)
