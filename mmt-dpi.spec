@@ -12,7 +12,7 @@
 #
 # Version must equal rules/common.mk VERSION (scripts/validate-release-prep.sh).
 
-# SOURCE_DATE_EPOCH from the top %changelog entry: package timestamps never
+# SOURCE_DATE_EPOCH from the newest changelog entry: package timestamps never
 # come from the wall clock (rules/common.mk derives it from git otherwise,
 # and the tarball carries no .git).
 %global source_date_epoch_from_changelog 1
@@ -40,7 +40,7 @@ BuildRequires:  make
 %description
 MMT-DPI extracts data attributes from network packets, server logs and other
 structured events, and classifies the application protocol of each flow, so
-that the results can be analysed or monitored in real time.
+that the results can be analyzed or monitored in real time.
 
 The core engine loads its protocol dissectors as plugins: TCP/IP, mobile core
 (S1AP, NGAP, GTPv2, NAS, Diameter), DICOM and business applications. This

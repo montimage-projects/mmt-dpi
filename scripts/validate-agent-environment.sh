@@ -473,7 +473,7 @@ check "AGENTS.md has no @imports (Claude-only syntax)" \
 check "the never-commit rule names dist/packages/, and dist/packages/ is ignored" \
       "grep -qF 'dist/packages/' '$AGENTS' && grep -qx 'dist/packages/' '$ROOT/.gitignore'"
 # shellcheck disable=SC2016  # backticks are Markdown syntax inside the pattern
-check "no agent file forbids committing all of dist/ (dist/ZIP/ is tracked source)" \
+check "no agent file forbids committing all of dist/ (only its build outputs are generated)" \
       "! grep -qF '\`dist/\`' '$AGENTS' && ! grep -qF '\`dist/\`' '$ROOT/CLAUDE.md'"
 
 # -----------------------------------------------------------------------------
