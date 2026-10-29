@@ -8,7 +8,10 @@
 # CI builds, lints, installs and exercises it on every EL release image
 # (tools/ci/build-rpm-package.sh, release-packages.yml `rpm-package`).
 # The upstream /opt/mmt packages that GitHub Releases ship still come from
-# `make -C sdk rpm` (docs/DECISIONS.md, #550).
+# `make -C sdk rpm` (docs/DECISIONS.md, #550). This recipe is their intended
+# successor and keeps the Name mmt-dpi, so the two are alternatives, never
+# installed side by side: their layouts differ and their Release fields (a
+# git hash there, 1%{?dist} here) do not order.
 #
 # Version must equal rules/common.mk VERSION (scripts/validate-release-prep.sh).
 
@@ -61,7 +64,10 @@ The C headers, the unversioned library links, the pkg-config file
 %build
 # The distribution flags go after the SDK's own (MMT_EXTRA_CFLAGS is appended
 # after them, rules/arch-linux.mk), so -g reaches the debuginfo extraction.
-%make_build -C sdk %{mmt_vars} MMT_EXTRA_CFLAGS="%{optflags}" LDFLAGS="%{build_ldflags}"
+# LDFLAGS goes through the environment, never the make command line: a
+# command-line value would override the `LDFLAGS += -Wl,-z,defs` that
+# rules/common-linux.mk adds to libmmt_core's link.
+LDFLAGS="%{build_ldflags}" %make_build -C sdk %{mmt_vars} MMT_EXTRA_CFLAGS="%{optflags}"
 
 %install
 %make_build -C sdk %{mmt_vars} DESTDIR=%{buildroot} install-fhs

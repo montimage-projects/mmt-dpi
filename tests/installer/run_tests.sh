@@ -249,7 +249,7 @@ check "mmt-dpi.spec License: is PKG_LICENSE" \
 check "mmt-dpi.spec builds from the release source tarball" \
     grep -qE '^Source0:.*/%\{name\}-%\{version\}\.tar\.gz$' "${SPEC}"
 check "mmt-dpi.spec passes one variable set to the build and to install-fhs" \
-    bash -c "grep -qE '^%make_build -C sdk %\\{mmt_vars\\} MMT_EXTRA_CFLAGS' '${SPEC}' && grep -qE '^%make_build -C sdk %\\{mmt_vars\\} DESTDIR=%\\{buildroot\\} install-fhs$' '${SPEC}'"
+    bash -c "grep -qE '^LDFLAGS=\"%\\{build_ldflags\\}\" %make_build -C sdk %\\{mmt_vars\\} MMT_EXTRA_CFLAGS' '${SPEC}' && grep -qE '^%make_build -C sdk %\\{mmt_vars\\} DESTDIR=%\\{buildroot\\} install-fhs$' '${SPEC}'"
 
 # --- 4c. One install layout (issue #538, F-DEAD-011) -------------------------
 # install, its manifest and uninstall, the deb/rpm staging and install-fhs all

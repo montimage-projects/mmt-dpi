@@ -35,10 +35,14 @@ log "Installing the packaging tools (${DISTRO})"
 pm=dnf
 command -v dnf >/dev/null 2>&1 || pm=yum
 # libpcap-devel (the consumer's own capture reader) lives in the CRB repo,
-# which EL9/EL10 ship disabled.
+# which EL9/EL10 ship disabled. rpmlint is in EL9's AppStream but only in
+# EPEL on EL10: the distribution's own epel-release package adds it there.
 "$pm" install -y -q dnf-plugins-core >/dev/null
 "$pm" config-manager --set-enabled crb 2>/dev/null \
     || "$pm" config-manager --set-enabled powertools 2>/dev/null || true
+if ! "$pm" -q list --available rpmlint >/dev/null 2>&1; then
+    "$pm" install -y -q epel-release >/dev/null
+fi
 "$pm" install -y -q rpm-build rpmlint git gzip tar gcc make \
     pkgconf-pkg-config libpcap-devel >/dev/null
 
