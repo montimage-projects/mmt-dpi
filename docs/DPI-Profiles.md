@@ -9,18 +9,24 @@ MMT-DPI applies a fixed detection strategy out of the box: every registered
 checker runs except the defunct-service ones (see [The `legacy`
 profile](#the-legacy-profile)), payload inspection walks the protocol path as deep as the
 traffic encapsulates, and the hostname/IP-range heuristics are on while the
-port-number hint is off. A **DPI profile** bundles the four independent
-detection levers into one named setting so a deployment can trade detection
+port-number hint is off. A **DPI profile** bundles the five independent
+detection levers (the four of `mmt_dpi_profile_t` below, plus the legacy
+lever of [The `legacy` profile](#the-legacy-profile)) into one named setting so a deployment can trade detection
 depth for throughput with a single call — or one environment variable —
 instead of toggling flags one by one.
 
 > **No behaviour change by default.** A handler that never applies a profile
 > (and runs without `MMT_DPI_PROFILE` set) behaves exactly like the
 > `default` profile. Profiles are opt-in. Since issue #540 the `default`
-> chains no longer run the 49 defunct-service checker registrations; the `legacy` profile
+> chains no longer run the 38 defunct-service checker registrations; the `legacy` profile
 > restores them.
 
-## The four levers
+## The levers
+
+The four levers of the public `mmt_dpi_profile_t` struct; the fifth, the
+legacy lever (`legacy_classify`), has no struct field and is set only by the
+named `legacy` profile, `MMT_DPI_PROFILE=legacy` or a custom profile's sixth
+file column (see [The `legacy` profile](#the-legacy-profile)).
 
 | Lever | Handler flag | What it gates |
 | ----- | ------------ | ------------- |
@@ -45,17 +51,19 @@ attribute extraction keep working under a shallow cap.
 | `default` | 15 (unlimited) | on | off | on | The stock configuration — applying it restores defaults. |
 | `minimal` | 3 (transport) | off | off | off | Maximum throughput: structural classification only, L2–L4 sessions and statistics. |
 | `balanced` | 5 | on | off | on | First application layer plus one encapsulation hop (enough for TLS SNI attribution). |
-| `full` | 15 (unlimited) | on | on | on | Everything, including the port-number hint of last resort. |
+| `full` | 15 (unlimited) | on | on | on | All four struct levers on, including the port-number hint of last resort. It does **not** enable the legacy lever: the defunct-service checkers stay off under `full` — use `legacy` for them. |
 | `legacy` | 15 (unlimited) | on | off | on | `default` plus the defunct-service checkers (issue #540) — the classifier chains as they were before #540, apart from the MSN change below. |
 
 ## The `legacy` profile
 
 The TCP and UDP classifier chains (`src/mmt_tcpip/lib/inter_proto_classif_list.def`)
-hold 49 registrations of checkers for services, networks or products that
-were shut down or discontinued — MSN Messenger, Yahoo Messenger, AIM/ICQ
-(OSCAR), Meebo, Kazaa (FastTrack), WinMX, Gnutella, iMesh, Pando, PPLive,
-PPStream, SopCast, Zattoo's P2P client, pcAnywhere and others; the full list
-and the criterion are in [DECISIONS.md](DECISIONS.md) (2026-10-29, #540). They
+hold 38 registrations (23 TCP, 15 UDP; 35 checkers) of checkers whose
+service or client protocol is unequivocally retired — MSN Messenger, Yahoo
+Messenger (YMSG), AIM/ICQ (OSCAR), Meebo, Kazaa (FastTrack), iMesh, Pando,
+PPStream, Zattoo's P2P client protocol, pcAnywhere, MMS and others. Checkers
+of services still live, even when old — Gnutella, NetEase POPO, SopCast,
+Kontiki, PPLive/PPTV, WinMX, AppleJuice among them — stay in the default
+chains. The full list and the criterion are in [DECISIONS.md](DECISIONS.md) (2026-10-29, #540). They
 are `MMT_INTER_PROTO_LEGACY` rows: each keeps its place and weight in its
 chain, but `proto_packet_classify_next()` (`src/mmt_core/src/packet_pipeline.c`)
 skips it unless the handler's `legacy_classify` lever is set, so the

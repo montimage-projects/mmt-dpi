@@ -14,11 +14,11 @@
  * sort this file.
  *
  * MMT_INTER_PROTO_LEGACY(parent_proto, classify_fn, weight) rows (issue
- * #540, F-BUG-311) are the 49 registrations (44 checkers) of defunct
+ * #540, F-BUG-311) are the 38 registrations (35 checkers) of defunct
  * services: they keep their place in the chain but are skipped unless the
  * handler runs the opt-in `legacy` DPI profile (docs/DPI-Profiles.md), so
- * the default chains no longer run them on every unknown flow. A classifier is legacy when its
- * service, network or product was shut down or discontinued; the list and
+ * the default chains no longer run them on every unknown flow. A classifier is legacy only when its
+ * service or client protocol is unequivocally retired; the list and
  * the criterion are recorded in docs/DECISIONS.md (2026-10-29, #540).
  *
  * This file is intentionally not `#pragma once` / include-guarded: it is
@@ -59,13 +59,13 @@
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_sip, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_edonkey, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_fasttrack, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_gnutella, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_winmx, 50)
+    MMT_INTER_PROTO(PROTO_TCP, mmt_check_gnutella, 50)
+    MMT_INTER_PROTO(PROTO_TCP, mmt_check_winmx, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_directconnect_tcp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_msn_tcp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_yahoo_tcp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_oscar, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_applejuice, 50)
+    MMT_INTER_PROTO(PROTO_TCP, mmt_check_applejuice, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_soulseek, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_irc, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_usenet, 50)
@@ -75,15 +75,15 @@
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_mms, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_pando, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_tvants_tcp, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_sopcast_tcp, 50)
+    MMT_INTER_PROTO(PROTO_TCP, mmt_check_sopcast_tcp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_tvuplayer_tcp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_ppstream_tcp, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_pplive_tcp, 50)
+    MMT_INTER_PROTO(PROTO_TCP, mmt_check_pplive_tcp, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_gadugadu, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_zattoo_tcp, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_qq_tcp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_feidian_tcp, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_TCP, mmt_check_popo, 50)                           // verified: TCP login signature + @163.com pattern
+    MMT_INTER_PROTO(PROTO_TCP, mmt_check_popo, 50)                           // verified: TCP login signature + @163.com pattern
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_thunder_tcp, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_vnc, 50)
     MMT_INTER_PROTO(PROTO_TCP, mmt_check_teamviewer_tcp, 50)
@@ -162,7 +162,7 @@
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_rtp_udp, 50)                        //Check STUN before RTP
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_sip, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_edonkey, 50)                        // verified: mmt_int_edonkey_udp() handles the UDP opcodes
-    MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_gnutella, 50)
+    MMT_INTER_PROTO(PROTO_UDP, mmt_check_gnutella, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_directconnect_udp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_msn_udp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_yahoo_udp, 50)
@@ -173,17 +173,17 @@
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_imesh_udp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_pando, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_tvants_udp, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_sopcast_udp, 50)
+    MMT_INTER_PROTO(PROTO_UDP, mmt_check_sopcast_udp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_tvuplayer_udp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_ppstream_udp, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_pplive_udp, 50)
+    MMT_INTER_PROTO(PROTO_UDP, mmt_check_pplive_udp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_iax, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_mgcp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_gadugadu, 50)                       // verified: TCP-only signatures, a UDP flow is excluded on its first packet
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_zattoo_udp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_qq_udp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_feidian_udp, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_popo, 50)                           // verified: the @163.com pattern is transport-independent
+    MMT_INTER_PROTO(PROTO_UDP, mmt_check_popo, 50)                           // verified: the @163.com pattern is transport-independent
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_thunder_udp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_teamviewer_udp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_socrates_udp, 50)
@@ -194,7 +194,7 @@
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_secondlife_udp, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_pcanywhere, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_snmp, 50)
-    MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_kontiki, 50)
+    MMT_INTER_PROTO(PROTO_UDP, mmt_check_kontiki, 50)
     MMT_INTER_PROTO_LEGACY(PROTO_UDP, mmt_check_veohtv_udp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_ipp, 50)
     MMT_INTER_PROTO(PROTO_UDP, mmt_check_ldap, 50)

@@ -314,6 +314,9 @@ static void test_legacy_profile(mmt_handler_t *h) {
           "legacy profile keeps the default levers");
     CHECK(mmt_apply_dpi_profile_by_name(h, "default") == 1, "name: default");
     CHECK(h->legacy_classify == 0, "default by name turns legacy off");
+    CHECK(mmt_apply_dpi_profile_by_name(h, "legacy") == 1 &&
+          mmt_apply_dpi_profile_by_name(h, "full") == 1, "name: full after legacy");
+    CHECK(h->legacy_classify == 0, "full does not walk the legacy checkers");
 
     CHECK(mmt_apply_dpi_profile_by_name(h, "LeGaCy") == 1,
           "legacy name is case-insensitive");
