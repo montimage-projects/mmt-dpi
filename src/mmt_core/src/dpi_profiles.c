@@ -34,9 +34,9 @@
  * explicit mmt_load_dpi_profiles_file() call before packets flow — and is
  * read-only afterwards, so no locking is needed on the lookup path.
  *
- * The built-in handler defaults are untouched: with no profile applied the
- * engine behaves exactly as before (byte-identical classification), which
- * keeps the phase0 golden-pcap fingerprint stable.
+ * With no profile applied the handler runs MMT_DPI_PROFILE_DEFAULT, whose
+ * chains skip the defunct-service checkers since issue #540; applying a
+ * profile never changes the built-in defaults of later handlers.
  */
 
 #include <stdio.h>

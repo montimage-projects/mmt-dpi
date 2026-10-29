@@ -14,10 +14,10 @@
  * sort this file.
  *
  * MMT_INTER_PROTO_LEGACY(parent_proto, classify_fn, weight) rows (issue
- * #540, F-BUG-311) are the 49 checkers of defunct services: they keep their
- * place in the chain but are skipped unless the handler runs the opt-in
- * `legacy` DPI profile (docs/DPI-Profiles.md), so the default chains no
- * longer run them on every unknown flow. A classifier is legacy when its
+ * #540, F-BUG-311) are the 49 registrations (44 checkers) of defunct
+ * services: they keep their place in the chain but are skipped unless the
+ * handler runs the opt-in `legacy` DPI profile (docs/DPI-Profiles.md), so
+ * the default chains no longer run them on every unknown flow. A classifier is legacy when its
  * service, network or product was shut down or discontinued; the list and
  * the criterion are recorded in docs/DECISIONS.md (2026-10-29, #540).
  *

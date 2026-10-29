@@ -22,6 +22,6 @@ In MMT, a protocol is represented by `protocol_t` (`protocol_struct`):
 - **Session support**: `int has_session` (`src/mmt_core/private_include/packet_processing.h:506`)
 - **Classification**: `mmt_classify_next_t classify_next` (`src/mmt_core/private_include/packet_processing.h:524`)
 - **Data analysis**: `mmt_analyser_t data_analyser` (`src/mmt_core/private_include/packet_processing.h:525`)
-- **Attributes**: stored in `attributes_map` and `attributes_names_map` (`src/mmt_core/private_include/packet_processing.h:527-527`)
+- **Attributes**: stored in `attributes_map` and `attributes_names_map` (`src/mmt_core/private_include/packet_processing.h:527-528`)
 
 See [Add New Protocol](./Add-New-Protocol.md) for the workflow to register a new protocol.

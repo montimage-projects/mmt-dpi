@@ -17,7 +17,7 @@ instead of toggling flags one by one.
 > **No behaviour change by default.** A handler that never applies a profile
 > (and runs without `MMT_DPI_PROFILE` set) behaves exactly like the
 > `default` profile. Profiles are opt-in. Since issue #540 the `default`
-> chains no longer run the 49 defunct-service checkers; the `legacy` profile
+> chains no longer run the 49 defunct-service checker registrations; the `legacy` profile
 > restores them.
 
 ## The four levers
