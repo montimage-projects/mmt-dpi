@@ -70,6 +70,9 @@ else
         "$(first_match "$ROOT/src/mmt_core/public_include/mmt_core.h" 's/^#define VERSION "\([^"]*\)".*/\1/p')"
     agree "mmt-dpi.spec Version:" "$VERSION" \
         "$(first_match "$ROOT/mmt-dpi.spec" 's/^Version:[[:space:]]*\([^[:space:]]*\).*/\1/p')"
+    # Its newest %changelog entry too: SOURCE_DATE_EPOCH is read from it.
+    agree "mmt-dpi.spec newest %changelog entry" "$VERSION" \
+        "$(sed -n '/^%changelog/,$p' "$ROOT/mmt-dpi.spec" 2>/dev/null | sed -n 's/^\*.* - \([^ -]*\)-[^ ]*$/\1/p' | head -n 1)"
     agree "CHANGELOG.md topmost 'Version' heading" "$VERSION" \
         "$(first_match "$ROOT/CHANGELOG.md" 's/^Version \([0-9][^ ]*\).*/\1/p')"
     # debian/ (issue #475): checked when present, so a tree without it still validates.

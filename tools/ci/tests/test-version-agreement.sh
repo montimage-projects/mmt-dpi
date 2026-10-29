@@ -12,6 +12,7 @@
 #   pristine copy of this checkout                     -> 0
 #   mmt_core.h VERSION differs from rules/common.mk    -> non-zero
 #   mmt-dpi.spec Version: differs                      -> non-zero (#550)
+#   mmt-dpi.spec newest %changelog entry differs       -> non-zero (#550)
 #   CHANGELOG topmost Version heading differs          -> non-zero
 #   rules/common.mk has no VERSION line                -> non-zero
 #   debian/changelog present and matching (epoch/rev)  -> 0
@@ -83,6 +84,9 @@ expect fail "mmt_core.h disagrees with rules/common.mk" "mmt_core.h"
 
 fresh; edit mmt-dpi.spec 's/^Version:.*/Version:        0.0.1/'
 expect fail "mmt-dpi.spec Version: disagrees" "mmt-dpi.spec"
+
+fresh; edit mmt-dpi.spec '0,/^\* .* - [0-9]/s/ - [0-9][^ ]*-\([^ ]*\)$/ - 0.0.1-\1/'
+expect fail "mmt-dpi.spec %changelog entry disagrees" "%changelog"
 
 fresh; edit CHANGELOG.md '0,/^Version [0-9]/s/^Version [0-9][^ ]*/Version 0.0.1/'
 expect fail "CHANGELOG topmost Version heading disagrees" "topmost"

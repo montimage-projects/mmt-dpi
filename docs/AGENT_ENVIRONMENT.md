@@ -50,7 +50,9 @@ each checked against `tools/ci/build-deps.txt`, which records what every list
 must hold, by `tools/ci/check-dependency-lists.sh`: change a package there
 first. `mmt-dpi.spec`'s `BuildRequires:` (`gcc`, `make`: what `rpmbuild`
 needs in a distribution buildroot, issue #550) is not one of them — the
-`rpm-package` job proves it by building the spec in a clean EL container.
+`rpm-package` job builds the spec in each EL release container, which also
+holds the job's own tools (rpmlint, git, pkgconf, libpcap-devel), so it shows
+the list suffices there, not that it is minimal.
 
 CI builds and tests on `ubuntu-24.04` (GCC 13) — see
 `.github/workflows/c-cpp.yml`. That is the reference toolchain. The full
