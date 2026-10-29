@@ -11,7 +11,7 @@
 # `make -C sdk rpm` (docs/DECISIONS.md, #550). This recipe is their intended
 # successor and keeps the Name mmt-dpi, so the two are alternatives, never
 # installed side by side: their layouts differ and their Release fields (a
-# git hash there, 1%{?dist} here) do not order.
+# git hash there, a counter plus the dist tag here) do not order.
 #
 # Version must equal rules/common.mk VERSION (scripts/validate-release-prep.sh).
 
@@ -54,9 +54,8 @@ Summary:        Development files for %{name}
 Requires:       %{name}%{?_isa} = %{version}-%{release}
 
 %description    devel
-The C headers, the unversioned library links, the pkg-config file
-(mmt-dpi.pc) and the example programs for developing applications that use
-%{name}.
+The C headers, the development library links, the build-flags file and
+the example programs for developing applications that use %{name}.
 
 %prep
 %autosetup

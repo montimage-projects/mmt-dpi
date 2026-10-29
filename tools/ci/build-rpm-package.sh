@@ -74,6 +74,8 @@ bash tools/ci/tests/run-installed-consumer.sh --no-engines \
 
 mkdir -p "${SRC}/dist/rpm-packages"
 cp "${rpms[@]}" "${SRC}/dist/rpm-packages/"
-# The container runs as root: hand the output back to the checkout owner.
+# The container runs as root: hand the output (and dist/, when this run
+# created it) back to the checkout owner.
+chown --reference="${SRC}" "${SRC}/dist"
 chown -R --reference="${SRC}" "${SRC}/dist/rpm-packages"
 ls -l "${SRC}/dist/rpm-packages"
