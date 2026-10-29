@@ -238,6 +238,10 @@ check "rpm spec: the security subpackage License: is SEC_PKG_LICENSE" \
     bash -c "sed -n '/^rpm:/,/^zip:/p' '${MK}' | grep -qF '\\nLicense: \$(SEC_PKG_LICENSE)'"
 check "rpm spec: libmmt_security/libmmt_fuzz belong to the security subpackage" \
     bash -c "sed -n '/^rpm:/,/^zip:/p' '${MK}' | grep -q '%package security' && grep -qx 'MMT_PKG_LIBS  = \$(MMT_LAYOUT_LIBS)' '${MK}' && ! grep '^MMT_LAYOUT_LIBS' '${MK}' | grep -Eq 'SECURITY|FUZZ|security|fuzz'"
+check "no hard-coded licence literal is left in the spec" \
+    bash -c "! sed -n '/^rpm:/,/^zip:/p' '${MK}' | grep -Eq 'License: *(proprietary|Apache-2.0)'"
+check "THIRD-PARTY-NOTICES and the licence expressions are current" \
+    python3 "${REPO_ROOT}/tools/ci/vendored-components.py" notices --check
 
 # --- 4c. One install layout (issue #538, F-DEAD-011) -------------------------
 # install, its manifest and uninstall, the deb/rpm staging and install-fhs all
@@ -289,6 +293,17 @@ fhs_engines_opt_in() {
 check "without ENABLESEC the SONAME/dev-link lists still name both engines" engines_listed
 check "install, install-fhs and the packages share the plugin list" plugins_shared
 check "install-fhs adds the engines only with ENABLESEC=1" fhs_engines_opt_in
+# no_engine_in_main — evaluated, with and without ENABLESEC=1: the mmt-dpi
+# package's libraries and the plugin list never hold an engine.
+no_engine_in_main() {
+    local v
+    for v in MMT_PKG_LIBS MMT_LAYOUT_LIBS MMT_LAYOUT_PLUGINS; do
+        print_var "${v}" | grep -Eq 'libmmt_(core|tcpip)' || [ "${v}" = MMT_LAYOUT_PLUGINS ] || return 1
+        ! print_var "${v}" | grep -Eq 'libmmt_(security|fuzz)' || return 1
+        ! print_var "${v}" ENABLESEC=1 | grep -Eq 'libmmt_(security|fuzz)' || return 1
+    done
+}
+check "the mmt-dpi package and the plugin list hold no engine (with or without ENABLESEC)" no_engine_in_main
 
 # --- 5. ZIP install/uninstall round trip — no residue ----------------------
 echo "--- ZIP install/uninstall round trip ---"
