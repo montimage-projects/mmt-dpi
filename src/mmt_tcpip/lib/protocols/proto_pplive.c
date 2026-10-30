@@ -100,7 +100,8 @@ static int pplive_tcp_search_http(ipacket_t * ipacket) {
                 packet->line[0].ptr != NULL && packet->line[0].len >= 8 &&
                 mmt_memcmp(&packet->payload[packet->line[0].len - 8], "HTTP/1.", 7) == 0) {
 
-            uint8_t i, flag = 0;
+            uint16_t i;
+            uint8_t flag = 0;
 
             for (i = 0; i < packet->parsed_lines && i < 10 && flag < 2; i++) {
                 if (packet->line[i].ptr != NULL && packet->line[i].len >= 16
