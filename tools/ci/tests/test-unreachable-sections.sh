@@ -19,6 +19,7 @@
 #   missing allowlist                                       -> 2
 #   a log with no removed section at all                    -> 2
 #   an archive member mapping to no source, or to two       -> 2
+#   an untracked, non-ignored source is attributed          -> 0
 #   --report-only prints the rows (no allowlist needed)     -> 0
 #   --emit-allowlist keeps known tags and writes `todo`     -> 0
 #   build path: -O0, -ffunction-sections, --print-gc-sections, the working
@@ -148,6 +149,11 @@ check "a basename shared by two sources is a broken helper" 2 'object core\.o ma
     bash "$T" --log "${WORK}/base.log" --report-only
 git -C "${FIX}" rm -q --cached src/mmt_dicom/core.c
 rm -rf "${FIX}/src/mmt_dicom"
+echo 'int u(void) { return 0; }' > "${FIX}/src/mmt_core/src/fresh.c"
+{ base_log; gc .text.fresh_fn fresh.o libmmt_core; } > "${WORK}/untracked.log"
+check "a source not yet added to the index is attributed" 0 '^src/mmt_core/src/fresh\.c fresh_fn libmmt_core$' \
+    bash "$T" --log "${WORK}/untracked.log" --report-only
+rm -f "${FIX}/src/mmt_core/src/fresh.c"
 
 echo "── build path (stub make) ──"
 mkdir -p "${WORK}/bin"

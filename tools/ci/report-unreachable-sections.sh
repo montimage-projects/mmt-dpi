@@ -124,7 +124,11 @@ fi
 # Object basename -> tracked source. Objects are built next to their source
 # (rules/common.mk), and the archives keep only basenames, so a basename
 # shared by two sources would make the attribution ambiguous.
-git ls-files -- 'src/*.c' 'src/*.cpp' | grep -v '^src/examples/' > "$WORK/sources" || true
+# The same listing as the copy (tracked plus untracked, non-ignored), so a new
+# source not yet added to the index is attributed too.
+git ls-files --cached --others --exclude-standard -- 'src/*.c' 'src/*.cpp' \
+    | while IFS= read -r f; do [ -e "$f" ] && printf '%s\n' "$f"; done \
+    | grep -v '^src/examples/' > "$WORK/sources" || true
 [ -s "$WORK/sources" ] || die "no tracked src/ sources found"
 
 # Vendored paths, one per line, for awk.
