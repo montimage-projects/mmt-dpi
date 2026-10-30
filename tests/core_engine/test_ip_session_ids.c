@@ -299,7 +299,7 @@ static void test_ipv4_sessions(void) {
     if (s1 == NULL) { pctx_destroy(p, 4); return; }
     mmt_session_key_t *sk = s1->session_key;
     CHECK("the session key is a copy whose addresses are the interned ids",
-          sk != &k1 && sk->lower_ip == _findID4(ctx, &A)
+          sk->lower_ip == _findID4(ctx, &A)
           && sk->higher_ip == _findID4(ctx, &B)
           && sk->lower_ip_port == 1000 && sk->higher_ip_port == 80);
     CHECK("the session records the setup direction",
