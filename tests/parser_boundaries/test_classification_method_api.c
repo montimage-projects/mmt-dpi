@@ -15,6 +15,11 @@
  *   correlated acc_icecast_positive      icecast, inferred beneath HTTP
  *   port       acc_http_negative         http, port 80 guess (port_classify on)
  *   none       acc_unknown_tcp           no application verdict at all
+ *   dpi        acc_quic_positive         quic_ietf, a dissector claiming the
+ *                                        layer itself (set_classified_proto)
+ *   port->dpi  acc_http_positive         port_classify on: the handshake is
+ *                                        port-guessed, the request replaces
+ *                                        the guess with a DPI match
  *
  * The corpus carries no capture to an address of the compiled-in IP-range
  * table (its captures use RFC 5737 documentation addresses), so the "ip" case
@@ -72,6 +77,7 @@ static unsigned g_attr_reads;     /* packets whose attribute was extracted */
 static char     g_last_app[64];
 static uint8_t  g_last_method;    /* method on the last verdict packet */
 static uint8_t  g_max_method;     /* strongest method seen on any packet */
+static unsigned g_seen_methods;   /* bit m set: method m seen on some packet */
 
 static int packet_handler(const ipacket_t *ipacket, void *user_args) {
     (void) user_args;
@@ -88,6 +94,7 @@ static int packet_handler(const ipacket_t *ipacket, void *user_args) {
         }
     }
     if (method > g_max_method) g_max_method = method;
+    if (method < 32) g_seen_methods |= 1u << method;
 
     if (ipacket->proto_hierarchy != NULL) {
         for (int i = 0; i < ipacket->proto_hierarchy->len && i < PROTO_PATH_SIZE; i++) {
@@ -107,6 +114,7 @@ static void reset_case(void) {
     g_verdicts = g_attr_mismatch = g_attr_reads = 0;
     g_last_app[0] = '\0';
     g_last_method = g_max_method = MMT_CLASSIFICATION_METHOD_NONE;
+    g_seen_methods = 0;
 }
 
 static mmt_handler_t *new_handler(int datalink, int port_classify) {
@@ -272,6 +280,11 @@ int main(void) {
     run_pcap(dir, "acc_icecast_positive.pcap", 0, "icecast", MMT_CLASSIFICATION_METHOD_CORRELATED);
     run_pcap(dir, "acc_http_negative.pcap", 1, "http", MMT_CLASSIFICATION_METHOD_PORT);
     run_pcap(dir, "acc_unknown_tcp.pcap", 0, NULL, MMT_CLASSIFICATION_METHOD_NONE);
+    run_pcap(dir, "acc_quic_positive.pcap", 0, "quic_ietf", MMT_CLASSIFICATION_METHOD_DPI);
+    run_pcap(dir, "acc_http_positive.pcap", 1, "http", MMT_CLASSIFICATION_METHOD_DPI);
+    CHECK(g_seen_methods & (1u << MMT_CLASSIFICATION_METHOD_PORT),
+          "acc_http_positive.pcap (port_classify on): an earlier packet was port-guessed "
+          "before the DPI match replaced it");
     run_ip_range_case();
 
     close_extraction();

@@ -72,18 +72,21 @@ The values, in ascending order of confidence
 | Value | Name | Set when |
 |-------|------|----------|
 | `MMT_CLASSIFICATION_METHOD_NONE` (0) | `none` | no application verdict (yet) |
-| `MMT_CLASSIFICATION_METHOD_PORT` (1) | `port` | the TCP/UDP fallback guessed from a well-known port (`port_classify`, `src/mmt_tcpip/lib/protocols/proto_tcp.c:1157`, `src/mmt_tcpip/lib/protocols/proto_udp.c:168`) |
-| `MMT_CLASSIFICATION_METHOD_IP` (2) | `ip` | the IP-range table named the protocol — the TCP/UDP fallback, or the HTTP, TLS, RTP, SIP and STUN classifiers' address lookups (e.g. `src/mmt_tcpip/lib/protocols/http.c:942`, `src/mmt_tcpip/lib/protocols/proto_ssl.c:842`) |
+| `MMT_CLASSIFICATION_METHOD_PORT` (1) | `port` | the TCP/UDP fallback guessed from a well-known port (`port_classify`, `src/mmt_tcpip/lib/protocols/proto_tcp.c:1154`, `src/mmt_tcpip/lib/protocols/proto_udp.c:165`) |
+| `MMT_CLASSIFICATION_METHOD_IP` (2) | `ip` | the IP-range table named the protocol — the TCP/UDP fallback (`src/mmt_tcpip/lib/protocols/proto_tcp.c:1150`, `src/mmt_tcpip/lib/protocols/proto_udp.c:160`), or the HTTP, TLS, RTP, SIP and STUN classifiers' address lookups (e.g. `src/mmt_tcpip/lib/protocols/http.c:942`, `src/mmt_tcpip/lib/protocols/proto_ssl.c:842`) — or a classifier matched a hard-coded address range (WhatsApp, Viber, Gameforge, Ustream, Spotify, NetEase POPO) |
 | `MMT_CLASSIFICATION_METHOD_CORRELATED` (3) | `correlated` | a classifier inferred it from another protocol's content or from what the hosts were seen with (`MMT_CORRELATED_PROTOCOL`) |
 | `MMT_CLASSIFICATION_METHOD_HOSTNAME` (4) | `hostname` | the hostname table matched the HTTP `Host` header or the TLS SNI/certificate name (`src/mmt_tcpip/lib/protocols/http.c:933`, `src/mmt_tcpip/lib/protocols/proto_ssl.c:602`, `src/mmt_tcpip/lib/protocols/proto_ssl.c:644`) |
-| `MMT_CLASSIFICATION_METHOD_DPI` (5) | `dpi` | the protocol's own classifier matched the payload (`MMT_REAL_PROTOCOL`), or a dissector above the transport layer claimed the layer itself (DICOM, S1AP, QUIC, HTTP/2 — `src/mmt_core/src/packet_pipeline.c:653`) |
+| `MMT_CLASSIFICATION_METHOD_DPI` (5) | `dpi` | the protocol's own classifier matched the payload (`MMT_REAL_PROTOCOL`), or a dissector above the transport layer claimed the layer itself (DICOM, S1AP, QUIC, HTTP/2 — `src/mmt_core/src/packet_pipeline.c:653`); such a claim also covers layers that are not an application (SCTP chunks, tunnel headers such as GTP), so a tunnel or SCTP session reads `dpi` |
 
 The method follows the protocol at the top of the session's application stack
 (`src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.c:219`): when a classifier puts a
 new protocol there, its method replaces the previous one — HTTP matched by DPI
 and then attributed to a service from its `Host` header reads `hostname` — and
-re-asserting the protocol already on top only raises the method. A later
-payload match therefore replaces an earlier port or IP-range guess.
+re-asserting the protocol already on top only raises the method; a protocol
+inserted beneath a different one on top leaves it. A payload match therefore
+replaces the TCP/UDP fallback's earlier port or IP-range guess, while a service
+attributed on top of HTTP or TLS keeps its method when the wire protocol is
+matched again beneath it.
 `tools/phase0/ci/check_precision.sh` reports the precision of each method over
 the labelled set (the `per-method` block of
 `tools/phase0/ci/baseline/precision.txt`).

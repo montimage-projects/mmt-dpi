@@ -669,7 +669,7 @@ int check_whatsapp(ipacket_t * ipacket) {
              */
             if (((ntohl(packet->iph->saddr) & 0xFFFFFFE0 /* 255.255.255.224 */) == 0x3216E720 /* 50.22.231.32 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFFFFE0 /* 255.255.255.224 */) == 0x3216E720 /* 50.22.231.32 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_WHATSAPP, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_WHATSAPP, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
         }
@@ -736,55 +736,55 @@ int check_viber_tcp(ipacket_t * ipacket) {
              */
             if (((ntohl(packet->iph->saddr) & 0xFFFFFFE0 /* 255.255.255.224 */) == 0x36A93FA0 /* 54.169.63.160 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFFFFE0 /* 255.255.255.224 */) == 0x36A93FA0 /* 54.169.63.160 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
 
             if (((ntohl(packet->iph->saddr) & 0xFFFFFC00 /* 255.255.252.0 */) == 0x3400FC00 /* 52.0.252.0 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFFFC00 /* 255.255.252.0 */) == 0x3400FC00 /* 52.0.252.0 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
 
             if (((ntohl(packet->iph->saddr) & 0xFFFFFFC0 /* 255.255.255.192 */) == 0x365DFF40 /* 54.93.255.64 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFFFFC0 /* 255.255.255.192 */) == 0x365DFF40 /* 54.93.255.64 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
 
             if (((ntohl(packet->iph->saddr) & 0xFFFC0000 /* 255.252.0.0 */) == 0x32100000 /* 50.16.0.0/14 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFC0000 /* 255.252.0.0 */) == 0x32100000 /* 50.16.0.0/14 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
             if (((ntohl(packet->iph->saddr) & 0xFFFC0000 /* 255.252.0.0 */) == 0x6B140000 /* 107.20.0.0/14 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFC0000 /* 255.252.0.0 */) == 0x6B140000 /* 107.20.0.0/14 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
             if (((ntohl(packet->iph->saddr) & 0xFFFC0000 /* 255.252.0.0 */) == 0x17140000 /* 23.20.0.0/14 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFC0000 /* 255.252.0.0 */) == 0x17140000 /* 23.20.0.0/14 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
             if (((ntohl(packet->iph->saddr) & 0xFFE00000 /* 255.224.0.0 */) == 0x36E00000 /* 54.224.0.0/14 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFE00000 /* 255.224.0.0 */) == 0x36E00000 /* 54.224.0.0/14 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
             if (((ntohl(packet->iph->saddr) & 0xFFFF0000 /* 255.255.0.0 */) == 0x2E330000 /* 46.51.0.0/16 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFF0000 /* 255.255.0.0 */) == 0x2E330000 /* 46.51.0.0/16 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
             if (((ntohl(packet->iph->saddr) & 0xFFFF0000 /* 255.255.0.0 */) == 0x2E890000 /* 46.137.0.0/16 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFF0000 /* 255.255.0.0 */) == 0x2E890000 /* 46.137.0.0/16 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
             if (((ntohl(packet->iph->saddr) & 0xFFFF0000 /* 255.255.0.0 */) == 0xB0220000 /* 176.34.0.0/16 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFF0000 /* 255.255.0.0 */) == 0xB0220000 /* 176.34.0.0/16 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_VIBER, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
         }
@@ -804,7 +804,7 @@ int check_gameforge_tcp(ipacket_t * ipacket) {
              */
             if (((ntohl(packet->iph->saddr) & 0xFFFFF000 /* 255.255.240.0 */) == 0x4F6E5000 /* 79.110.80.0 */)
                     || ((ntohl(packet->iph->daddr) & 0xFFFFF000 /* 255.255.240.0 */) == 0x4F6E5000 /* 79.110.80.0 */)) {
-                mmt_internal_add_connection(ipacket, PROTO_GAMEFORGE, MMT_REAL_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_GAMEFORGE, MMT_REAL_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP); /* #567: address-range match */
                 return 1;
             }
         }

@@ -1154,7 +1154,8 @@ int tcp_post_classification_function(ipacket_t * ipacket, unsigned index) {
             retval.proto_id =  mmt_guess_protocol_by_port_number(ipacket);
             if (retval.proto_id != PROTO_UNKNOWN) method = MMT_CLASSIFICATION_METHOD_PORT;
         }
-        ipacket->session->classification_method = method;
+        ipacket->session->classification_method =
+                (retval.proto_id == PROTO_UNKNOWN) ? MMT_CLASSIFICATION_METHOD_NONE : method;
         if (retval.proto_id != PROTO_UNKNOWN){
             retval.status = Classified;
             new_retval = set_classified_proto(ipacket, index + 1, retval);}

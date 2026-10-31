@@ -500,8 +500,8 @@ MMTAPI uint64_t MMTCALL get_session_id(
 /**
  * Returns how the session's application verdict was reached (issue #567):
  * one of the MMT_CLASSIFICATION_METHOD_* values. It reflects the protocol
- * currently at the top of the session's application stack, so a later payload
- * match replaces an earlier port or IP-range guess.
+ * currently at the top of the session's application stack, so a payload match
+ * replaces the TCP/UDP fallback's earlier port or IP-range guess.
  * @param session the session structure
  * @return the classification method, MMT_CLASSIFICATION_METHOD_NONE when
  *         \p session is NULL or has no application verdict.

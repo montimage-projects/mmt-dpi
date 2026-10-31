@@ -213,9 +213,9 @@ void mmt_change_internal_flow_protocol(ipacket_t * ipacket, uint16_t detected_pr
  * its method replaces the old one, whatever their order — HTTP matched by DPI
  * and then attributed to a service by its Host header is a hostname verdict.
  * Re-asserting the protocol already on top only upgrades the method, so a
- * weaker re-detection never downgrades a stronger one. A change that does not
- * reach the top (a real protocol inserted beneath a correlated one) leaves the
- * method alone. */
+ * weaker re-detection never downgrades a stronger one. A change that leaves
+ * another protocol on top (a real protocol inserted beneath a different
+ * correlated one) leaves the method alone. */
 void mmt_change_internal_flow_protocol_by(ipacket_t * ipacket, uint16_t detected_protocol, mmt_protocol_type_t protocol_type, uint8_t method) {
     struct mmt_internal_tcpip_session_struct *flow = ipacket->internal_packet->flow;
     mmt_session_t *session = ipacket->session;
