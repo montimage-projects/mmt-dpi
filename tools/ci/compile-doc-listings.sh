@@ -180,12 +180,26 @@ def documented_cmd(cmd, where):
     srcs = [a for a in argv[1:] if a.endswith(".c")]
     if len(srcs) != 1:
         return None, f"expected one .c source in {cmd!r}"
-    bad = [a for i, a in enumerate(argv[1:], 1)
-           if a not in srcs and not ALLOWED.match(a)
-           and argv[i - 1] not in ("-o", "-I", "-L")]
+    # Walk the arguments: a separate -o/-I/-L consumes exactly the next one,
+    # which must not look like an option, so a value can never smuggle a
+    # third token (`-I -I -w`) past the allowlist.
+    bad, has_out, i = [], False, 1
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-o", "-I", "-L"):
+            if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
+                bad.append(a)
+                i += 1
+                continue
+            has_out = has_out or a == "-o"
+            i += 2
+            continue
+        if a not in srcs and not ALLOWED.match(a):
+            bad.append(a)
+        i += 1
     if bad:
         return None, f"argument(s) not accepted from a documented command: {bad}"
-    if "-o" not in argv or argv.index("-o") + 1 >= len(argv):
+    if not has_out:
         return None, f"no -o in {cmd!r}"
     return [cc, *argv[1:], *strict, *extra], srcs[0]
 

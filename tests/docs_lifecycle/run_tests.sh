@@ -273,19 +273,24 @@ else
     fail "the gate accepted 'return;' in int main (exit ${rc})"
     tail -10 "${WORK}/bad.txt" >&2 || true
 fi
-# A documented command cannot disarm the strict flags.
-{ cat "${WORK}/bad/Bad.md"
-  printf '%s\n' '```sh' \
-      'gcc -Wno-error=return-type -o bad bad.c -I /opt/mmt/dpi/include -L /opt/mmt/dpi/lib -lmmt_core' \
-      '```'; } >"${WORK}/bad/Disarm.md"
-rc=0
-bash "${GATE}" --prefix "${PREFIX}" "${WORK}/bad/Disarm.md" >"${WORK}/disarm.txt" 2>&1 || rc=$?
-if [ "$rc" -eq 1 ] && grep -q "not accepted from a documented command" "${WORK}/disarm.txt"; then
-    ok "a documented -Wno-error=return-type is refused (exit 1)"
-else
-    fail "the gate let a documented command disarm its strict flags (exit ${rc})"
-    tail -10 "${WORK}/disarm.txt" >&2 || true
-fi
+# A documented command cannot disarm the strict flags, directly or through
+# an option-valued -I/-L/-o (`-I -I -w`).
+n=0
+for disarm in '-Wno-error=return-type -o bad bad.c' '-I -I -w -o bad bad.c' \
+              '-o bad -L -L -E bad.c'; do
+    n=$((n + 1))
+    { cat "${WORK}/bad/Bad.md"
+      printf '%s\n' '```sh' "gcc ${disarm} -I /opt/mmt/dpi/include -L /opt/mmt/dpi/lib -lmmt_core" '```'
+    } >"${WORK}/bad/Disarm${n}.md"
+    rc=0
+    bash "${GATE}" --prefix "${PREFIX}" "${WORK}/bad/Disarm${n}.md" >"${WORK}/disarm.txt" 2>&1 || rc=$?
+    if [ "$rc" -eq 1 ] && grep -q "not accepted from a documented command" "${WORK}/disarm.txt"; then
+        ok "a documented 'gcc ${disarm}' is refused (exit 1)"
+    else
+        fail "the gate let 'gcc ${disarm}' disarm its strict flags (exit ${rc})"
+        tail -10 "${WORK}/disarm.txt" >&2 || true
+    fi
+done
 
 if [ "$ERRORS" -ne 0 ]; then
     echo "✗ docs_lifecycle: ${ERRORS} check(s) failed" >&2
