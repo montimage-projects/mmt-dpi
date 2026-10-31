@@ -202,11 +202,6 @@ static void change_internal_flow_stack(ipacket_t * ipacket, uint16_t detected_pr
 #endif
 }
 
-void mmt_change_internal_flow_protocol(ipacket_t * ipacket, uint16_t detected_protocol, mmt_protocol_type_t protocol_type) {
-    mmt_change_internal_flow_protocol_by(ipacket, detected_protocol, protocol_type,
-            mmt_classification_method_of(protocol_type));
-}
-
 /* Issue #567 (F-BUG-306): every flow-protocol change records how the session's
  * verdict was reached. The method follows the protocol at the top of the flow
  * stack (the application verdict): when the change put a new protocol there,

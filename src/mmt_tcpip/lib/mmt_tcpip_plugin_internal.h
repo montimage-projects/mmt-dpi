@@ -56,7 +56,6 @@ void mmt_internal_add_connection_by(ipacket_t * ipacket, uint16_t detected_proto
  * what it does is:
  * 1.update the flow protocol stack with the new protocol
  */
-void mmt_change_internal_flow_protocol(ipacket_t * ipacket, uint16_t detected_protocol, mmt_protocol_type_t protocol_type);
 void mmt_change_internal_flow_protocol_by(ipacket_t * ipacket, uint16_t detected_protocol, mmt_protocol_type_t protocol_type, uint8_t method);
 
 /* generic function for changing the packetprotocol
