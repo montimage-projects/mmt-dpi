@@ -93,6 +93,25 @@ for src in llhttp.c llhttp_api.c llhttp_http.c; do
     "${SCRIPT_DIR}/test_fi_memory.o" "${fi_http_objs[@]}"
 "${BIN_HTTP}"
 
+# Issues #503/#674: the real mobile and business-app init_proto() against stub
+# protocol initializers, each made to fail in turn -- each must return 0 and
+# log the protocol, never exit(). Both define init_proto/cleanup_proto, so
+# each is renamed to share one binary.
+BIN_PLUGIN_EXIT="${SCRIPT_DIR}/test_fi_plugin_exit"
+plugin_incs=(-I"${CORE_PUB}" -I"${CORE_PRIV}" -I"${REPO_ROOT}/src/mmt_tcpip/include"
+    -I"${TCPIP_LIB}" -I"${REPO_ROOT}/src/mmt_mobile/include" -I"${REPO_ROOT}/src/mmt_fuzz_engine")
+"${CC}" "${extra_cflags[@]}" -std=gnu11 -g "${plugin_incs[@]}" \
+    -Dinit_proto=mobile_init_proto -Dcleanup_proto=mobile_cleanup_proto \
+    -c "${REPO_ROOT}/src/mmt_mobile/mmt_mobile_plugin.c" -o "${SCRIPT_DIR}/test_fi_plugin_exit_mobile.o"
+"${CC}" "${extra_cflags[@]}" -std=gnu11 -g "${plugin_incs[@]}" \
+    -Dinit_proto=ba_init_proto -Dcleanup_proto=ba_cleanup_proto \
+    -c "${REPO_ROOT}/src/mmt_business_app/mmt_business_app.c" -o "${SCRIPT_DIR}/test_fi_plugin_exit_ba.o"
+"${CC}" "${extra_cflags[@]}" -Wall -Wextra -std=gnu11 -g \
+    -c "${SCRIPT_DIR}/test_fi_plugin_exit.c" -o "${SCRIPT_DIR}/test_fi_plugin_exit.o"
+"${CC}" "${extra_cflags[@]}" -o "${BIN_PLUGIN_EXIT}" "${SCRIPT_DIR}/test_fi_plugin_exit.o" \
+    "${SCRIPT_DIR}/test_fi_plugin_exit_mobile.o" "${SCRIPT_DIR}/test_fi_plugin_exit_ba.o"
+"${BIN_PLUGIN_EXIT}"
+
 # --- 2. engine-level sweep (LD_PRELOAD, not under sanitizer profiles) -------
 if [[ "${SDK_BUILD_PROFILE:-}" =~ ^(asan|tsan)$ ]]; then
     echo "  [2/3] fi-engine and plugin-init cases skipped: SDK_BUILD_PROFILE=${SDK_BUILD_PROFILE}" \
