@@ -313,7 +313,7 @@ uint32_t check_stun_internal(ipacket_t * ipacket) {
         }
     }
 
-    /* Check the protocol by the IP addresses!!!*/
+    /* Check the protocol by the IP addresses!!! (issue #567: the "ip" method) */
     if (ipacket->mmt_handler->ip_address_classify == 1)
     {
         proto = get_proto_id_from_address(ipacket);
@@ -321,17 +321,17 @@ uint32_t check_stun_internal(ipacket_t * ipacket) {
     if (proto != PROTO_UNKNOWN) {
         switch (proto) {
             case PROTO_YAHOO:
-                mmt_internal_add_connection(ipacket, PROTO_YAHOOMSG, MMT_CORRELATED_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_YAHOOMSG, MMT_CORRELATED_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP);
                 insert_to_local_protos(packet->udp->dest, PROTO_YAHOOMSG, 17 /*UDP*/, &dst->local_protos);
                 insert_to_local_protos(packet->udp->source, PROTO_YAHOOMSG, 17 /*UDP*/, &src->local_protos);
                 return PROTO_YAHOOMSG;
             case PROTO_GOOGLE:
-                mmt_internal_add_connection(ipacket, PROTO_GTALK, MMT_CORRELATED_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, PROTO_GTALK, MMT_CORRELATED_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP);
                 insert_to_local_protos(packet->udp->dest, PROTO_GTALK, 17 /*UDP*/, &dst->local_protos);
                 insert_to_local_protos(packet->udp->source, PROTO_GTALK, 17 /*UDP*/, &src->local_protos);
                 return PROTO_GTALK;
             default:
-                mmt_internal_add_connection(ipacket, proto, MMT_CORRELATED_PROTOCOL);
+                mmt_internal_add_connection_by(ipacket, proto, MMT_CORRELATED_PROTOCOL, MMT_CLASSIFICATION_METHOD_IP);
                 insert_to_local_protos(packet->udp->dest, proto, 17 /*UDP*/, &dst->local_protos);
                 insert_to_local_protos(packet->udp->source, proto, 17 /*UDP*/, &src->local_protos);
                 return proto;

@@ -237,6 +237,16 @@ static void mmt_int_ssl_add_connection(ipacket_t * ipacket, uint32_t protocol) {
     }
 }
 
+/* Issue #567: a service attributed from the SNI/certificate name (hostname
+ * table) or from the IP-range table records that method, not "correlated". */
+static void mmt_int_ssl_add_connection_by(ipacket_t * ipacket, uint32_t protocol, uint8_t method) {
+    if (protocol != PROTO_SSL) {
+        mmt_internal_add_connection_by(ipacket, protocol, MMT_CORRELATED_PROTOCOL, method);
+    } else {
+        mmt_int_ssl_add_connection(ipacket, protocol);
+    }
+}
+
 static inline int mmt_ssl_min(uint32_t a, uint32_t b) {
     return (a < b ? a : b);
 }
@@ -589,7 +599,7 @@ uint32_t sslDetectProtocolFromClientHello(ipacket_t * ipacket) {
         }
         //printf("From detect proto from certificate = %s ---- len = %i\n", certificate, strlen(certificate));
         if (proto != PROTO_UNKNOWN) {
-            mmt_int_ssl_add_connection(ipacket, proto);
+            mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_HOSTNAME);
             return proto;
         }else {
             if(mmt_memcmp((void *) certificate, (void *) "pop.", 4) == 0) {
@@ -631,7 +641,7 @@ uint32_t sslDetectProtocolFromServerHello(ipacket_t * ipacket) {
         }
         //printf("Protocol detected has id = %u --- Server: %s --- %u \n", proto, certificate, strlen(certificate));
         if (proto != PROTO_UNKNOWN) {
-            mmt_int_ssl_add_connection(ipacket, proto);
+            mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_HOSTNAME);
             return proto;
         }
     }
@@ -829,7 +839,7 @@ int mmt_classify_ssl(ipacket_t * ipacket, unsigned index) {
             proto = get_proto_id_from_address(ipacket);
         }
         if (proto != PROTO_UNKNOWN) {
-			mmt_int_ssl_add_connection(ipacket, proto);
+			mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_IP);
 		}
 		return 1;
 	}
