@@ -79,7 +79,11 @@ def parse(data, ids):
                 elif entries:
                     errors.append("%s: the version line must precede the entries" % where)
                 try:
-                    datetime.date.fromisoformat(m.group(1))
+                    # strptime, not fromisoformat: Python >= 3.11 also takes
+                    # the basic (20261031) and week (2026-W44-6) forms
+                    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", m.group(1)):
+                        raise ValueError(m.group(1))
+                    datetime.datetime.strptime(m.group(1), "%Y-%m-%d")
                 except ValueError:
                     errors.append("%s: version %r is not a YYYY-MM-DD date" % (where, m.group(1)))
                 version = m.group(1)
