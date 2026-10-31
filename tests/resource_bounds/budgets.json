@@ -1,6 +1,6 @@
 {
   "schema": "mmt-dpi/resource-bounds-budgets/v1",
-  "description": "Reproducible adversarial resource budgets (issue #394, F-PERF-001..004). Every value is a deterministic count or byte total from fixed-seed workloads; no packets-per-second or production timing guarantee is asserted. Checks: eq/le/lt compare `metric` with `limit`, or with `factor` x `limit_metric`; sum requires `metric` to equal the sum of `parts` (every refusal accounted). `baseline` is the reported pre-fix figure a budget improves on.",
+  "description": "Reproducible adversarial resource budgets (issue #394, F-PERF-001..004). Every value is a deterministic count or byte total from fixed-seed workloads; no packets-per-second or production timing guarantee is asserted. Checks: eq/le/lt compare `metric` with `limit`, or with `factor` x `limit_metric`; sum requires `metric` to equal the sum of `parts` (every refusal accounted). `baseline` is the reported pre-fix figure a budget improves on (ftp-control's open-visit baselines are the analytical N(N-1)/2 of the former tail walk, not a measurement).",
   "fixtures": {
     "ipv6-hash": {
       "issue": 379,
@@ -140,7 +140,7 @@
     "ftp-control": {
       "issue": 563,
       "finding": "F-PERF-106",
-      "workload": "1,000 then 100,000 FTP control flows each greeted (220) through ftp_session_data_analysis(), an unmatched data-connection lookup before and after every flow expires through ftp_session_data_cleanup() in a fixed-seed shuffled order; 1,000 passive transfers (227 + data flow) with the control flow expiring first for half and the data flow first for the rest; 100,000 live sessions released by handler teardown.",
+      "workload": "1,000 then 100,000 FTP control flows each greeted (220) through ftp_session_data_analysis(), an unmatched data-connection lookup before and after every flow expires through ftp_session_data_cleanup() in a fixed-seed shuffled order; 1,000 passive transfers (227 + data flow) with the control flow expiring first for half and the data flow first for the rest, a quarter detached by a non-matching data packet; 100,000 live sessions released by handler teardown.",
       "checks": [
         { "id": "small-scale", "metric": "small.sessions", "op": "eq", "limit": 1000 },
         { "id": "large-scale", "metric": "large.sessions", "op": "eq", "limit": 100000 },
@@ -148,6 +148,8 @@
         { "id": "large-opened", "metric": "large.opened", "op": "eq", "limit_metric": "large.sessions" },
         { "id": "open-o1-small", "metric": "small.open_visits", "op": "eq", "limit": 0, "baseline": 499500 },
         { "id": "open-o1-large", "metric": "large.open_visits", "op": "eq", "limit": 0, "baseline": 4999950000 },
+        { "id": "tail-append-small", "metric": "small.tail_appends", "op": "eq", "limit_metric": "small.sessions" },
+        { "id": "tail-append-large", "metric": "large.tail_appends", "op": "eq", "limit_metric": "large.sessions" },
         { "id": "flat-per-session", "metric": "large.alloc_calls", "op": "eq", "factor": 100, "limit_metric": "small.alloc_calls" },
         { "id": "live-bounded", "metric": "large.live_peak", "op": "eq", "limit_metric": "large.sessions" },
         { "id": "lookup-live-only", "metric": "large.probe_visits_open", "op": "le", "limit_metric": "large.live_peak" },
@@ -160,6 +162,8 @@
         { "id": "transfers-attached", "metric": "transfers.attached", "op": "eq", "limit_metric": "transfers.sessions" },
         { "id": "transfers-retired", "metric": "transfers.retired_peak", "op": "eq", "limit": 500 },
         { "id": "transfers-outlive-control", "metric": "transfers.read_retired", "op": "eq", "limit_metric": "transfers.retired_peak" },
+        { "id": "transfers-detached", "metric": "transfers.detached", "op": "eq", "limit": 250 },
+        { "id": "transfers-detach-frees", "metric": "transfers.freed_by_detach", "op": "eq", "limit_metric": "transfers.detached" },
         { "id": "transfers-empty", "metric": "transfers.lists_after", "op": "eq", "limit": 0 },
         { "id": "transfers-no-leak", "metric": "transfers.leaked_allocations", "op": "eq", "limit": 0 },
         { "id": "teardown-scale", "metric": "teardown.sessions", "op": "eq", "limit": 100000 },

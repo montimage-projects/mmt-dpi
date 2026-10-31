@@ -24,11 +24,15 @@
  *      flow that attaches to the control session's data session). For half
  *      the control flow expires first: its session moves to the retired
  *      list, the data flow's next packet still reads it (ASan would flag a
- *      use after free), and the data flow's expiry frees it. For the other
- *      half the data flow expires first. Both lists end empty, nothing leaks.
+ *      use after free), and the data flow's expiry frees it — or, for every
+ *      fourth transfer, a non-matching packet detaches the data flow and the
+ *      analysis frees it. For the other half the data flow expires first.
+ *      Both lists end empty, nothing leaks.
  *   D. Teardown — 100,000 live sessions are released by cleanup_ftp_context()
  *      iteratively, with every allocation returned.
  *
+ * Expiry goes through the cleanup init_proto_ftp_struct() registers (the
+ * registration stub records it), as cleanup_timedout_sessions() would.
  * The proto_ftp*.c units are compiled beside this TU with -DMMT_FTP_LIST_STATS
  * (the lookup visit counter) and the counted allocator of the tcp-memory
  * fixture (-Dmalloc=tcm_malloc ...); the mmt_core and plugin symbols they
@@ -72,6 +76,7 @@ extern uint64_t mmt_ftp_list_visits;
 void *setup_ftp_context(void *proto_context, void *args);
 void cleanup_ftp_context(void *proto_context, void *args);
 int ftp_session_data_analysis(ipacket_t *ipacket, unsigned index);
+int init_proto_ftp_struct(void);
 
 /* ---- stubs: the core/plugin symbols the FTP units reference ---- */
 
@@ -79,9 +84,10 @@ int get_packet_offset_at_index(const ipacket_t *ipacket, unsigned index) {
 	(void) ipacket; (void) index;
 	return 0;                   /* the crafted packets hold only the payload */
 }
+static protocol_t g_protocol;
 protocol_t *init_protocol_struct_for_registration(mmt_proto_id_t proto_id, const char *protocol_name) {
 	(void) proto_id; (void) protocol_name;
-	return NULL;
+	return &g_protocol;
 }
 bool register_attribute_with_protocol(protocol_t *p, attribute_metadata_t *m) {
 	(void) p; (void) m;
@@ -95,8 +101,10 @@ bool register_session_data_analysis_function(protocol_t *p, generic_session_data
 	(void) p; (void) f;
 	return 0;
 }
+static generic_session_data_cleanup_function g_registered_cleanup;
 void register_session_data_cleanup_function(protocol_t *p, generic_session_data_cleanup_function f) {
-	(void) p; (void) f;
+	(void) p;
+	g_registered_cleanup = f;   /* what the core's expiry would call */
 }
 bool register_protocol(protocol_t *p, mmt_proto_id_t proto_id) {
 	(void) p; (void) proto_id;
@@ -175,7 +183,7 @@ static void packet(void **slot, uint64_t flow_id, uint32_t saddr, uint16_t sport
 /* What the core's expiry does for the FTP slot of a timed-out flow. */
 static void expire(void **slot) {
 	g_sess.session_data[IDX] = *slot;
-	ftp_session_data_cleanup(&g_sess, IDX);
+	g_registered_cleanup(&g_sess, IDX);
 	*slot = g_sess.session_data[IDX];
 	g_sess.session_data[IDX] = NULL;
 }
@@ -190,9 +198,18 @@ static uint64_t walk(const ftp_control_session_t *head) {
 #define CLIENT(k) htonl(0x0a000000u + (uint32_t) (k))
 #define CPORT     40000
 
-static void open_controls(void **slots, uint32_t n) {
-	for (uint32_t k = 0; k < n; k++)
+/* Returns how many opens were O(1) tail appends: the new session is the
+ * live list's tail and the count grew by one (a walk is not needed for
+ * either, so this is structural rather than a visit count). */
+static uint32_t open_controls(void **slots, uint32_t n) {
+	uint32_t tail_appends = 0;
+	for (uint32_t k = 0; k < n; k++) {
+		uint64_t before = ctx()->live_count;
 		packet(&slots[k], k + 1, SERVER, 21, CLIENT(k), CPORT, "220 ready\r\n");
+		tail_appends += (slots[k] != NULL && ctx()->live.prev == slots[k]
+		                 && ctx()->live_count == before + 1);
+	}
+	return tail_appends;
 }
 
 /* An unmatched data-connection packet: its lookup examines every live
@@ -227,7 +244,7 @@ static uint64_t open_and_expire(uint32_t n, const char *scale) {
 	}
 	int64_t out0 = tcm_outstanding;
 	uint64_t calls0 = tcm_calls, v0 = mmt_ftp_list_visits;
-	open_controls(slots, n);
+	uint32_t tail_appends = open_controls(slots, n);
 	uint64_t calls = tcm_calls - calls0;
 	uint64_t open_visits = mmt_ftp_list_visits - v0;
 	uint32_t opened = 0;
@@ -244,6 +261,7 @@ static uint64_t open_and_expire(uint32_t n, const char *scale) {
 	CHECK(live == n && walked == n, "%s: live %llu, walked %llu", scale,
 	      (unsigned long long) live, (unsigned long long) walked);
 	CHECK(open_visits == 0, "%s: opening visited %llu list nodes", scale, (unsigned long long) open_visits);
+	CHECK(tail_appends == n, "%s: %u of %u opens were tail appends", scale, tail_appends, n);
 	CHECK(probe_open == n, "%s: lookup over the open list visited %llu", scale, (unsigned long long) probe_open);
 	CHECK(probe_expired == 0 && live_after == 0 && retired_after == 0,
 	      "%s: after expiry probe %llu, live %llu, retired %llu", scale,
@@ -262,6 +280,7 @@ static uint64_t open_and_expire(uint32_t n, const char *scale) {
 	M("opened", opened);
 	M("alloc_calls", calls);
 	M("open_visits", open_visits);
+	M("tail_appends", tail_appends);
 	M("live_peak", live);
 	M("probe_visits_open", probe_open);
 	M("probe_visits_expired", probe_expired);
@@ -304,6 +323,17 @@ static void data_lifetime(void) {
 		packet(&dat[k], 1000000u + k, SERVER, (uint16_t) port, CLIENT(k), 50000, "more");
 		read_retired += (dat[k] == before && before != NULL);
 	}
+	/* Every fourth transfer: the data flow's next packet no longer matches
+	 * its retired data session and no live one (a new transfer's tuple), so
+	 * the analysis detaches it — dropping the last reference frees the
+	 * retired control session there, not at expiry. */
+	uint64_t retired_before_detach = ctx()->retired_count;
+	uint32_t detached = 0;
+	for (uint32_t k = 0; k < TRANSFERS; k += 4) {
+		packet(&dat[k], 1000000u + k, SERVER, 9, CLIENT(k), 50001, "other");
+		detached += (dat[k] == NULL);
+	}
+	uint64_t freed_by_detach = retired_before_detach - ctx()->retired_count;
 	for (uint32_t k = 0; k < TRANSFERS; k += 2) expire(&dat[k]);
 	/* Odd transfers: the data flow expires first. */
 	for (uint32_t k = 1; k < TRANSFERS; k += 2) expire(&dat[k]);
@@ -318,6 +348,9 @@ static void data_lifetime(void) {
 	CHECK(live_mid == TRANSFERS / 2, "live %llu after the even control flows expired",
 	      (unsigned long long) live_mid);
 	CHECK(read_retired == TRANSFERS / 2, "%u data flows kept their retired data session", read_retired);
+	CHECK(detached == TRANSFERS / 4 && freed_by_detach == TRANSFERS / 4,
+	      "%u data flows detached, %llu retired sessions freed by the detach", detached,
+	      (unsigned long long) freed_by_detach);
 	CHECK(live_after == 0 && retired_after == 0, "lists end with live %llu, retired %llu",
 	      (unsigned long long) live_after, (unsigned long long) retired_after);
 	CHECK(leaked == 0, "%lld allocations outstanding after the transfers", (long long) leaked);
@@ -329,6 +362,8 @@ static void data_lifetime(void) {
 	rb_metric(RB, "transfers.attached", attached);
 	rb_metric(RB, "transfers.retired_peak", retired_peak);
 	rb_metric(RB, "transfers.read_retired", read_retired);
+	rb_metric(RB, "transfers.detached", detached);
+	rb_metric(RB, "transfers.freed_by_detach", freed_by_detach);
 	rb_metric(RB, "transfers.lists_after", live_after + retired_after);
 	rb_metric(RB, "transfers.leaked_allocations", (uint64_t) (leaked < 0 ? -leaked : leaked));
 }
@@ -339,7 +374,7 @@ static void teardown(int64_t out_before_open) {
 	void **slots = calloc(LARGE, sizeof(void *));
 	CHECK(slots != NULL, "slot array");
 	if (slots == NULL) return;
-	open_controls(slots, LARGE);
+	(void) open_controls(slots, LARGE);
 	uint64_t live = ctx()->live_count;
 	handler_close();
 	free(slots);
@@ -358,6 +393,12 @@ int main(void) {
 	handler_open();
 	CHECK(ctx() != NULL, "FTP context");
 	if (ctx() == NULL) return 1;
+	/* The registration the core's session expiry goes through: expire()
+	 * calls whatever FTP registered, so dropping the registration fails
+	 * every expiry check below. */
+	(void) init_proto_ftp_struct();
+	CHECK(g_registered_cleanup == ftp_session_data_cleanup, "FTP registers its session-data cleanup");
+	if (g_registered_cleanup == NULL) return 1;
 
 	rb_seed(RB, "expiry_order.splitmix64", ORDER_SEED);
 	uint64_t small = open_and_expire(SMALL, "small");

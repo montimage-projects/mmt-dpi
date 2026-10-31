@@ -663,6 +663,9 @@ int ftp_session_data_analysis(ipacket_t * ipacket, unsigned index) {
         return MMT_CONTINUE;
     }
 
+    /* Issue #563: every return below releases the tuple with
+     * free_ftp_tuple6() — free() alone leaked an IPv6 tuple's two address
+     * buffers on every packet. */
     ftp_tuple6_t *tuple6 = ftp_get_tuple6(ipacket);
 
     if(tuple6==NULL){
@@ -672,7 +675,7 @@ int ftp_session_data_analysis(ipacket_t * ipacket, unsigned index) {
 
     ftp_context_t *ctx = ftp_get_context(ipacket, index);
     if (ctx == NULL) {
-        free(tuple6);
+        free_ftp_tuple6(tuple6);
         return MMT_CONTINUE;
     }
     ftp_control_session_t *live = &ctx->live;   // sentinel of the live list
@@ -683,13 +686,13 @@ int ftp_session_data_analysis(ipacket_t * ipacket, unsigned index) {
             ftp_control = (ftp_control_session_t*)ipacket->session->session_data[index];
             int compare = 0;
             if(ftp_control->contrl_conn == NULL){
-                free(tuple6);
+                free_ftp_tuple6(tuple6);
                 return MMT_CONTINUE;
             }
             compare = ftp_compare_tuple6(tuple6, ftp_control->contrl_conn);
             if (compare == 0) {
                 // mmt_debug_log( "FTP: Not correct control connection\n");
-                free(tuple6);
+                free_ftp_tuple6(tuple6);
                 return MMT_CONTINUE;
             } else {
                 ftp_control->contrl_conn->direction = tuple6->direction;
@@ -732,7 +735,7 @@ int ftp_session_data_analysis(ipacket_t * ipacket, unsigned index) {
             // New not FTP control packet
             if (live->next == live) {
                 // mmt_debug_log( "FTP: Cannot find any control connection\n");
-                free(tuple6);   // issue #563: was leaked on this return
+                free_ftp_tuple6(tuple6);   // issue #563: was leaked on this return
                 return MMT_CONTINUE;
             } else {
                 ftp_control_session_t *temp = live->next;
@@ -766,7 +769,7 @@ int ftp_session_data_analysis(ipacket_t * ipacket, unsigned index) {
     }
 
     // Finished working with tuple6
-    free(tuple6);
+    free_ftp_tuple6(tuple6);
 
     return MMT_CONTINUE;
 }
