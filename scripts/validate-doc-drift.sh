@@ -32,11 +32,13 @@
 #               every entry H1-H8 carries at least one such link.
 #   add-proto   docs/Add-New-Protocol.md states both proto_init_list.def row
 #               forms exactly as the list's header comment does.
-#   listing     tools/gen-protocol-list.sh reads only line-initial rows and
-#               tools/ci/check-protocol-count.sh passes (docs/PROTOCOLS.md
+#   listing     tools/ci/check-protocol-count.sh passes (docs/PROTOCOLS.md
 #               current, the landing-page chip quoting its count).
 # Issue #578 (F-UX-010..013), the landing page's claims:
-#   line rate   no unmeasured "line rate" claim in the site or README.
+#   line rate   no unmeasured "line rate" claim in the site or README; the
+#               measured claim that replaces it quotes the bigFlows rows of
+#               tools/phase0/baseline/perf/throughput.txt and links them and
+#               the instruction-count gate (issue #555).
 #   distros     the distro stat is the number of supported distributions in
 #               .github/workflows/install-smoke.yml, and both the stat and
 #               the platform FAQ link that workflow.
@@ -263,14 +265,14 @@ import sys
 DOC = "docs/Phase2-Heuristics.md"
 BASE = "https://github.com/montimage-projects/mmt-dpi/blob/main/"
 NEEDLES = {
-    ("H1", "plugin_defs.h"): ["uint16_t status;"],
-    ("H1", "proto_tcp.c"): ["Issue #87"],
-    ("H1", "proto_udp.c"): ["Issue #87"],
+    ("H1", "plugin_defs.h"): ["uint16_t status; /**< the status of the classified protocol"],
+    ("H1", "proto_tcp.c"): ['Issue #87: the "different strategies"'],
+    ("H1", "proto_udp.c"): ['Issue #87: the "different strategies"'],
     ("H1", "mmt_tcpip_plugin_internal.c"): ["int mmt_payload_confirms_proto("],
     ("H2", "proto_tcp.c"): ["mmt_guess_protocol_by_port_number(ipacket)"],
     ("H2", "proto_udp.c"): ["mmt_guess_protocol_by_port_number(ipacket)"],
     ("H2", "mmt_tcpip_plugin_internal.c"): ["port_classify_payload_confirm != 0"],
-    ("H3", "mmt_tcpip_classif_proto_ip_address.inc"): ["proto_ip_address[]"],
+    ("H3", "mmt_tcpip_classif_proto_ip_address.inc"): ["static const proto_based_ip_t proto_ip_address[] = {"],
     ("H3", "proto_tcp.c"): ["get_proto_id_from_address(ipacket)"],
     ("H3", "proto_udp.c"): ["get_proto_id_from_address(ipacket)"],
     ("H3", "mmt_tcpip_classif_utils.c"): ['getenv("MMT_DPI_IP_RANGES_FILE")'],
@@ -286,6 +288,7 @@ NEEDLES = {
     ("H8", "proto_tcp.c"): ["memset(packet->flow, 0, sizeof (*(packet->flow)));"],
 }
 LINK = re.compile(r"\[`([^`:]+):(\d+)`\]\(([^)#]+)#L(\d+)\)")
+ANY_LINE_LINK = re.compile(r"\]\(([^)]*#L[^)]*)\)")
 
 text = open(DOC, encoding="utf-8").read()
 entries = re.split(r"^### (H\d)\b", text, flags=re.M)
@@ -294,6 +297,13 @@ hit = set()
 seen_entries = set()
 for i in range(1, len(entries), 2):
     entry, body = entries[i], entries[i + 1]
+    checked = {m.group(0) for m in LINK.finditer(body)}
+    for m in ANY_LINE_LINK.finditer(body):
+        start = body.rfind("[", 0, m.start())
+        if body[start:m.end()] not in checked:
+            print(f"✗ {entry}: unchecked citation form {body[start:m.end()]!r} "
+                  "(cite one line as [`file:N`](...#LN))")
+            bad += 1
     for name, line, url, anchor in LINK.findall(body):
         where = f"{entry} {name}:{line}"
         if line != anchor or not url.startswith(BASE):
@@ -344,8 +354,6 @@ for form in 'MMT_PROTO_INIT(init_function, "display_name")' \
 done
 check "docs/Add-New-Protocol.md says to regenerate the listing" \
       "grep -qF 'bash tools/gen-protocol-list.sh' docs/Add-New-Protocol.md"
-check "tools/gen-protocol-list.sh reads only line-initial MMT_PROTO_ rows" \
-      "grep -qF \"grep -oE '^MMT_PROTO_(INIT\" tools/gen-protocol-list.sh"
 check "docs/PROTOCOLS.md lists no header-comment placeholder" \
       "! grep -qF 'display_name' docs/PROTOCOLS.md"
 check "tools/ci/check-protocol-count.sh passes (listing current, chip agrees)" \
@@ -357,7 +365,39 @@ echo "-- #578: landing-page claims --"
 
 SMOKE_URL='https://github.com/montimage-projects/mmt-dpi/actions/workflows/install-smoke.yml'
 check "no unmeasured \"line rate\" claim in docs/index.html, docs/_config.yml or README.md" \
-      "! grep -qi 'line rate' docs/index.html docs/_config.yml README.md"
+      "test -f docs/index.html && test -f docs/_config.yml && test -f README.md \
+       && ! grep -qiE 'line[- ]?rate' docs/index.html docs/_config.yml README.md"
+
+perf_rc=0
+perf_out="$(python3 - <<'PYEOF' 2>&1
+import re
+import sys
+
+BASE = "https://github.com/montimage-projects/mmt-dpi/"
+pps = {}
+for row in open("tools/phase0/baseline/perf/throughput.txt", encoding="utf-8"):
+    f = row.rstrip("\n").split("\t")
+    if len(f) > 6 and f[0] == "bigFlows.pcap":
+        pps[f[1]] = int(f[6])
+if "bare" not in pps or "attrs8" not in pps:
+    print("✗ throughput.txt has no bigFlows.pcap bare/attrs8 rows")
+    sys.exit(1)
+site = open("docs/index.html", encoding="utf-8").read()
+faq = re.search(r"<summary>What exactly is MMT-DPI\?</summary>\s*<p>(.*?)</p>", site, re.S)
+faq = faq.group(1) if faq else ""
+want = [f"about {pps['bare'] / 1e6:.1f} million packets per second",
+        f"{pps['attrs8'] / 1e6:.1f} million with eight fetched",
+        f'href="{BASE}blob/main/tools/phase0/baseline/perf/throughput.txt"',
+        f'href="{BASE}actions/workflows/phase0-baseline.yml"']
+missing = [w for w in want if w not in faq]
+for w in missing:
+    print(f"✗ the 'What exactly' FAQ lacks {w!r}")
+sys.exit(1 if missing else 0)
+PYEOF
+)" || perf_rc=$?
+[ -n "$perf_out" ] && printf '%s\n' "$perf_out" | sed 's/^/    /'
+check "the performance claim quotes tools/phase0/baseline/perf/throughput.txt and links it and the instruction gate" \
+      "[ $perf_rc -eq 0 ]"
 
 distro_rc=0
 distro_out="$(python3 - "$SMOKE_URL" <<'PYEOF' 2>&1

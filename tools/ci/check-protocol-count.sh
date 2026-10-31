@@ -20,7 +20,8 @@
 # its own (issue #559, F-DOCS-012; issue #578, F-UX-012):
 #   6. docs/PROTOCOLS.md is what tools/gen-protocol-list.sh generates now,
 #      and its count equals the list's line-initial MMT_PROTO_INIT/
-#      MMT_PROTO_SIMPLE rows (the header comment's example rows excluded)
+#      MMT_PROTO_SIMPLE rows (the header comment's example rows excluded;
+#      an indented row, which the compiler would still register, fails)
 #   7. the chip linking PROTOCOLS.html quotes that same count
 #
 # Exit codes: 0 = all agree, 1 = disagreement, 2 = helper broken.
@@ -112,6 +113,11 @@ bash tools/gen-protocol-list.sh "$tmp/PROTOCOLS.md" >/dev/null \
 if ! diff -u "$LISTING" "$tmp/PROTOCOLS.md" >"$tmp/listing.diff"; then
     echo "✗ $LISTING is stale — regenerate it: bash tools/gen-protocol-list.sh" >&2
     head -n 20 "$tmp/listing.diff" >&2
+    rc=1
+fi
+indented="$(grep -cE '^[[:space:]]+MMT_PROTO_(INIT|SIMPLE)\(' "$DEF" || true)"
+if [ "$indented" -ne 0 ]; then
+    echo "✗ $DEF has $indented indented row(s): the generator reads only rows that start a line" >&2
     rc=1
 fi
 if [ "$listed" != "$rows" ]; then

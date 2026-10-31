@@ -845,7 +845,7 @@
       <div class="faq">
         <details open>
           <summary>What exactly is MMT-DPI?</summary>
-          <p>A high-performance C library for deep packet inspection. It classifies network traffic into 670 protocols and lets you extract 7,450 named, typed attributes from packets, server logs, and structured events — for real-time analysis. It's the extraction core inside the broader Montimage Monitoring Tool (MMT) suite.</p>
+          <p>A high-performance C library for deep packet inspection. It classifies network traffic into 670 protocols and lets you extract 7,450 named, typed attributes from packets, server logs, and structured events — for real-time analysis. It's the extraction core inside the broader Montimage Monitoring Tool (MMT) suite. In the committed <a href="https://github.com/montimage-projects/mmt-dpi/blob/main/tools/phase0/baseline/perf/throughput.txt">replay benchmark</a> (one thread, one aarch64 host), <code>bigFlows.pcap</code> classifies at about 3.5 million packets per second with no attribute fetched and 3.0 million with eight fetched per packet, and the <a href="https://github.com/montimage-projects/mmt-dpi/actions/workflows/phase0-baseline.yml">instruction-count gate</a> fails a change that raises the replay's instructions per packet by more than 2%.</p>
         </details>
         <details>
           <summary>Which platforms are supported?</summary>
