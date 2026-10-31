@@ -266,6 +266,16 @@ static void tcp_reasm_drain(mmt_session_t *session, int dir) {
     tcp_reasm_charge(session, r, before);
 }
 
+/* One arriving payload segment, handed from tcp_reasm_offer() to
+ * tcp_reasm_admit() (keeps the worker within the parameter-count limit). */
+typedef struct tcp_seg_in {
+    uint64_t packet_id;
+    uint32_t seq;
+    uint32_t ack;
+    const uint8_t *payload;
+    uint32_t len;
+} tcp_seg_in_t;
+
 /* Offer a freshly arrived TCP payload segment to the direction's pending
  * store. In-order and descending arrivals take O(1) fast paths (tail /
  * head); other out-of-order segments are located through the AVL index
@@ -275,9 +285,13 @@ static void tcp_reasm_drain(mmt_session_t *session, int dir) {
  * storage is carved, and a carve is admitted only within the reserved-
  * storage budget (see the block comment above); `limit` is the operation's
  * ceiling (tcp_reasm_flow_limit(), issue #563). */
-static void tcp_reasm_admit(mmt_tcp_reasm_t *r, uint32_t limit, int dir, uint64_t packet_id,
-                            uint32_t seq, uint32_t ack, const uint8_t *payload,
-                            uint32_t len) {
+static void tcp_reasm_admit(mmt_tcp_reasm_t *r, uint32_t limit, int dir,
+                            const tcp_seg_in_t *in) {
+    uint64_t packet_id = in->packet_id;
+    uint32_t seq = in->seq;
+    uint32_t ack = in->ack;
+    const uint8_t *payload = in->payload;
+    uint32_t len = in->len;
 
     /* The consumed prefix is gone for good: a segment whose WHOLE range is
      * below the emitted frontier (a pure retransmission) cannot be spliced
@@ -387,7 +401,8 @@ static void tcp_reasm_offer(mmt_session_t *session, int dir, uint64_t packet_id,
     mmt_tcp_reasm_t *r = tcp_reasm_state(session);
     if (r == NULL) return;
     uint64_t before = tcp_reasm_committed(r);
-    tcp_reasm_admit(r, tcp_reasm_flow_limit(session, r), dir, packet_id, seq, ack, payload, len);
+    const tcp_seg_in_t in = { packet_id, seq, ack, payload, len };
+    tcp_reasm_admit(r, tcp_reasm_flow_limit(session, r), dir, &in);
     tcp_reasm_charge(session, r, before);
 }
 
