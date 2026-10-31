@@ -11,6 +11,16 @@
 # listed context matches none of them, or matches only jobs that do not
 # report on pull requests.
 #
+# Merge queue (issue #657): main merges through a merge queue, which runs the
+# workflows again on a `merge_group` event and waits for every required
+# context on the queued merge commit. A required context must therefore also
+# be reported on merge-group runs: its workflow needs a `merge_group` trigger,
+# and its job-level `if:` may not keep it off them — an event_name pin that
+# does not name merge_group (`== 'pull_request'`, `!= 'merge_group'`) or a
+# value only pull requests carry (`github.event.pull_request`,
+# `github.head_ref`, `github.base_ref`). Such a job would leave the queue
+# waiting, or skip and report success without running.
+#
 # A matrix job with a job-level `if:` that can skip it is one of those
 # (issue #552): GitHub evaluates that `if:` before expanding the matrix, so a
 # skipped matrix job reports a single check run under its bare job name and
@@ -21,6 +31,28 @@
 # The list it checks is .github/required-checks.txt — the committed,
 # reviewed record of the contexts branch protection on main must require
 # (one context per line; blank lines and lines starting with `#` ignored).
+#
+# Queue-only jobs (issue #658): a job that skips on pull requests and runs in
+# the merge queue — a job- or step-level `if:` that tests
+# `github.event_name != 'pull_request'` — in a workflow that runs on every
+# pull request into main (no path filter) is gated only if the queue waits
+# for it. So its workflow needs a `merge_group` trigger, and the job must
+# report a context of the committed list, or be in the `needs` of a job that
+# does (an aggregate). Path-filtered workflows (install-smoke, bootstrap-smoke)
+# are not checked: their jobs never gate a pull request. An aggregate gates a
+# queue-only job only when it still runs whatever that job's outcome — its
+# job-level `if:` is exactly `always()` or `!cancelled()` (any other condition
+# can be false when a need fails, is cancelled or is skipped, and a job
+# skipped that way reports success) — and reads its result
+# (`needs.<job>.result`, `needs['<job>'].result` or `needs.*.result`) in a
+# step. The step-side read is a static heuristic; whether the verdict is
+# right is the workflow self-tests' job.
+#
+# Retired contexts (issue #659): .github/retired-checks.txt, same format, lists
+# contexts folded into other jobs that protection may still require. Each must
+# be reported by a stub — a job whose job-level `if:` is `false`, which skips
+# and so reports success on every event — on pull requests and merge-group
+# runs, and must not also be in the committed list.
 #
 # Check-run names, as GitHub Actions reports them:
 #   - a job's `name:`, with `${{ matrix.<key> }}` expressions substituted per
@@ -33,17 +65,22 @@
 #
 # Usage:
 #   bash tools/ci/check-required-checks.sh [--contexts FILE] [--workflows DIR]
-#                                          [--live OWNER/REPO]
+#                                          [--retired FILE] [--live OWNER/REPO]
 #     --contexts FILE   context list (default .github/required-checks.txt)
+#     --retired FILE    retired contexts (default retired-checks.txt beside
+#                       the context list; optional when that default is absent)
 #     --workflows DIR   workflow directory (default .github/workflows)
 #     --live REPO       also read the contexts branch protection on main
 #                       requires now (read-only `gh api` GET; needs a token
 #                       with admin read access, so not run in CI), fail on a
-#                       live context that names no pull-request job, and
-#                       report the drift between the live and committed lists
+#                       live context that names no pull-request job or on a
+#                       queue-only job's context that is not live-required,
+#                       report the drift between the live and committed lists,
+#                       and list the retired contexts protection still requires
 #
 # Exit codes (verify-helpers contract): 0 = every context names a job that
-# reports on pull requests; 1 = a context does not; 2 = helper broken
+# reports on pull requests and merge-group runs; 1 = a context does not;
+# 2 = helper broken
 # (missing file, unparsable workflow, no python3/PyYAML, gh failure).
 set -euo pipefail
 
@@ -51,6 +88,7 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 CONTEXTS="${ROOT}/.github/required-checks.txt"
 WORKFLOWS="${ROOT}/.github/workflows"
 LIVE_REPO=""
+RETIRED=""
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; }
 
@@ -58,6 +96,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --contexts)  CONTEXTS="${2:?--contexts needs a file}"; shift 2 ;;
         --workflows) WORKFLOWS="${2:?--workflows needs a directory}"; shift 2 ;;
+        --retired)   RETIRED="${2:?--retired needs a file}"; shift 2 ;;
         --live)      LIVE_REPO="${2:?--live needs OWNER/REPO}"; shift 2 ;;
         -h|--help)   usage; exit 0 ;;
         *) echo "check-required-checks: unknown argument: $1" >&2; exit 2 ;;
@@ -67,6 +106,12 @@ done
 [ -f "$CONTEXTS" ]  || { echo "check-required-checks: no context list: $CONTEXTS" >&2; exit 2; }
 [ -d "$WORKFLOWS" ] || { echo "check-required-checks: no workflow directory: $WORKFLOWS" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "check-required-checks: python3 not found" >&2; exit 2; }
+if [ -z "$RETIRED" ]; then
+    RETIRED="$(dirname "$CONTEXTS")/retired-checks.txt"
+    [ -f "$RETIRED" ] || RETIRED=""
+elif [ ! -f "$RETIRED" ]; then
+    echo "check-required-checks: no retired list: $RETIRED" >&2; exit 2
+fi
 
 LIVE_FILE=""
 if [ -n "$LIVE_REPO" ]; then
@@ -79,7 +124,7 @@ if [ -n "$LIVE_REPO" ]; then
     fi
 fi
 
-python3 - "$CONTEXTS" "$WORKFLOWS" "$LIVE_FILE" <<'PY'
+python3 - "$CONTEXTS" "$WORKFLOWS" "$LIVE_FILE" "$RETIRED" <<'PY'
 import glob
 import itertools
 import os
@@ -94,16 +139,24 @@ except ImportError:
           file=sys.stderr)
     sys.exit(2)
 
-contexts_path, workflows_dir, live_path = sys.argv[1:4]
+contexts_path, workflows_dir, live_path, retired_path = sys.argv[1:5]
 EXPR = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 MATRIX_REF = re.compile(r"^matrix((?:\.[A-Za-z0-9_-]+)+)$")
 # `if:` conditions that keep a job off pull_request events entirely.
 NON_PR_IF = re.compile(
     r"refs/tags/|github\.event_name\s*==\s*'(?:schedule|push|workflow_dispatch"
     r"|release|workflow_run)'")
+# Job-level `if:` values only pull requests carry: empty on merge_group runs.
+PR_ONLY_VALUE = re.compile(
+    r"github\.(?:event\.pull_request\b|head_ref\b|base_ref\b)")
+EVENT_PIN = re.compile(r"github\.event_name\s*(==|!=)\s*'([A-Za-z_]+)'")
 # Job-level `if:` conditions that never skip a matrix job in a live run.
 NEVER_SKIPS_IF = re.compile(
     r"^\s*(?:\$\{\{\s*)?(?:always\(\)|!\s*cancelled\(\))(?:\s*\}\})?\s*$")
+# An `if:` that skips on pull requests: the job (or step) runs in the queue.
+OFF_PR_IF = re.compile(r"github\.event_name\s*!=\s*'pull_request'")
+# A stub's job-level `if:` (PyYAML reads a bare `false` as the boolean).
+STUB_IF = re.compile(r"^\s*(?:\$\{\{\s*)?false(?:\s*\}\})?\s*$")
 
 
 def read_list(path):
@@ -209,14 +262,19 @@ def check_names(job_id, job):
     return out
 
 
-def pr_trigger(doc):
-    """(runs_on_pull_requests_into_main, reason)"""
+def triggers(doc):
+    """The workflow's `on:` as a dict, or None."""
     on = doc.get("on", doc.get(True))    # PyYAML reads a bare `on` as True
     if isinstance(on, str):
-        on = {on: None}
-    elif isinstance(on, list):
-        on = {k: None for k in on}
-    elif not isinstance(on, dict):
+        return {on: None}
+    if isinstance(on, list):
+        return {k: None for k in on}
+    return on if isinstance(on, dict) else None
+
+
+def pr_trigger(on):
+    """(runs_on_pull_requests_into_main, reason)"""
+    if on is None:
         return False, "no trigger"
     if "pull_request" not in on:
         return False, "no pull_request trigger"
@@ -234,8 +292,46 @@ def pr_trigger(doc):
     return True, ""
 
 
-# Every check run any workflow job reports: (name, is_glob, where, why_not_pr)
+def group_trigger(on):
+    """(runs_on_merge_group_into_main, reason) — the merge queue (#657)."""
+    if on is None or "merge_group" not in on:
+        return False, ("no merge_group trigger, so merge-queue runs never "
+                       "report it")
+    mg = on["merge_group"] or {}
+    if not isinstance(mg, dict):
+        return True, ""
+    types = mg.get("types")
+    if types is not None and "checks_requested" not in types:
+        return False, "merge_group trigger omits `checks_requested`"
+    branches = mg.get("branches")
+    if branches is not None and not any(fnmatchcase("main", b)
+                                        for b in branches):
+        return False, "merge_group trigger excludes main"
+    if "branches-ignore" in mg and any(fnmatchcase("main", b)
+                                       for b in mg["branches-ignore"]):
+        return False, "merge_group trigger ignores main"
+    return True, ""
+
+
+def off_group_if(cond):
+    """Why a job-level `if:` keeps the job off merge-group runs, or ''."""
+    names_group = "merge_group" in cond
+    if PR_ONLY_VALUE.search(cond) and not names_group:
+        return "reads a value only pull requests carry"
+    for op, event in EVENT_PIN.findall(cond):
+        if op == "!=" and event == "merge_group":
+            return "excludes merge_group"
+        if op == "==" and event != "merge_group" and not names_group:
+            return f"pins event_name to '{event}'"
+    return ""
+
+
+# Every check run any workflow job reports:
+# (name, is_glob, where, why_not_pr, is_stub)
 reported = []
+# Every job of a workflow that runs on every pull request into main, for the
+# queue-only rule: dicts with wf, job_id, names, off_pr, group, needs.
+pr_jobs = []
 files = sorted(glob.glob(os.path.join(workflows_dir, "*.yml"))
                + glob.glob(os.path.join(workflows_dir, "*.yaml")))
 if not files:
@@ -252,26 +348,52 @@ for path in files:
         sys.exit(2)
     if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
         continue
-    on_pr, why = pr_trigger(doc)
+    on = triggers(doc)
+    always_on_pr, why = pr_trigger(on)
+    on_pr = always_on_pr
+    on_group, group_why = group_trigger(on)
+    if on_pr and not on_group:
+        on_pr, why = False, group_why
     wf = os.path.basename(path)
     for job_id, job in doc["jobs"].items():
         if not isinstance(job, dict):
             continue
         job_why = why
-        cond = str(job.get("if", ""))
+        raw_if = job.get("if", "")
+        stub = raw_if is False or (isinstance(raw_if, str)
+                                   and bool(STUB_IF.match(raw_if)))
+        cond = "" if stub else str(raw_if)
         if on_pr and NON_PR_IF.search(cond):
             job_why = f"job `if:` keeps it off pull requests ({cond})"
+        elif on_pr and off_group_if(cond):
+            job_why = (f"job `if:` keeps it off merge-group runs: "
+                       f"{off_group_if(cond)} ({cond})")
         elif (on_pr and cond and (job.get("strategy") or {}).get("matrix")
               is not None and not NEVER_SKIPS_IF.match(cond)):
             job_why = (f"matrix job has a job-level `if:` that can skip it "
                        f"({cond}); a skipped matrix job reports only its "
                        f"bare name, so its legs never report — skip the "
                        f"steps instead")
-        for cname, is_glob in check_names(str(job_id), job):
-            reported.append((cname, is_glob, f"{wf}:{job_id}", job_why))
+        names = check_names(str(job_id), job)
+        for cname, is_glob in names:
+            reported.append((cname, is_glob, f"{wf}:{job_id}", job_why, stub))
+        if always_on_pr:
+            steps = [st for st in job.get("steps") or []
+                     if isinstance(st, dict)]
+            step_ifs = [str(st.get("if", "")) for st in steps]
+            needs = job.get("needs") or []
+            pr_jobs.append({
+                "wf": wf, "job_id": str(job_id), "names": names,
+                "off_pr": any(OFF_PR_IF.search(c) for c in [cond] + step_ifs),
+                "group": on_group, "cond": cond,
+                # Everything a step may read a need's result from.
+                "step_text": " ".join(str(st.get(k, "")) for st in steps
+                                      for k in ("if", "env", "run", "with")),
+                "needs": [needs] if isinstance(needs, str) else list(needs)})
 
 
-def resolve(ctx):
+def resolve(ctx, stubs):
+    """(ok, detail). stubs=False: a real job must report ctx; True: a stub."""
     # An exact name wins over a run-time-matrix glob: `harness-gate` must
     # resolve to its own job, not hide behind `harness-*`.
     hits = [r for r in reported if not r[1] and ctx == r[0]]
@@ -280,12 +402,20 @@ def resolve(ctx):
     if not hits:
         return False, "names no workflow job"
     pr_hits = [r for r in hits if not r[3]]
-    if pr_hits:
-        return True, ", ".join(sorted({r[2] for r in pr_hits}))
-    return False, "; ".join(sorted({f"{r[2]}: {r[3]}" for r in hits}))
+    if not pr_hits:
+        return False, "; ".join(sorted({f"{r[2]}: {r[3]}" for r in hits}))
+    kind = [r for r in pr_hits if r[4] == stubs]
+    if not kind:
+        where = ", ".join(sorted({r[2] for r in pr_hits}))
+        if stubs:
+            return False, (f"is retired but its job is not a stub with "
+                           f"`if: false` ({where})")
+        return False, (f"names only a retired stub (`if: false`, {where}), "
+                       f"which never runs — list it in the retired file")
+    return True, ", ".join(sorted({r[2] for r in kind}))
 
 
-def check(label, items):
+def check(label, items, stubs=False):
     bad = 0
     seen = set()
     for ctx in items:
@@ -294,13 +424,36 @@ def check(label, items):
             bad += 1
             continue
         seen.add(ctx)
-        ok, detail = resolve(ctx)
+        ok, detail = resolve(ctx, stubs)
         if ok:
             print(f"  ok   {ctx}  <- {detail}")
         else:
             print(f"  FAIL {label}: {ctx!r} {detail}")
             bad += 1
     return bad
+
+
+def matches_ctx(names, ctx):
+    return any((fnmatchcase(ctx, n) if g else ctx == n) for n, g in names)
+
+
+def aggregate_flaw(agg, job_id):
+    """Why `agg` would not fail when its need `job_id` fails, or ''."""
+    # The job-level half is exact: only `always()` or `!cancelled()` keeps
+    # the aggregate running whatever its needs' outcome. The step-side read
+    # is a static heuristic: it proves the aggregate looks at the result,
+    # not that its verdict is right — the wiring self-tests run each
+    # aggregate's verdict over every outcome.
+    if not NEVER_SKIPS_IF.match(agg["cond"]):
+        return ("has a job-level `if:` other than always() or !cancelled(), "
+                "so a failed, cancelled or skipped need can skip it and the "
+                "skip reports success")
+    if not re.search(r"needs(?:\.(?:\*|" + re.escape(job_id) + r")|\[\s*'"
+                     + re.escape(job_id) + r"'\s*\])\.result",
+                     agg["step_text"]):
+        return (f"reads neither needs.{job_id}.result nor needs.*.result in "
+                f"a step, so it passes whatever the need's outcome")
+    return ""
 
 
 committed = read_list(contexts_path)
@@ -310,12 +463,89 @@ if not committed:
     sys.exit(1)
 failures = check("committed", committed)
 
+retired = read_list(retired_path) if retired_path else []
+if retired_path:
+    print(f"=== retired contexts ({len(retired)}) in {retired_path} ===")
+    for ctx in retired:
+        if ctx in committed:
+            print(f"  FAIL retired: {ctx!r} is also in the committed list")
+            failures += 1
+    failures += check("retired", retired, stubs=True)
+
+# Queue-only jobs (issue #658): skipped on pull requests, so only a required
+# context the merge queue waits for gates them.
+print("=== queue-only jobs (skipped on pull requests) ===")
+queue_ctx = {}       # governing required context -> [wf:job]
+n_queue = 0
+for j in pr_jobs:
+    if not j["off_pr"]:
+        continue
+    n_queue += 1
+    where = f"{j['wf']}:{j['job_id']}"
+    if not j["group"]:
+        print(f"  FAIL queue-only: {where} skips on pull requests, but its "
+              f"workflow has no merge_group trigger, so nothing runs it "
+              f"before merge")
+        failures += 1
+        continue
+    gov = []
+    broken = 0
+    for k in pr_jobs:
+        if k["wf"] == j["wf"] and j["job_id"] in k["needs"]:
+            agg_ctx = [c for c in committed if matches_ctx(k["names"], c)]
+            flaw = aggregate_flaw(k, j["job_id"]) if agg_ctx else ""
+            if flaw:
+                print(f"  FAIL queue-only: {where} is gated through the "
+                      f"aggregate {j['wf']}:{k['job_id']}, which {flaw}")
+                broken += 1
+                continue
+            gov += agg_ctx
+    if broken:
+        failures += broken
+        continue
+    if not gov:
+        # Gated by its own contexts: every one of them — each matrix leg —
+        # must be required, since any leg may be the one that skips.
+        ungated = [n for n, g in j["names"]
+                   if not any((fnmatchcase(c, n) if g else c == n)
+                              for c in committed)]
+        if ungated:
+            print(f"  FAIL queue-only: {where} skips on pull requests, and "
+                  f"no required context reports {', '.join(map(repr, ungated))}"
+                  f" or needs the job, so the merge queue would not wait for it")
+            failures += 1
+            continue
+        gov = [c for c in committed if matches_ctx(j["names"], c)]
+    if not gov:
+        print(f"  FAIL queue-only: {where} skips on pull requests, and no "
+              f"required context reports it or needs it, so the merge queue "
+              f"would not wait for it")
+        failures += 1
+        continue
+    for c in gov:
+        queue_ctx.setdefault(c, []).append(where)
+    print(f"  ok   {where}  gated by {', '.join(sorted(set(gov)))}")
+if not n_queue:
+    print("  (none)")
+
 if live_path:
     live = read_list(live_path)
     print(f"=== live required contexts ({len(live)}) on main ===")
-    failures += check("live", live)
+    failures += check("live", [c for c in live if c not in retired])
+    for c in [c for c in live if c in retired]:
+        print(f"  retired: {c} is still required live — a maintainer drops "
+              f"it from protection, then its stub is deleted")
+    for c in [c for c in retired if c not in live]:
+        print(f"  retired: {c} is no longer required live — delete its stub "
+              f"and its line in the retired file")
+    for c, where in sorted(queue_ctx.items()):
+        if c not in live:
+            print(f"  FAIL live: {c!r} gates queue-only {', '.join(where)} "
+                  f"but is not live-required, so the merge queue does not "
+                  f"wait for it")
+            failures += 1
     missing = [c for c in committed if c not in live]
-    extra = [c for c in live if c not in committed]
+    extra = [c for c in live if c not in committed and c not in retired]
     for c in missing:
         print(f"  drift: committed but not yet required: {c}")
     for c in extra:
@@ -324,7 +554,9 @@ if live_path:
         print("  live protection matches the committed list")
 
 if failures:
-    print(f"Result: FAIL ({failures} context(s) no pull-request job reports)")
+    print(f"Result: FAIL ({failures} problem(s): a context no pull-request "
+          f"and merge-group job reports, or an ungated queue-only job)")
     sys.exit(1)
-print("Result: PASS (every required context names a pull-request job)")
+print("Result: PASS (every required context names a job that reports on "
+      "pull requests and merge-group runs)")
 PY

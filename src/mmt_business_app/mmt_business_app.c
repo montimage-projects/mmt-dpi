@@ -14,7 +14,7 @@ int init_proto() {
 	if (!init_proto_ips_data()) {
 		// Issue #503: report the failure to init_extraction() instead of
 		// terminating the host process.
-		fprintf(stderr,	"Error initializing protocol PROTO_IPS_DATA\n");
+		mmt_stderr_log("Error initializing protocol PROTO_IPS_DATA\n");
 		return 0;
 	}
 	return 1;

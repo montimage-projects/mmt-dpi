@@ -66,14 +66,6 @@ static char * http_header_fields[HTTP_HEADERS_NB] = {
     MMT_HEADER_SET_COOKIE2,
 };
 
-static char *http_methods[] = {
-    "(unknown)",
-    MMT_HTTP_GET,     MMT_HTTP_POST,     MMT_HTTP_OPTIONS,
-    MMT_HTTP_HEAD,    MMT_HTTP_PUT,      MMT_HTTP_DELETE,
-    MMT_HTTP_CONNECT, MMT_HTTP_PROPFIND, MMT_HTTP_REPORT,
-    MMT_HTTP_PATCH,   MMT_HTTP_MKCOL,    MMT_HTTP_LOCK
-};
-
 static inline int get_header_index_by_header_id(int header_id) {
     return header_id - 1;
 }
@@ -94,183 +86,6 @@ static char * get_header_field_name_by_header_id(int header_id) {
     if ((header_id <= 0) || (header_id > HTTP_HEADERS_NB))
         return NULL;
     return http_header_fields[header_id - 1];
-}
-
-int http_header_field_value_extraction(const ipacket_t * packet, unsigned proto_index,
-        attribute_t * extracted_data) {
-
-    int header_index = get_header_index_by_header_id(extracted_data->field_id);
-
-    if (((struct http_session_data_struct *) packet->session->session_data[proto_index])->session_field_values[header_index].value != NULL) {
-        extracted_data->data = (char *) ((struct http_session_data_struct *) packet->session->session_data[proto_index])->session_field_values[header_index].value;
-
-        //printf("FROM Extract function HOST = %s\n", ((struct http_session_data_struct *) packet->session->session_data[proto_index])->session_field_values[header_index].value);
-        return 1;
-    }
-    return 0;
-}
-
-int http_version_extraction(const ipacket_t * packet, unsigned proto_index,
-        attribute_t * extracted_data) {
-    if (((struct http_session_data_struct *) packet->session->session_data[proto_index])->http_version != NULL) {
-        extracted_data->data = (char *) ((struct http_session_data_struct *) packet->session->session_data[proto_index])->http_version;
-        return 1;
-    }
-    return 0;
-}
-
-int http_type_extraction(const ipacket_t * packet, unsigned proto_index,
-        attribute_t * extracted_data) {
-    if (((struct http_session_data_struct *) packet->session->session_data[proto_index])->type != 0) {
-        *(int *) extracted_data->data = ((struct http_session_data_struct *) packet->session->session_data[proto_index])->type;
-        return 1;
-    }
-    return 0;
-}
-
-int http_method_extraction(const ipacket_t * packet, unsigned proto_index,
-        attribute_t * extracted_data) {
-
-    struct http_session_data_struct *http = (struct http_session_data_struct *)packet->session->session_data[proto_index];
-
-    if( http && MMT_HTTP_IS_VALID_METHOD( http->http_method )) {
-        extracted_data->data = http_methods[ http->http_method ];
-        return 1;
-    }
-
-    return 0;
-}
-
-int http_requested_uri_extraction(const ipacket_t * packet, unsigned proto_index,
-        attribute_t * extracted_data) {
-    if (((struct http_session_data_struct *) packet->session->session_data[proto_index])->requested_uri != NULL) {
-        extracted_data->data = (char *) ((struct http_session_data_struct *) packet->session->session_data[proto_index])->requested_uri;
-        return 1;
-    }
-    return 0;
-}
-
-static field_value_attribute_information_t http_attributes_info[HTTP_ATTRIBUTES_NB] = {
-    //{id, alias, type, len, scope, header_id, extract_fct}
-    {HTTP_HOST, MMT_HEADER_HOST, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_HOST, http_header_field_value_extraction},
-    {HTTP_USER_AGENT, MMT_HEADER_USER_AGENT, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_USER_AGENT, http_header_field_value_extraction},
-    {HTTP_ACCEPT, MMT_HEADER_ACCEPT, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_ACCEPT, http_header_field_value_extraction},
-    {HTTP_ACCEPT_Charset, MMT_HEADER_ACCEPT_CHARSET, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_ACCEPT_Charset, http_header_field_value_extraction},
-    {HTTP_Accept_Encoding, MMT_HEADER_ACCEPT_ENCODING, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Accept_Encoding, http_header_field_value_extraction},
-    {HTTP_Accept_Language, MMT_HEADER_ACCEPT_LANGUAGE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Accept_Language, http_header_field_value_extraction},
-    {HTTP_Authorization, MMT_HEADER_AUTHORIZATION, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Authorization, http_header_field_value_extraction},
-    {HTTP_Expect, MMT_HEADER_EXPECT, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Expect, http_header_field_value_extraction},
-    {HTTP_From, MMT_HEADER_FROM, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_From, http_header_field_value_extraction},
-    {HTTP_Date, MMT_HEADER_DATE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Date, http_header_field_value_extraction},
-    {HTTP_P3P, MMT_HEADER_P3P, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_P3P, http_header_field_value_extraction},
-    {HTTP_Cache_Control, MMT_HEADER_CACHE_CONTROL, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Cache_Control, http_header_field_value_extraction},
-    {HTTP_Connection, MMT_HEADER_CONNECTION, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Connection, http_header_field_value_extraction},
-    {HTTP_Transfer_Encoding, MMT_HEADER_TRANSFER_ENCODING, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Transfer_Encoding, http_header_field_value_extraction},
-    {HTTP_DNT, MMT_HEADER_DNT, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_DNT, http_header_field_value_extraction},
-    {HTTP_Cookie, MMT_HEADER_COOKIE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Cookie, http_header_field_value_extraction},
-    {HTTP_If_Match, MMT_HEADER_IF_MATCH, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_If_Match, http_header_field_value_extraction},
-    {HTTP_If_Modified_Since, MMT_HEADER_IF_MODIFIED_SINCE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_If_Modified_Since, http_header_field_value_extraction},
-    {HTTP_If_None_Match, MMT_HEADER_IF_NONE_MATCH, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_If_None_Match, http_header_field_value_extraction},
-    {HTTP_If_Range, MMT_HEADER_IF_RANGE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_If_Range, http_header_field_value_extraction},
-    {HTTP_If_Unmodified_Since, MMT_HEADER_IF_UNMODIFIED_SINCE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_If_Unmodified_Since, http_header_field_value_extraction},
-    {HTTP_Max_Forwards, MMT_HEADER_MAX_FORWARDS, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Max_Forwards, http_header_field_value_extraction},
-    {HTTP_Proxy_Authorization, MMT_HEADER_PROXY_AUTHORIZATION, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Proxy_Authorization, http_header_field_value_extraction},
-    {HTTP_Range, MMT_HEADER_RANGE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Range, http_header_field_value_extraction},
-    {HTTP_Referer, MMT_HEADER_REFERER, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Referer, http_header_field_value_extraction},
-    {HTTP_TE, MMT_HEADER_TE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_TE, http_header_field_value_extraction},
-    {HTTP_Accept_Ranges, MMT_HEADER_ACCEPT_RANGES, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Accept_Ranges, http_header_field_value_extraction},
-    {HTTP_Age, MMT_HEADER_AGE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Age, http_header_field_value_extraction},
-    {HTTP_ETag, MMT_HEADER_ETAG, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_ETag, http_header_field_value_extraction},
-    {HTTP_Location, MMT_HEADER_LOCATION, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Location, http_header_field_value_extraction},
-    {HTTP_Proxy_Authenticate, MMT_HEADER_PROXY_AUTHENTICATE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Proxy_Authenticate, http_header_field_value_extraction},
-    {HTTP_Retry_After, MMT_HEADER_RETRY_AFTER, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Retry_After, http_header_field_value_extraction},
-    {HTTP_Server, MMT_HEADER_SERVER, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Server, http_header_field_value_extraction},
-    {HTTP_Vary, MMT_HEADER_VARY, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Vary, http_header_field_value_extraction},
-    {HTTP_WWW_Authenticate, MMT_HEADER_WWW_AUTHENTICATE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_WWW_Authenticate, http_header_field_value_extraction},
-    {HTTP_Allow, MMT_HEADER_ALLOW, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Allow, http_header_field_value_extraction},
-    {HTTP_Content_Encoding, MMT_HEADER_CONTENT_ENCODING, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Content_Encoding, http_header_field_value_extraction},
-    {HTTP_Content_Language, MMT_HEADER_CONTENT_LANGUAGE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Content_Language, http_header_field_value_extraction},
-    {HTTP_Content_Length, MMT_HEADER_CONTENT_LENGTH, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Content_Length, http_header_field_value_extraction},
-    {HTTP_Content_Location, MMT_HEADER_CONTENT_LOCATION, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Content_Location, http_header_field_value_extraction},
-    {HTTP_Content_MD5, MMT_HEADER_CONTENT_MD5, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Content_MD5, http_header_field_value_extraction},
-    {HTTP_Content_Range, MMT_HEADER_CONTENT_RANGE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Content_Range, http_header_field_value_extraction},
-    {HTTP_Content_Type, MMT_HEADER_CONTENT_TYPE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Content_Type, http_header_field_value_extraction},
-    {HTTP_Expires, MMT_HEADER_EXPIRES, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Expires, http_header_field_value_extraction},
-    {HTTP_Last_Modified, MMT_HEADER_LAST_MODIFIED, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_Last_Modified, http_header_field_value_extraction},
-    {HTTP_SET_COOKIE, MMT_HEADER_SET_COOKIE, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_SET_COOKIE, http_header_field_value_extraction},
-    {HTTP_SET_COOKIE2, MMT_HEADER_SET_COOKIE2, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_SET_COOKIE2, http_header_field_value_extraction},
-
-    {HTTP_VERSION, HTTP_VERSION_SHORT_LABEL, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION, HTTP_NOHEADER, http_version_extraction},
-    {HTTP_TYPE, HTTP_TYPE_SHORT_LABEL, MMT_U32_DATA, sizeof (int), POSITION_NOT_KNOWN, SCOPE_SESSION_CHANGING, HTTP_NOHEADER, http_type_extraction},
-    {HTTP_METHOD, HTTP_METHOD_SHORT_LABEL, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION_CHANGING, HTTP_NOHEADER, http_method_extraction},
-    {HTTP_URI, HTTP_URI_SHORT_LABEL, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION_CHANGING, HTTP_NOHEADER, http_requested_uri_extraction},
-    {HTTP_Referer_URL, HTTP_Referer_URL_SHORT_LABEL, MMT_HEADER_LINE, sizeof (void *), POSITION_NOT_KNOWN, SCOPE_SESSION_CHANGING, HTTP_Referer, NULL},
-    {HTTP_Response_TIME, HTTP_Response_TIME_SHORT_LABEL, MMT_DATA_TIMEVAL, sizeof (struct timeval), POSITION_NOT_KNOWN, SCOPE_SESSION_CHANGING, HTTP_NOHEADER, NULL},
-    {HTTP_Time_of_Request, HTTP_REQ_TIME_SHORT_LABEL, MMT_DATA_TIMEVAL, sizeof (struct timeval), POSITION_NOT_KNOWN, SCOPE_SESSION_CHANGING, HTTP_NOHEADER, NULL},
-    {HTTP_Time_of_response, HTTP_RESP_TIME_SHORT_LABEL, MMT_DATA_TIMEVAL, sizeof (struct timeval), POSITION_NOT_KNOWN, SCOPE_SESSION_CHANGING, HTTP_NOHEADER, NULL},
-};
-
-int get_http_attribute_id_by_name(int proto_id, const char * attribute_name) {
-    int i;
-    for (i = 0; i < HTTP_ATTRIBUTES_NB; i++) {
-        if (strcmp(http_attributes_info[i].alias, attribute_name) == 0) return http_attributes_info[i].id;
-    }
-    return 0;
-}
-
-const char * get_http_attribute_name_by_id(int proto_id, int attribute_id) {
-    if (attribute_id && attribute_id <= HTTP_ATTRIBUTES_NB)
-        return http_attributes_info[attribute_id - 1].alias;
-
-    return NULL;
-}
-
-int get_http_attribute_data_type_by_id(int proto_id, int attribute_id) {
-    if (attribute_id && attribute_id <= HTTP_ATTRIBUTES_NB)
-        return http_attributes_info[attribute_id - 1].data_type;
-
-    return MMT_UNDEFINED_TYPE;
-}
-
-int get_http_attribute_data_length_by_id(int proto_id, int attribute_id) {
-    if (attribute_id && attribute_id <= HTTP_ATTRIBUTES_NB)
-        return http_attributes_info[attribute_id - 1].data_len;
-
-    return 0;
-}
-
-int get_http_attribute_position(int proto_id, int attribute_id) {
-    if (attribute_id && attribute_id <= HTTP_ATTRIBUTES_NB)
-        return http_attributes_info[attribute_id - 1].position_in_packet;
-
-    return -1;
-}
-
-int is_http_valid_attribute(int proto_id, int attribute_id) {
-    if (attribute_id && attribute_id <= HTTP_ATTRIBUTES_NB)
-        return true;
-
-    return false;
-}
-
-int get_http_attribute_scope(int proto_id, int attribute_id) {
-    /* Issue #331: report each attribute's own scope from the table (the
-     * request-line and timing attributes are SCOPE_SESSION_CHANGING). */
-    if (attribute_id && attribute_id <= HTTP_ATTRIBUTES_NB)
-        return http_attributes_info[attribute_id - 1].scope;
-    return SCOPE_SESSION;
-}
-
-generic_attribute_extraction_function get_http_attribute_extraction_function(int proto_id, int attribute_id) {
-    if (attribute_id && attribute_id <= HTTP_ATTRIBUTES_NB) {
-        return http_attributes_info[attribute_id - 1].extraction_function;
-        //return http_header_field_value_extraction;
-    }
-    switch (attribute_id) {
-        case HTTP_VERSION:
-        default:
-            return silent_extraction;
-    }
 }
 
 void http_session_data_init(ipacket_t * ipacket, unsigned index) {
@@ -394,9 +209,10 @@ static inline int get_response_code_offset(const char *msg, int msg_len, char **
 /**
  * Parse the HTTP HEADER.
  */
-/* Unreachable: its only caller, http_session_data_analysis(), is registered by
- * init_http_proto_struct(), which nothing calls (proto_http.c owns HTTP), so
- * this legacy parser gets no optimisation work. */
+/* Unreachable from the engine: its only caller, http_session_data_analysis(),
+ * is registered by nothing (proto_http.c owns HTTP; the unused registration
+ * that wired it was deleted by issue #540) and is kept only for the phase0
+ * http_session harness, so this legacy parser gets no optimisation work. */
 static inline int
 parse_message_header_lines(ipacket_t * ipacket, unsigned index, int offset) {
     int code, hlen;
@@ -524,28 +340,6 @@ int http_session_data_analysis(ipacket_t * ipacket, unsigned index) {
     //Parse the first line line of the header (request or response line)
     parse_message_header_lines(ipacket, index, offset);
     return MMT_CONTINUE;
-}
-
-int init_http_proto_struct() {
-
-    protocol_t * protocol_struct = init_protocol_struct_for_registration(PROTO_HTTP, PROTO_HTTP_ALIAS);
-
-    if (protocol_struct != NULL) {
-        register_classification_function(protocol_struct, NULL);
-        register_session_data_initialization_function(protocol_struct, http_session_data_init);
-        register_session_data_analysis_function(protocol_struct, http_session_data_analysis);
-        /* issue #204 (F-BUG-053): free HTTP session data at session teardown. */
-        register_session_data_cleanup_function(protocol_struct, http_session_data_cleanup);
-        /* issue #204 (F-BUG-048): assert the MIME tables' min_len >= cmp_len
-         * invariant before the protocol can be used. */
-        if (mmt_http_content_tables_check() != 0) {
-            return 0;
-        }
-
-        return register_protocol(protocol_struct, PROTO_HTTP);
-    } else {
-        return 0;
-    }
 }
 
 static inline void mmt_int_http_add_connection(ipacket_t * ipacket, uint32_t protocol) {
@@ -824,7 +618,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_application_table)/sizeof(mmt_application_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_application_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -834,7 +627,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_audio_table)/sizeof(mmt_audio_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_audio_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -844,7 +636,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_image_table)/sizeof(mmt_image_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_image_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -854,7 +645,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_message_table)/sizeof(mmt_message_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_message_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -864,7 +654,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_model_table)/sizeof(mmt_model_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_model_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -874,7 +663,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_multipart_table)/sizeof(mmt_multipart_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_multipart_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -884,7 +672,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_text_table)/sizeof(mmt_text_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_text_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -894,7 +681,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_video_table)/sizeof(mmt_video_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_video_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -904,7 +690,6 @@ static inline void check_packet_contents(ipacket_t * ipacket) {
     for (i = 0; i < sizeof(mmt_misc_table)/sizeof(mmt_misc_table[0]); i++) {
         const struct mmt_content_type_entry *e = &mmt_misc_table[i];
         if (packet->content_line.len >= e->min_len && mmt_memcmp(packet->content_line.ptr, e->mime, e->cmp_len) == 0) {
-            MMT_LOG(e->family, MMT_LOG_DEBUG, "%s: Content-Type: %s found.\n", mmt_content_family_label(e->family), e->mime);
             mmt_add_content_type(ipacket, e->family, e->type);
             return;
         }
@@ -928,14 +713,12 @@ static inline void qq_parse_packet_URL_and_hostname(ipacket_t * ipacket) {
             /*mmt_memcmp(&packet->payload[4], "/qzone", 6) != 0 ||*/ packet->host_line.len < 7 ||
             mmt_memcmp(&packet->host_line.ptr[packet->host_line.len - 6], "qq.com", 6) != 0) {
 
-        MMT_LOG(PROTO_QQ, MMT_LOG_DEBUG, "did not find QQ.\n");
         return;
     }
     for (a = 0; a < packet->parsed_lines; a++) {
         if ((packet->line[a].len > 22 && mmt_memcmp(packet->line[a].ptr, "QzoneAuth: zzpaneluin=", 22) == 0) ||
                 (packet->line[a].len > 19 && mmt_memcmp(packet->line[a].ptr, "Cookie: zzpanelkey=", 19) == 0) ||
                 (packet->line[a].len > 13 && mmt_memcmp(packet->line[a].ptr, "Cookie: adid=", 13) == 0)) {
-            MMT_LOG(PROTO_QQ, MMT_LOG_DEBUG, "found QQ.\n");
             mmt_int_http_add_connection(ipacket, PROTO_QQ);
             return;
         }
@@ -949,7 +732,6 @@ static inline void qq_parse_packet_URL_and_hostname(ipacket_t * ipacket) {
 static inline void winmedia_parse_packet_useragentline(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     if (packet->user_agent_line.len >= 9 && mmt_memcmp(packet->user_agent_line.ptr, "NSPlayer/", 9) == 0) {
-        MMT_LOG(PROTO_WINDOWSMEDIA, MMT_LOG_DEBUG, "username NSPlayer found\n");
         mmt_int_http_add_connection(ipacket, PROTO_WINDOWSMEDIA);
     }
 }
@@ -960,7 +742,6 @@ static inline void winmedia_parse_packet_useragentline(ipacket_t * ipacket) {
 static inline void spotify_parse_packet_useragentline(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     if (packet->user_agent_line.len >= 8 && mmt_memcmp(packet->user_agent_line.ptr, "Spotify-", 8) == 0) {
-        MMT_LOG(PROTO_SPOTIFY, MMT_LOG_DEBUG, "useragent Spotify found\n");
         mmt_int_http_add_connection(ipacket, PROTO_SPOTIFY);
     }
 }
@@ -974,8 +755,6 @@ static inline void mms_parse_packet_contentline(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
 
     if (packet->content_line.len >= 24 && mmt_mem_cmp(packet->content_line.ptr, "application/x-mms-framed", 24) == 0) {
-        MMT_LOG(PROTO_MMS, MMT_LOG_DEBUG,
-                "MMS: Content-Type: application/x-mms-framed found\n");
         mmt_int_http_add_connection(ipacket, PROTO_MMS);
     }
 }
@@ -988,20 +767,7 @@ static inline void xbox_parse_packet_useragentline(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
 
     if (packet->user_agent_line.len >= 17 && mmt_memcmp(packet->user_agent_line.ptr, "Xbox Live Client/", 17) == 0) {
-        MMT_LOG(PROTO_XBOX, MMT_LOG_DEBUG, "XBOX: User Agent: Xbox Live Client found\n");
         mmt_int_http_add_connection(ipacket, PROTO_XBOX);
-    }
-}
-#endif
-
-#ifdef PROTO_WINDOWS_UPDATE
-
-static inline void windows_update_packet_useragentline(ipacket_t * ipacket) {
-    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-
-    if (packet->user_agent_line.len >= 20 && mmt_memcmp(packet->user_agent_line.ptr, "Windows-Update-Agent", 20) == 0) {
-        MMT_LOG(PROTO_WINDOWS_UPDATE, MMT_LOG_DEBUG, "WSUS: User Agent: Windows-Update-Agent\n");
-        mmt_int_http_add_connection(ipacket, PROTO_WINDOWS_UPDATE);
     }
 }
 #endif
@@ -1025,7 +791,6 @@ static inline void flash_check_http_payload(ipacket_t * ipacket) {
     if (mmt_memcmp(pos, "FLV", 3) == 0 && pos[3] == 0x01 && (pos[4] == 0x01 || pos[4] == 0x04 || pos[4] == 0x05)
             && pos[5] == 0x00 && pos[6] == 0x00 && pos[7] == 0x00 && pos[8] == 0x09) {
 
-        MMT_LOG(PROTO_FLASH, MMT_LOG_DEBUG, "Flash content in http detected\n");
         mmt_int_http_add_connection(ipacket, PROTO_FLASH);
     }
 }
@@ -1037,8 +802,6 @@ static inline void avi_check_http_payload(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 
-    MMT_LOG(PROTO_AVI, MMT_LOG_DEBUG, "called avi_check_http_payload: %u %u %u\n",
-            packet->empty_line_position_set, flow->l4.tcp.http_empty_line_seen, packet->empty_line_position);
 
     if (packet->empty_line_position_set == 0 && flow->l4.tcp.http_empty_line_seen == 0)
         return;
@@ -1052,7 +815,6 @@ static inline void avi_check_http_payload(ipacket_t * ipacket) {
     if (flow->l4.tcp.http_empty_line_seen == 1) {
         if (packet->payload_packet_len > 20 && mmt_memcmp(packet->payload, "RIFF", 4) == 0
                 && mmt_memcmp(packet->payload + 8, "AVI LIST", 8) == 0) {
-            MMT_LOG(PROTO_AVI, MMT_LOG_DEBUG, "Avi content in http detected\n");
             mmt_int_http_add_connection(ipacket, PROTO_AVI);
         }
         flow->l4.tcp.http_empty_line_seen = 0;
@@ -1064,11 +826,9 @@ static inline void avi_check_http_payload(ipacket_t * ipacket) {
         // for reference see http://msdn.microsoft.com/archive/default.asp?url=/archive/en-us/directx9_c/directx/htm/avirifffilereference.asp
         uint32_t p = packet->empty_line_position + 2;
 
-        MMT_LOG(PROTO_AVI, MMT_LOG_DEBUG, "p = %u\n", p);
 
         if ((p + 16) <= packet->payload_packet_len && mmt_memcmp(&packet->payload[p], "RIFF", 4) == 0
                 && mmt_memcmp(&packet->payload[p + 8], "AVI LIST", 8) == 0) {
-            MMT_LOG(PROTO_AVI, MMT_LOG_DEBUG, "Avi content in http detected\n");
             mmt_int_http_add_connection(ipacket, PROTO_AVI);
         }
     }
@@ -1082,8 +842,6 @@ static inline void teamviewer_check_http_payload(ipacket_t * ipacket) {
     //struct mmt_internal_tcpip_session_struct *flow = packet->flow;
     const uint8_t *pos;
 
-    MMT_LOG(PROTO_TEAMVIEWER, MMT_LOG_DEBUG, "called teamviewer_check_http_payload: %u %u %u\n",
-            packet->empty_line_position_set, flow->l4.tcp.http_empty_line_seen, packet->empty_line_position);
 
     if (packet->empty_line_position_set == 0 || (packet->empty_line_position + 5) > (packet->payload_packet_len))
         return;
@@ -1091,7 +849,6 @@ static inline void teamviewer_check_http_payload(ipacket_t * ipacket) {
     pos = &packet->payload[packet->empty_line_position] + 2;
 
     if (pos[0] == 0x17 && pos[1] == 0x24) {
-        MMT_LOG(PROTO_TEAMVIEWER, MMT_LOG_DEBUG, "TeamViewer content in http detected\n");
         mmt_int_http_add_connection(ipacket, PROTO_TEAMVIEWER);
     }
 }
@@ -1103,7 +860,6 @@ static inline void off_parse_packet_contentline(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
 
     if (packet->content_line.len >= 4 && mmt_memcmp(packet->content_line.ptr, "off/", 4) == 0) {
-        MMT_LOG(PROTO_OFF, MMT_LOG_DEBUG, "off: Content-Type: off/ found\n");
         mmt_int_http_add_connection(ipacket, PROTO_OFF);
     }
 }
@@ -1117,7 +873,6 @@ static inline void move_parse_packet_contentline(ipacket_t * ipacket) {
     if (packet->content_line.len == 15
             && (mmt_memcmp(packet->content_line.ptr, "application/qmx", 15) == 0
             || mmt_memcmp(packet->content_line.ptr, "application/qss", 15) == 0)) {
-        MMT_LOG(PROTO_MOVE, MMT_LOG_DEBUG, "MOVE application qmx or qss detected\n");
         mmt_int_http_add_connection(ipacket, PROTO_MOVE);
     }
 }
@@ -1134,7 +889,6 @@ static inline void ogg_parse_packet_contentline(ipacket_t * ipacket) {
     if ((packet->content_line.len == 15 && mmt_memcmp(packet->content_line.ptr, "application/ogg", 15) == 0)
             || (packet->content_line.len == 9 && mmt_memcmp(packet->content_line.ptr, "video/ogg", 9) == 0)
             || (packet->content_line.len == 9 && mmt_memcmp(packet->content_line.ptr, "audio/ogg", 9) == 0)) {
-        MMT_LOG(PROTO_OGG, MMT_LOG_DEBUG, "OGG application detected\n");
         mmt_int_http_add_connection(ipacket, PROTO_OGG);
     }
 }
@@ -1146,7 +900,6 @@ static inline void rtsp_parse_packet_acceptline(ipacket_t * ipacket) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
 
     if (packet->accept_line.len >= 28 && mmt_memcmp(packet->accept_line.ptr, "application/x-rtsp-tunnelled", 28) == 0) {
-        MMT_LOG(PROTO_RTSP, MMT_LOG_DEBUG, "RTSP accept line detected\n");
         mmt_int_http_add_connection(ipacket, PROTO_RTSP);
     }
 }
@@ -1193,8 +946,6 @@ static inline void check_content_type_and_change_protocol(ipacket_t * ipacket) {
     uint8_t a;
 
     if (packet->content_line.ptr != NULL && packet->content_line.len != 0) {
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "Content Type Line found %.*s\n",
-                packet->content_line.len, packet->content_line.ptr);
 #ifdef PROTO_MMS
         mms_parse_packet_contentline(ipacket);
 #endif
@@ -1210,13 +961,8 @@ static inline void check_content_type_and_change_protocol(ipacket_t * ipacket) {
     }
     /* check user agent here too */
     if (packet->user_agent_line.ptr != NULL && packet->user_agent_line.len != 0) {
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "User Agent Type Line found %.*s\n",
-                packet->user_agent_line.len, packet->user_agent_line.ptr);
 #ifdef PROTO_XBOX
         xbox_parse_packet_useragentline(ipacket);
-#endif
-#ifdef PROTO_WINDOWS_UPDATE
-        windows_update_packet_useragentline(ipacket);
 #endif
 #ifdef PROTO_WINDOWSMEDIA
         winmedia_parse_packet_useragentline(ipacket);
@@ -1228,8 +974,6 @@ static inline void check_content_type_and_change_protocol(ipacket_t * ipacket) {
     }
     /* check for host line */
     if (packet->host_line.ptr != NULL) {
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HOST Line found %.*s\n",
-                packet->host_line.len, packet->host_line.ptr);
 #ifdef PROTO_QQ
         qq_parse_packet_URL_and_hostname(ipacket);
 #endif
@@ -1239,8 +983,6 @@ static inline void check_content_type_and_change_protocol(ipacket_t * ipacket) {
 
     /* check for accept line */
     if (packet->accept_line.ptr != NULL) {
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "Accept Line found %.*s\n",
-                packet->accept_line.len, packet->accept_line.ptr);
 #ifdef PROTO_RTSP
         rtsp_parse_packet_acceptline(ipacket);
 #endif
@@ -1249,7 +991,6 @@ static inline void check_content_type_and_change_protocol(ipacket_t * ipacket) {
 #ifdef PROTO_MPEG
     for (a = 0; a < packet->parsed_lines; a++) {
         if (packet->line[a].len > 11 && mmt_memcmp(packet->line[a].ptr, "Icy-MetaData", 12) == 0) {
-            MMT_LOG(PROTO_MPEG, MMT_LOG_DEBUG, "MPEG: Icy-MetaData found.\n");
             mmt_int_http_add_connection(ipacket, PROTO_MPEG);
             return;
         }
@@ -1262,7 +1003,6 @@ static inline void check_content_type_and_change_protocol(ipacket_t * ipacket) {
 
 static inline void check_http_payload(ipacket_t * ipacket) {
 
-    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "called check_http_payload.\n");
 
 #ifdef PROTO_FLASH
     flash_check_http_payload(ipacket);
@@ -1290,7 +1030,6 @@ static inline uint16_t http_request_url_offset(ipacket_t * ipacket) {
     switch(packet->payload[0]){
         case 'G':
             if(mmt_memcmp(packet->payload, "GET ", 4) == 0){
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: GET FOUND\n");
                 return 4;
             }
         break;
@@ -1298,19 +1037,16 @@ static inline uint16_t http_request_url_offset(ipacket_t * ipacket) {
             switch(packet->payload[1]){
                 case 'O':
                     if(packet->payload_packet_len >= 5 && mmt_memcmp(packet->payload, "POST ", 5) == 0){
-                        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: POST FOUND\n");
                         return 5;
                     }
                 break;
                 case 'U':
                     if(mmt_memcmp(packet->payload, "PUT ", 4) == 0){
-                        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: PUT FOUND\n");
                         return 4;
                     }
                 break;
                 case 'R':
                     if(packet->payload_packet_len >= 9 && mmt_memcmp(packet->payload, "PROPFIND ", 9) == 0){
-                        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: PROPFIND FOUND\n");
                         return 9;
                     }
                 break;
@@ -1319,7 +1055,6 @@ static inline uint16_t http_request_url_offset(ipacket_t * ipacket) {
                      * flow whose first request used PATCH was permanently
                      * excluded from HTTP classification. */
                     if(packet->payload_packet_len >= 6 && mmt_memcmp(packet->payload, "PATCH ", 6) == 0){
-                        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: PATCH FOUND\n");
                         return 6;
                     }
                 break;
@@ -1328,44 +1063,37 @@ static inline uint16_t http_request_url_offset(ipacket_t * ipacket) {
         case 'M':
             /* issue #101: WebDAV MKCOL was missing from this table. */
             if(packet->payload_packet_len >= 6 && mmt_memcmp(packet->payload, "MKCOL ", 6) == 0){
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: MKCOL FOUND\n");
                 return 6;
             }
         break;
         case 'L':
             /* issue #101: WebDAV LOCK was missing from this table. */
             if(packet->payload_packet_len >= 5 && mmt_memcmp(packet->payload, "LOCK ", 5) == 0){
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: LOCK FOUND\n");
                 return 5;
             }
         break;
         case 'O':
             if(packet->payload_packet_len >= 8 && mmt_memcmp(packet->payload, "OPTIONS ", 8) == 0){
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: OPTIONS FOUND\n");
                 return 8;
             }
         break;
         case 'H':
             if(packet->payload_packet_len >= 5 && mmt_memcmp(packet->payload, "HEAD ", 5) == 0){
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: HEAD FOUND\n");
                 return 5;
             }
         break;
         case 'D':
             if(packet->payload_packet_len >= 7 && mmt_memcmp(packet->payload, "DELETE ", 7) == 0){
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: DELETE FOUND\n");
                 return 7;
             }
         break;
         case 'C':
             if(packet->payload_packet_len >= 8 && mmt_memcmp(packet->payload, "CONNECT ", 8) == 0){
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: CONNECT FOUND\n");
                 return 8;
             }
         break;
         case 'R':
             if(packet->payload_packet_len >= 7 && mmt_memcmp(packet->payload, "REPORT ", 7) == 0){
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: REPORT FOUND\n");
                 return 7;
             }
         break;
@@ -1375,9 +1103,6 @@ static inline uint16_t http_request_url_offset(ipacket_t * ipacket) {
 
 static inline void http_bitmask_exclude(struct mmt_internal_tcpip_session_struct *flow) {
     MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_HTTP);
-#ifdef PROTO_WINDOWS_UPDATE
-    MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_WINDOWS_UPDATE);
-#endif
 #ifdef PROTO_MPEG
     MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_MPEG);
 #endif
@@ -1404,6 +1129,387 @@ static inline void http_bitmask_exclude(struct mmt_internal_tcpip_session_struct
 #endif
 }
 
+/* Protocols reachable over HTTP — the detection_bitmask built here is
+ * what lets mmt_classify_http() claim a flow already detected as one of
+ * these ids. The first group is fixed: do not update it. The second
+ * group MUST be updated when a new HTTP-based protocol is registered —
+ * otherwise that protocol's flows keep being reported as plain
+ * PROTO_HTTP and are never attributed to it (issue #238, F-CLEAN-018).
+ * File scope since issue #547: the list alone made its init function a
+ * 390-line body. */
+static const int http_detected_protocols[] = {
+    /* Fixed set — do not update */
+    PROTO_HTTP,
+    PROTO_REUTERS,
+    PROTO_HTTP_PROXY,
+    PROTO_I23V5,
+    PROTO_POPO,
+    PROTO_QUAKE,
+    PROTO_REALMEDIA,
+    PROTO_USENET,
+    PROTO_WARCRAFT3,
+    PROTO_WORLD_OF_KUNG_FU,
+    PROTO_MPEG,
+    PROTO_FLASH,
+    PROTO_WINDOWSMEDIA,
+    PROTO_OFF,
+    PROTO_AVI,
+    PROTO_OGG,
+    PROTO_MOVE,
+    PROTO_RTSP,
+    /* HTTP-based protocols — update when new protocols are added */
+    PROTO_163,
+    PROTO_360,
+    PROTO_JD,
+    PROTO_56,
+    PROTO_888POKER,
+    PROTO_ABOUT,
+    PROTO_ADCASH,
+    PROTO_ADDTHIS,
+    PROTO_ADF,
+    PROTO_ADOBE,
+    PROTO_AFP,
+    PROTO_AIM,
+    PROTO_AIMINI,
+    PROTO_ALIBABA,
+    PROTO_ALIPAY,
+    PROTO_ALLEGRO,
+    PROTO_AMAZON,
+    PROTO_AMEBLO,
+    PROTO_ANCESTRY,
+    PROTO_ANGRYBIRDS,
+    PROTO_ANSWERS,
+    PROTO_AOL,
+    PROTO_APPLE,
+    PROTO_ASK,
+    PROTO_AVG,
+    PROTO_AWEBER,
+    PROTO_BABYLON,
+    PROTO_BADOO,
+    PROTO_BAIDU,
+    PROTO_BANKOFAMERICA,
+    PROTO_BARNESANDNOBLE,
+    PROTO_BATTLEFIELD,
+    PROTO_BATTLENET,
+    PROTO_BBB,
+    PROTO_BBC_ONLINE,
+    PROTO_BESTBUY,
+    PROTO_BETFAIR,
+    PROTO_BIBLEGATEWAY,
+    PROTO_BILD,
+    PROTO_BING,
+    PROTO_BITTORRENT,
+    PROTO_BLEACHERREPORT,
+    PROTO_BLOGFA,
+    PROTO_BLOGGER,
+    PROTO_BLOGSPOT,
+    PROTO_BODYBUILDING,
+    PROTO_BOOKING,
+    PROTO_CBSSPORTS,
+    PROTO_CNET,
+    PROTO_CHANGE,
+    PROTO_CHASE,
+    PROTO_CHESS,
+    PROTO_CHINAZ,
+    PROTO_CITRIXONLINE,
+    PROTO_CLICKSOR,
+    PROTO_CNN,
+    PROTO_CNZZ,
+    PROTO_COMCAST,
+    PROTO_CONDUIT,
+    PROTO_COPYSCAPE,
+    PROTO_CORREIOS,
+    PROTO_CRAIGSLIST,
+    PROTO_CROSSFIRE,
+    PROTO_DAILYMAIL,
+    PROTO_DAILYMOTION,
+    PROTO_DIRECT_DOWNLOAD_LINK,
+    PROTO_DEVIANTART,
+    PROTO_DIGG,
+    PROTO_DIRECTCONNECT,
+    PROTO_DOFUS,
+    PROTO_DONANIMHABER,
+    PROTO_DOUBAN,
+    PROTO_DOUBLECLICK,
+    PROTO_DROPBOX,
+    PROTO_EBAY,
+    PROTO_EHOW,
+    PROTO_EKSISOZLUK,
+    PROTO_ELECTRONICSARTS,
+    PROTO_ESPN,
+    PROTO_ETSY,
+    PROTO_EUROPA,
+    PROTO_EUROSPORT,
+    PROTO_FACEBOOK,
+    PROTO_FC2,
+    PROTO_FEIDIAN,
+    PROTO_FIVERR,
+    PROTO_FLICKR,
+    PROTO_FOX,
+    PROTO_FREE,
+    PROTO_GAMEFAQS,
+    PROTO_GAMESPOT,
+    PROTO_GAP,
+    PROTO_GARANTI,
+    PROTO_GAZETEVATAN,
+    PROTO_GIGAPETA,
+    PROTO_GITHUB,
+    PROTO_GITTIGIDIYOR,
+    PROTO_GLOBO,
+    PROTO_GMAIL,
+    PROTO_GNUTELLA,
+    PROTO_GOOGLE_MAPS,
+    PROTO_GO,
+    PROTO_GODADDY,
+    PROTO_GOO,
+    PROTO_GOOGLE,
+    PROTO_GOOGLE_USER_CONTENT,
+    PROTO_GROOVESHARK,
+    PROTO_GROUPON,
+    PROTO_GTALK,
+    PROTO_GUARDIAN,
+    PROTO_GUILDWARS,
+    PROTO_HABERTURK,
+    PROTO_HAO123,
+    PROTO_HEPSIBURADA,
+    PROTO_HI5,
+    PROTO_HOMEDEPOT,
+    PROTO_HOOTSUITE,
+    PROTO_HOTMAIL,
+    PROTO_HUFFINGTONPOST,
+    PROTO_HURRIYET,
+    PROTO_ICECAST,
+    PROTO_APPLE_ICLOUD,
+    PROTO_IFENG,
+    PROTO_IGN,
+    PROTO_IKEA,
+    PROTO_IMDB,
+    PROTO_IMESH,
+    PROTO_IMGUR,
+    PROTO_LEBONCOIN,
+    PROTO_INDIATIMES,
+    PROTO_INSTAGRAM,
+    PROTO_IRS,
+    PROTO_APPLE_ITUNES,
+    PROTO_UNENCRYPED_JABBER,
+    PROTO_JAPANPOST,
+    PROTO_KAT,
+    PROTO_ORANGEFR,
+    PROTO_KING,
+    PROTO_KOHLS,
+    PROTO_KONGREGATE,
+    PROTO_KONTIKI,
+    PROTO_LASTFM,
+    PROTO_LEAGUEOFLEGENDS,
+    PROTO_LEGACY,
+    PROTO_LETV,
+    PROTO_LINKEDIN,
+    PROTO_LIVE,
+    PROTO_LIVEDOOR,
+    PROTO_LIVEMAIL,
+    PROTO_LIVEINTERNET,
+    PROTO_LIVEJASMIN,
+    PROTO_LIVEJOURNAL,
+    PROTO_LIVESCORE,
+    PROTO_LIVINGSOCIAL,
+    PROTO_LOWES,
+    PROTO_MACYS,
+    PROTO_MAIL_RU,
+    PROTO_MAPLESTORY,
+    PROTO_MATCH,
+    PROTO_MEDIAFIRE,
+    PROTO_MEEBO,
+    PROTO_MICROSOFT,
+    PROTO_MILLIYET,
+    PROTO_MINECRAFT,
+    PROTO_MINICLIP,
+    PROTO_MLBASEBALL,
+    PROTO_MMO_CHAMPION,
+    PROTO_MMS,
+    PROTO_MOZILLA,
+    PROTO_MSN,
+    PROTO_MULTIPLY,
+    PROTO_MYNET,
+    PROTO_MYSPACE,
+    PROTO_MYWEBSEARCH,
+    PROTO_NBA,
+    PROTO_NEOBUX,
+    PROTO_NETFLIX,
+    PROTO_NEWEGG,
+    PROTO_NEWSMAX,
+    PROTO_NFL,
+    PROTO_NICOVIDEO,
+    PROTO_NIH,
+    PROTO_NORDSTROM,
+    PROTO_NYTIMES,
+    PROTO_ODNOKLASSNIKI,
+    PROTO_ONET,
+    PROTO_ORANGEDONKEY,
+    PROTO_OUTBRAIN,
+    PROTO_OVERSTOCK,
+    PROTO_PAYPAL,
+    PROTO_PCH,
+    PROTO_PCONLINE,
+    PROTO_PHOTOBUCKET,
+    PROTO_PINTEREST,
+    PROTO_PLAYSTATION,
+    PROTO_POGO,
+    PROTO_PORNHUB,
+    PROTO_PPLIVE,
+    PROTO_PPSTREAM,
+    PROTO_PREMIERLEAGUE,
+    PROTO_QQ,
+    PROTO_QQLIVE,
+    PROTO_R10,
+    PROTO_RAKUTEN,
+    PROTO_REDDIT,
+    PROTO_REDTUBE,
+    PROTO_REFERENCE,
+    PROTO_RENREN,
+    PROTO_ROBLOX,
+    PROTO_ROVIO,
+    PROTO_SABAH,
+    PROTO_SAHIBINDEN,
+    PROTO_SALESFORCE,
+    PROTO_SALON,
+    PROTO_SEARCHNU,
+    PROTO_SEARCH_RESULTS,
+    PROTO_SEARS,
+    PROTO_SECONDLIFE,
+    PROTO_SECURESERVER,
+    PROTO_SHOUTCAST,
+    PROTO_SINA,
+    PROTO_SITEADVISOR,
+    PROTO_SKY,
+    PROTO_SKYPE,
+    PROTO_SKYROCK,
+    PROTO_SKYSPORTS,
+    PROTO_SLATE,
+    PROTO_SLIDESHARE,
+    PROTO_SOFTONIC,
+    PROTO_SOGOU,
+    PROTO_SOHU,
+    PROTO_SOPCAST,
+    PROTO_SOSO,
+    PROTO_SOULSEEK,
+    PROTO_SOUNDCLOUD,
+    PROTO_SOURCEFORGE,
+    PROTO_SPIEGEL,
+    PROTO_SPORX,
+    PROTO_SPOTIFY,
+    PROTO_SQUIDOO,
+    PROTO_STACK_OVERFLOW,
+    PROTO_STATCOUNTER,
+    PROTO_STEAM,
+    PROTO_STUMBLEUPON,
+    PROTO_SULEKHA,
+    PROTO_TAGGED,
+    PROTO_TAOBAO,
+    PROTO_TARGET,
+    PROTO_TCO,
+    PROTO_THEMEFOREST,
+    PROTO_THE_PIRATE_BAY,
+    PROTO_TIANYA,
+    PROTO_TMALL,
+    PROTO_TORRENTZ,
+    PROTO_TRUPHONE,
+    PROTO_TUBE8,
+    PROTO_TUDOU,
+    PROTO_TUENTI,
+    PROTO_TUMBLR,
+    PROTO_TVANTS,
+    PROTO_TWITTER,
+    PROTO_UBI,
+    PROTO_UCOZ,
+    PROTO_UOL,
+    PROTO_USDEPARTMENTOFSTATE,
+    PROTO_HTTP_APPLICATION_VEOHTV,
+    PROTO_VIADEO,
+    PROTO_VIBER,
+    PROTO_VIMEO,
+    PROTO_VK,
+    PROTO_VKONTAKTE,
+    PROTO_WALMART,
+    PROTO_WARRIORFORUM,
+    PROTO_WAYN,
+    PROTO_WEATHER,
+    PROTO_WEBEX,
+    PROTO_WEEKLYSTANDARD,
+    PROTO_WEIBO,
+    PROTO_WELLSFARGO,
+    PROTO_WHATSAPP,
+    PROTO_WIGETMEDIA,
+    PROTO_WIKIA,
+    PROTO_WIKIMEDIA,
+    PROTO_WIKIPEDIA,
+    PROTO_WILLIAMHILL,
+    PROTO_WINDOWSLIVE,
+    PROTO_WINUPDATE,
+    PROTO_WORDPRESS_ORG,
+    PROTO_WORLDOFWARCRAFT,
+    PROTO_WOWHEAD,
+    PROTO_WWE,
+    PROTO_XBOX,
+    PROTO_XHAMSTER,
+    PROTO_XING,
+    PROTO_XINHUANET,
+    PROTO_XNXX,
+    PROTO_XVIDEOS,
+    PROTO_YAHOO,
+    PROTO_ALLOCINE,
+    PROTO_YAHOOMAIL,
+    PROTO_YANDEX,
+    PROTO_YELP,
+    PROTO_YOUKU,
+    PROTO_YOUPORN,
+    PROTO_YOUTUBE,
+    PROTO_ZAPPOS,
+    PROTO_ZATTOO,
+    PROTO_ZEDO,
+    PROTO_ZOL,
+    PROTO_ZYNGA,
+    PROTO_BUZZNET,
+    PROTO_COMEDY,
+    PROTO_RAMBLER,
+    PROTO_SMUGMUG,
+    PROTO_ARCHIEVE,
+    PROTO_CITYNEWS,
+    PROTO_SCIENCESTAGE,
+    PROTO_ONEWORLD,
+    PROTO_DISQUS,
+    PROTO_BLOGCU,
+    PROTO_EKOLAY,
+    PROTO_500PX,
+    PROTO_FOTKI,
+    PROTO_FOTOLOG,
+    PROTO_JALBUM,
+    PROTO_LEMONDE,
+    PROTO_PANORAMIO,
+    PROTO_SNAPFISH,
+    PROTO_WEBSHOTS,
+    PROTO_MEGA,
+    PROTO_VIDOOSH,
+    PROTO_AFREECA,
+    PROTO_WILDSCREEN,
+    PROTO_BLOGTV,
+    PROTO_HULU,
+    PROTO_MEVIO,
+    PROTO_LIVESTREAM,
+    PROTO_LIVELEAK,
+    PROTO_DEEZER,
+    PROTO_BLIPTV,
+    PROTO_BREAK,
+    PROTO_CITYTV,
+    PROTO_COMEDYCENTRAL,
+    PROTO_ENGAGEMEDIA,
+    PROTO_SCREENJUNKIES,
+    PROTO_RUTUBE,
+    PROTO_SEVENLOAD,
+    PROTO_MUBI,
+    PROTO_IZLESENE,
+    PROTO_VIDEO_HOSTING,
+};
+
 /* Issue #227: http keeps a genuinely distinct init — it seeds the detection
  * bitmask with the HTTP-based protocol list (hundreds of protocols observed
  * over HTTP), far beyond the single-add shape of mmt_init_classify_bitmasks(),
@@ -1416,384 +1522,6 @@ void mmt_http_init_detection_bitmask() {
             MMT_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_WITH_PAYLOAD,
             PROTO_UNKNOWN, PROTO_HTTP);
 
-    /* Protocols reachable over HTTP — the detection_bitmask built here is
-     * what lets mmt_classify_http() claim a flow already detected as one of
-     * these ids. The first group is fixed: do not update it. The second
-     * group MUST be updated when a new HTTP-based protocol is registered —
-     * otherwise that protocol's flows keep being reported as plain
-     * PROTO_HTTP and are never attributed to it (issue #238, F-CLEAN-018). */
-    static const int http_detected_protocols[] = {
-        /* Fixed set — do not update */
-        PROTO_HTTP,
-        PROTO_REUTERS,
-        PROTO_HTTP_PROXY,
-        PROTO_I23V5,
-        PROTO_POPO,
-        PROTO_QUAKE,
-        PROTO_REALMEDIA,
-        PROTO_USENET,
-        PROTO_WARCRAFT3,
-        PROTO_WORLD_OF_KUNG_FU,
-        PROTO_MPEG,
-        PROTO_FLASH,
-        PROTO_WINDOWSMEDIA,
-        PROTO_OFF,
-        PROTO_AVI,
-        PROTO_OGG,
-        PROTO_MOVE,
-        PROTO_RTSP,
-        /* HTTP-based protocols — update when new protocols are added */
-        PROTO_163,
-        PROTO_360,
-        PROTO_JD,
-        PROTO_56,
-        PROTO_888POKER,
-        PROTO_ABOUT,
-        PROTO_ADCASH,
-        PROTO_ADDTHIS,
-        PROTO_ADF,
-        PROTO_ADOBE,
-        PROTO_AFP,
-        PROTO_AIM,
-        PROTO_AIMINI,
-        PROTO_ALIBABA,
-        PROTO_ALIPAY,
-        PROTO_ALLEGRO,
-        PROTO_AMAZON,
-        PROTO_AMEBLO,
-        PROTO_ANCESTRY,
-        PROTO_ANGRYBIRDS,
-        PROTO_ANSWERS,
-        PROTO_AOL,
-        PROTO_APPLE,
-        PROTO_ASK,
-        PROTO_AVG,
-        PROTO_AWEBER,
-        PROTO_BABYLON,
-        PROTO_BADOO,
-        PROTO_BAIDU,
-        PROTO_BANKOFAMERICA,
-        PROTO_BARNESANDNOBLE,
-        PROTO_BATTLEFIELD,
-        PROTO_BATTLENET,
-        PROTO_BBB,
-        PROTO_BBC_ONLINE,
-        PROTO_BESTBUY,
-        PROTO_BETFAIR,
-        PROTO_BIBLEGATEWAY,
-        PROTO_BILD,
-        PROTO_BING,
-        PROTO_BITTORRENT,
-        PROTO_BLEACHERREPORT,
-        PROTO_BLOGFA,
-        PROTO_BLOGGER,
-        PROTO_BLOGSPOT,
-        PROTO_BODYBUILDING,
-        PROTO_BOOKING,
-        PROTO_CBSSPORTS,
-        PROTO_CNET,
-        PROTO_CHANGE,
-        PROTO_CHASE,
-        PROTO_CHESS,
-        PROTO_CHINAZ,
-        PROTO_CITRIXONLINE,
-        PROTO_CLICKSOR,
-        PROTO_CNN,
-        PROTO_CNZZ,
-        PROTO_COMCAST,
-        PROTO_CONDUIT,
-        PROTO_COPYSCAPE,
-        PROTO_CORREIOS,
-        PROTO_CRAIGSLIST,
-        PROTO_CROSSFIRE,
-        PROTO_DAILYMAIL,
-        PROTO_DAILYMOTION,
-        PROTO_DIRECT_DOWNLOAD_LINK,
-        PROTO_DEVIANTART,
-        PROTO_DIGG,
-        PROTO_DIRECTCONNECT,
-        PROTO_DOFUS,
-        PROTO_DONANIMHABER,
-        PROTO_DOUBAN,
-        PROTO_DOUBLECLICK,
-        PROTO_DROPBOX,
-        PROTO_EBAY,
-        PROTO_EHOW,
-        PROTO_EKSISOZLUK,
-        PROTO_ELECTRONICSARTS,
-        PROTO_ESPN,
-        PROTO_ETSY,
-        PROTO_EUROPA,
-        PROTO_EUROSPORT,
-        PROTO_FACEBOOK,
-        PROTO_FC2,
-        PROTO_FEIDIAN,
-        PROTO_FIVERR,
-        PROTO_FLICKR,
-        PROTO_FOX,
-        PROTO_FREE,
-        PROTO_GAMEFAQS,
-        PROTO_GAMESPOT,
-        PROTO_GAP,
-        PROTO_GARANTI,
-        PROTO_GAZETEVATAN,
-        PROTO_GIGAPETA,
-        PROTO_GITHUB,
-        PROTO_GITTIGIDIYOR,
-        PROTO_GLOBO,
-        PROTO_GMAIL,
-        PROTO_GNUTELLA,
-        PROTO_GOOGLE_MAPS,
-        PROTO_GO,
-        PROTO_GODADDY,
-        PROTO_GOO,
-        PROTO_GOOGLE,
-        PROTO_GOOGLE_USER_CONTENT,
-        PROTO_GROOVESHARK,
-        PROTO_GROUPON,
-        PROTO_GTALK,
-        PROTO_GUARDIAN,
-        PROTO_GUILDWARS,
-        PROTO_HABERTURK,
-        PROTO_HAO123,
-        PROTO_HEPSIBURADA,
-        PROTO_HI5,
-        PROTO_HOMEDEPOT,
-        PROTO_HOOTSUITE,
-        PROTO_HOTMAIL,
-        PROTO_HUFFINGTONPOST,
-        PROTO_HURRIYET,
-        PROTO_ICECAST,
-        PROTO_APPLE_ICLOUD,
-        PROTO_IFENG,
-        PROTO_IGN,
-        PROTO_IKEA,
-        PROTO_IMDB,
-        PROTO_IMESH,
-        PROTO_IMGUR,
-        PROTO_LEBONCOIN,
-        PROTO_INDIATIMES,
-        PROTO_INSTAGRAM,
-        PROTO_IRS,
-        PROTO_APPLE_ITUNES,
-        PROTO_UNENCRYPED_JABBER,
-        PROTO_JAPANPOST,
-        PROTO_KAT,
-        PROTO_ORANGEFR,
-        PROTO_KING,
-        PROTO_KOHLS,
-        PROTO_KONGREGATE,
-        PROTO_KONTIKI,
-        PROTO_LASTFM,
-        PROTO_LEAGUEOFLEGENDS,
-        PROTO_LEGACY,
-        PROTO_LETV,
-        PROTO_LINKEDIN,
-        PROTO_LIVE,
-        PROTO_LIVEDOOR,
-        PROTO_LIVEMAIL,
-        PROTO_LIVEINTERNET,
-        PROTO_LIVEJASMIN,
-        PROTO_LIVEJOURNAL,
-        PROTO_LIVESCORE,
-        PROTO_LIVINGSOCIAL,
-        PROTO_LOWES,
-        PROTO_MACYS,
-        PROTO_MAIL_RU,
-        PROTO_MAPLESTORY,
-        PROTO_MATCH,
-        PROTO_MEDIAFIRE,
-        PROTO_MEEBO,
-        PROTO_MICROSOFT,
-        PROTO_MILLIYET,
-        PROTO_MINECRAFT,
-        PROTO_MINICLIP,
-        PROTO_MLBASEBALL,
-        PROTO_MMO_CHAMPION,
-        PROTO_MMS,
-        PROTO_MOZILLA,
-        PROTO_MSN,
-        PROTO_MULTIPLY,
-        PROTO_MYNET,
-        PROTO_MYSPACE,
-        PROTO_MYWEBSEARCH,
-        PROTO_NBA,
-        PROTO_NEOBUX,
-        PROTO_NETFLIX,
-        PROTO_NEWEGG,
-        PROTO_NEWSMAX,
-        PROTO_NFL,
-        PROTO_NICOVIDEO,
-        PROTO_NIH,
-        PROTO_NORDSTROM,
-        PROTO_NYTIMES,
-        PROTO_ODNOKLASSNIKI,
-        PROTO_ONET,
-        PROTO_ORANGEDONKEY,
-        PROTO_OUTBRAIN,
-        PROTO_OVERSTOCK,
-        PROTO_PAYPAL,
-        PROTO_PCH,
-        PROTO_PCONLINE,
-        PROTO_PHOTOBUCKET,
-        PROTO_PINTEREST,
-        PROTO_PLAYSTATION,
-        PROTO_POGO,
-        PROTO_PORNHUB,
-        PROTO_PPLIVE,
-        PROTO_PPSTREAM,
-        PROTO_PREMIERLEAGUE,
-        PROTO_QQ,
-        PROTO_QQLIVE,
-        PROTO_R10,
-        PROTO_RAKUTEN,
-        PROTO_REDDIT,
-        PROTO_REDTUBE,
-        PROTO_REFERENCE,
-        PROTO_RENREN,
-        PROTO_ROBLOX,
-        PROTO_ROVIO,
-        PROTO_SABAH,
-        PROTO_SAHIBINDEN,
-        PROTO_SALESFORCE,
-        PROTO_SALON,
-        PROTO_SEARCHNU,
-        PROTO_SEARCH_RESULTS,
-        PROTO_SEARS,
-        PROTO_SECONDLIFE,
-        PROTO_SECURESERVER,
-        PROTO_SHOUTCAST,
-        PROTO_SINA,
-        PROTO_SITEADVISOR,
-        PROTO_SKY,
-        PROTO_SKYPE,
-        PROTO_SKYROCK,
-        PROTO_SKYSPORTS,
-        PROTO_SLATE,
-        PROTO_SLIDESHARE,
-        PROTO_SOFTONIC,
-        PROTO_SOGOU,
-        PROTO_SOHU,
-        PROTO_SOPCAST,
-        PROTO_SOSO,
-        PROTO_SOULSEEK,
-        PROTO_SOUNDCLOUD,
-        PROTO_SOURCEFORGE,
-        PROTO_SPIEGEL,
-        PROTO_SPORX,
-        PROTO_SPOTIFY,
-        PROTO_SQUIDOO,
-        PROTO_STACK_OVERFLOW,
-        PROTO_STATCOUNTER,
-        PROTO_STEAM,
-        PROTO_STUMBLEUPON,
-        PROTO_SULEKHA,
-        PROTO_TAGGED,
-        PROTO_TAOBAO,
-        PROTO_TARGET,
-        PROTO_TCO,
-        PROTO_THEMEFOREST,
-        PROTO_THE_PIRATE_BAY,
-        PROTO_TIANYA,
-        PROTO_TMALL,
-        PROTO_TORRENTZ,
-        PROTO_TRUPHONE,
-        PROTO_TUBE8,
-        PROTO_TUDOU,
-        PROTO_TUENTI,
-        PROTO_TUMBLR,
-        PROTO_TVANTS,
-        PROTO_TWITTER,
-        PROTO_UBI,
-        PROTO_UCOZ,
-        PROTO_UOL,
-        PROTO_USDEPARTMENTOFSTATE,
-        PROTO_HTTP_APPLICATION_VEOHTV,
-        PROTO_VIADEO,
-        PROTO_VIBER,
-        PROTO_VIMEO,
-        PROTO_VK,
-        PROTO_VKONTAKTE,
-        PROTO_WALMART,
-        PROTO_WARRIORFORUM,
-        PROTO_WAYN,
-        PROTO_WEATHER,
-        PROTO_WEBEX,
-        PROTO_WEEKLYSTANDARD,
-        PROTO_WEIBO,
-        PROTO_WELLSFARGO,
-        PROTO_WHATSAPP,
-        PROTO_WIGETMEDIA,
-        PROTO_WIKIA,
-        PROTO_WIKIMEDIA,
-        PROTO_WIKIPEDIA,
-        PROTO_WILLIAMHILL,
-        PROTO_WINDOWSLIVE,
-        PROTO_WINUPDATE,
-        PROTO_WORDPRESS_ORG,
-        PROTO_WORLDOFWARCRAFT,
-        PROTO_WOWHEAD,
-        PROTO_WWE,
-        PROTO_XBOX,
-        PROTO_XHAMSTER,
-        PROTO_XING,
-        PROTO_XINHUANET,
-        PROTO_XNXX,
-        PROTO_XVIDEOS,
-        PROTO_YAHOO,
-        PROTO_ALLOCINE,
-        PROTO_YAHOOMAIL,
-        PROTO_YANDEX,
-        PROTO_YELP,
-        PROTO_YOUKU,
-        PROTO_YOUPORN,
-        PROTO_YOUTUBE,
-        PROTO_ZAPPOS,
-        PROTO_ZATTOO,
-        PROTO_ZEDO,
-        PROTO_ZOL,
-        PROTO_ZYNGA,
-        PROTO_BUZZNET,
-        PROTO_COMEDY,
-        PROTO_RAMBLER,
-        PROTO_SMUGMUG,
-        PROTO_ARCHIEVE,
-        PROTO_CITYNEWS,
-        PROTO_SCIENCESTAGE,
-        PROTO_ONEWORLD,
-        PROTO_DISQUS,
-        PROTO_BLOGCU,
-        PROTO_EKOLAY,
-        PROTO_500PX,
-        PROTO_FOTKI,
-        PROTO_FOTOLOG,
-        PROTO_JALBUM,
-        PROTO_LEMONDE,
-        PROTO_PANORAMIO,
-        PROTO_SNAPFISH,
-        PROTO_WEBSHOTS,
-        PROTO_MEGA,
-        PROTO_VIDOOSH,
-        PROTO_AFREECA,
-        PROTO_WILDSCREEN,
-        PROTO_BLOGTV,
-        PROTO_HULU,
-        PROTO_MEVIO,
-        PROTO_LIVESTREAM,
-        PROTO_LIVELEAK,
-        PROTO_DEEZER,
-        PROTO_BLIPTV,
-        PROTO_BREAK,
-        PROTO_CITYTV,
-        PROTO_COMEDYCENTRAL,
-        PROTO_ENGAGEMEDIA,
-        PROTO_SCREENJUNKIES,
-        PROTO_RUTUBE,
-        PROTO_SEVENLOAD,
-        PROTO_MUBI,
-        PROTO_IZLESENE,
-        PROTO_VIDEO_HOSTING,
-    };
     for (size_t i = 0; i < sizeof(http_detected_protocols) / sizeof(http_detected_protocols[0]); i++) {
         /* every HTTP-based id joins detection_bitmask — a multi-hundred add
          * the single-add generic helpers cannot express */
@@ -1814,7 +1542,6 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
      * checks below decide. Decision and rationale: docs/DECISIONS.md
      * (issue #334). */
 
-    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "search http\n");
 
     /* set client-server_direction */
     if (flow->l4.tcp.http_setup_dir == 0) {
@@ -1823,27 +1550,21 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
             //This is still the TCP handshake, do nothing
             return;
         }
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "initializes http to stage: 1 \n");
         flow->l4.tcp.http_setup_dir = 1 + ipacket->session->last_packet_direction;
     }
 
     if (MMT_COMPARE_PROTOCOL_TO_BITMASK
             (detection_bitmask, packet->detected_protocol_stack[0]) != 0) {
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
-                "protocol might be detected earlier as http jump to payload type detection\n");
         goto http_parse_detection;
     }
 
     if (flow->l4.tcp.http_setup_dir == 1 + ipacket->session->last_packet_direction) {
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "http stage: 1\n");
 
         if (flow->l4.tcp.http_wait_for_retransmission) {
             if (!packet->tcp_retransmission) {
                 if (ipacket->session->data_packet_count <= 5) {
-                    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "still waiting for retransmission\n");
                     return;
                 } else {
-                    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "retransmission not found, exclude\n");
                     http_bitmask_exclude(flow);
                     return;
                 }
@@ -1853,7 +1574,6 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
         if (flow->l4.tcp.http_stage == 0) {
             filename_start = http_request_url_offset(ipacket);
             if (filename_start == 0) {
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "filename not found, exclude\n");
                 http_bitmask_exclude(flow);
                 return;
             }
@@ -1862,7 +1582,6 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
 
             if (packet->parsed_lines <= 1) {
                 /* parse one more packet .. */
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "just one line, search next packet\n");
                 flow->l4.tcp.http_stage = 1;
                 return;
             }
@@ -1875,7 +1594,6 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
                 packet->http_method.ptr = packet->line[0].ptr;
                 packet->http_method.len = filename_start - 1;
 
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "http structure detected, adding\n");
 
                 /* CONNECT stays PROTO_HTTP (the method is still exposed through
                  * the http.method attribute); a distinct protocol ID was
@@ -1887,10 +1605,8 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
                 if (packet->host_line.ptr != NULL) {
                     /* aaahh, skip this direction and wait for a server reply here */
                     flow->l4.tcp.http_stage = 2;
-                    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP START HOST found\n");
                     return;
                 }
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP START HOST found\n");
 
                 /* host not found, check in next packet after */
                 flow->l4.tcp.http_stage = 1;
@@ -1906,13 +1622,9 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
 
                 /* wait some packets in case request is split over more than 2 packets */
                 if (ipacket->session->data_packet_count < 5) {
-                    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
-                            "line still not finished, search next packet\n");
                     return;
                 } else {
                     /* stop parsing here */
-                    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
-                            "HTTP: PACKET DOES NOT HAVE A LINE STRUCTURE\n");
                     http_bitmask_exclude(flow);
                     return;
                 }
@@ -1921,8 +1633,6 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
             if (packet->line[0].len >= 9 && mmt_memcmp(&packet->line[0].ptr[packet->line[0].len - 9], " HTTP/1.", 8) == 0) {
                 mmt_int_http_add_connection(ipacket, PROTO_HTTP);
                 check_content_type_and_change_protocol(ipacket);
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
-                        "HTTP START HTTP found in 2. packet, check host here...\n");
                 /* HTTP found, look for host... */
                 flow->l4.tcp.http_stage = 2;
 
@@ -1930,7 +1640,6 @@ void mmt_classify_http(ipacket_t * ipacket, unsigned index) {
             }
         }
     }
-    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP: REQUEST NOT HTTP CONFORM\n");
     http_bitmask_exclude(flow);
     return;
 
@@ -1938,7 +1647,6 @@ http_parse_detection:
     if (flow->l4.tcp.http_setup_dir == 1 + ipacket->session->last_packet_direction) {
         /* we have something like http here, so check for host and content type if possible */
         if (flow->l4.tcp.http_stage == 0 || flow->l4.tcp.http_stage == 3) {
-            MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP RUN MAYBE NEXT GET/POST...\n");
             // parse packet
             mmt_parse_packet_line_info(ipacket);
             if (packet->http_response.ptr) {
@@ -1961,33 +1669,24 @@ http_parse_detection:
                     packet->http_method.ptr = packet->line[0].ptr;
                     packet->http_method.len = filename_start - 1;
 
-                    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "next http action, "
-                            "resetting to http and search for other protocols later.\n");
                     mmt_int_http_add_connection(ipacket, PROTO_HTTP);
                 }
                 check_content_type_and_change_protocol(ipacket);
                 /* HTTP found, look for host... */
                 if (packet->host_line.ptr != NULL) {
-                    MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
-                            "HTTP RUN MAYBE NEXT HOST found, skipping all packets from this direction\n");
                     /* aaahh, skip this direction and wait for a server reply here */
                     flow->l4.tcp.http_stage = 2;
                     return;
                 }
-                MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
-                        "HTTP RUN MAYBE NEXT HOST NOT found, scanning one more packet from this direction\n");
                 flow->l4.tcp.http_stage = 1;
             }
         } else if (flow->l4.tcp.http_stage == 1) {
             // parse packet and maybe find a packet info with host ptr,...
             mmt_parse_packet_line_info(ipacket);
             check_content_type_and_change_protocol(ipacket);
-            MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP RUN second packet scanned\n");
             /* HTTP found, look for host... */
             flow->l4.tcp.http_stage = 2;
         }
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
-                "HTTP skipping client packets after second packet\n");
         return;
     }
     /* server response */
@@ -1997,7 +1696,6 @@ http_parse_detection:
         check_content_type_and_change_protocol(ipacket);
 
         if (packet->empty_line_position_set != 0 || flow->l4.tcp.http_empty_line_seen == 1) {
-            MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "empty line. check_http_payload.\n");
             check_http_payload(ipacket);
         }
         if (flow->l4.tcp.http_stage == 2) {
@@ -2005,11 +1703,8 @@ http_parse_detection:
         } else {
             flow->l4.tcp.http_stage = 0;
         }
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG,
-                "HTTP response first or second packet scanned,new stage is: %u\n", flow->l4.tcp.http_stage);
         return;
     } else {
-        MMT_LOG(PROTO_HTTP, MMT_LOG_DEBUG, "HTTP response next packet skipped\n");
     }
 }
 

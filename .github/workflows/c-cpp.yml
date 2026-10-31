@@ -6,17 +6,18 @@ on:
     tags: ["v*"] # Push events to matching v*, i.e. v1.0, v20.15.10
   pull_request:
     branches: [ main ]
-  # Weekly drift check (issue #188, F-CI-015): environment deprecations and
-  # upstream changes surface here instead of on a contributor's next PR.
+  merge_group: # the merge queue's run: every required context reports (#657)
+  # Weekly drift check (issue #188, F-CI-015): upstream changes surface here.
   schedule:
     - cron: '17 4 * * 1'
 
-# A newer push cancels the superseded run of the same ref (issue #188,
-# F-CI-007): stale matrix jobs no longer burn runner time alongside their
-# replacement.
+# A newer push to a pull request cancels its superseded run (issue #188,
+# F-CI-007). Push, tag and scheduled runs each get their own group and always
+# complete (issue #660): a quick second merge no longer cancels the first
+# main run before its jobs save their caches.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Least-privilege default (F-SEC-005): every job gets a read-only token unless
 # it declares its own elevated permissions block.
@@ -25,26 +26,54 @@ permissions:
 
 jobs:
   changes:
-    # Docs-only filter (issue #552, F-CI-009): on a pull request, does the
-    # change touch anything but docs/ and root-level Markdown? The checkout
-    # is the PR merge commit, so HEAD^1..HEAD is exactly the PR's change;
-    # tools/ci/classify-changes.sh holds the path allowlist. Pushes, tags and
-    # the schedule always run everything.
+    # Path-to-test selection (issue #656, extending the #552 docs-only
+    # filter): on a pull request, which tier does the change reach — docs,
+    # tooling, tests, family or full — and which suites and harnesses does it
+    # need? The checkout is the PR merge commit, so HEAD^1..HEAD is exactly
+    # the PR's change; tools/ci/classify-changes.sh answers from the map in
+    # tools/ci/test-map.txt. Pushes, tags, the schedule and merge-queue runs
+    # (#657) feed it no path, which is `full`: they always run everything.
+    # The same step runs in phase0-baseline.yml.
     #
-    # A docs-only change skips the C jobs, and every required context still
-    # reports. A job skipped by its `if:` reports success, so the
-    # single-context jobs gate at job level — with !cancelled(), so a failed
-    # `changes` runs them instead of skipping them (fail-closed). A skipped
-    # matrix job would report one check run under its bare job name and
-    # leave each leg's context pending, so the matrix jobs (unit-tests,
-    # sanitizer-tests, resource-budgets) always start and skip their steps.
-    # tools/ci/check-required-checks.sh rejects a skippable `if:` on a matrix
-    # job a required context names, and tools/ci/tests/
-    # test-classify-changes.sh pins this wiring.
+    # Per tier: docs skips the C jobs (code=false); tooling runs the suites
+    # the classifier names in unit-tests, plus lint (gates=false skips the
+    # sanitizer, toolchain, assertions, CodeQL and fuzz jobs); tests and
+    # family also run those legs on the named suites (CodeQL and fuzz on
+    # family only); coverage, root-install and abi-diff run on full only
+    # (full=false skips them). Every condition on these outputs is
+    # fail-closed: it reads `!= 'false'` (or `!= 'tests'`), so a failed
+    # `changes` — every output empty — runs everything, and an empty suite
+    # list runs every suite.
+    #
+    # Queue-only legs (issue #658): unit-tests-unsigned-char, the
+    # -fsigned-char unit-tests leg, coverage, toolchain-floor and
+    # assertions-live skip on every pull request and run in the merge queue
+    # (and on push and the schedule). The queue waits only for required
+    # contexts: the first three report their own, and the other two are
+    # needed by `build`, whose required context fails when one of them did
+    # not succeed. Nothing leaves the PR path ungated, which
+    # tools/ci/check-required-checks.sh enforces. toolchain-ceiling stays on
+    # pull requests: it runs on a preview runner label, and making it
+    # merge-blocking is a maintainer call (docs/DECISIONS.md, issue #657).
+    #
+    # Every required context still reports. A job skipped by its `if:`
+    # reports success, so the single-context jobs gate at job level — with
+    # !cancelled(), so a failed `changes` runs them instead of skipping them
+    # (fail-closed). A skipped matrix job would report one check run under
+    # its bare job name and leave each leg's context pending, so the matrix
+    # jobs (unit-tests, sanitizer-tests, resource-budgets) always start and
+    # skip their steps. tools/ci/check-required-checks.sh rejects a
+    # skippable `if:` on a matrix job a required context names, and
+    # tools/ci/tests/test-classify-changes.sh pins this wiring.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      tier: ${{ steps.filter.outputs.tier }}
+      full: ${{ steps.filter.outputs.full }}
+      gates: ${{ steps.filter.outputs.gates }}
+      suites: ${{ steps.filter.outputs.suites }}
+      harnesses: ${{ steps.filter.outputs.harnesses }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -56,13 +85,17 @@ jobs:
         EVENT: ${{ github.event_name }}
       run: |
         set -euo pipefail
-        if [ "$EVENT" != pull_request ]; then
-          echo "code=true" | tee -a "$GITHUB_OUTPUT"
-          exit 0
+        # Not a pull request: no path list, which the classifier answers
+        # with full (every output key set).
+        changed=/dev/null
+        if [ "$EVENT" = pull_request ]; then
+          # A diff that cannot run fails the job, and the gated jobs then run.
+          changed="$RUNNER_TEMP/changed.txt"
+          git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
         fi
-        # A diff that cannot run fails the job, and the gated jobs then run.
-        git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
-        bash tools/ci/classify-changes.sh < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
+        # Complete answers only: a classifier that fails writes no output.
+        bash tools/ci/classify-changes.sh < "$changed" > "$RUNNER_TEMP/classified.txt"
+        tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/classified.txt"
 
   unit-tests:
     # Compile-and-run the standalone unit suites (tests/run_all_tests.sh).
@@ -70,7 +103,12 @@ jobs:
     # built with -fsigned-char (signed is already x86's default, so the
     # unsigned-char side is covered by unit-tests-arm and
     # unit-tests-unsigned-char below, issue #528).
-    # A matrix job: on a docs-only change its steps skip (see `changes`).
+    # A matrix job: on a docs-only change its steps skip (see `changes`);
+    # otherwise the first leg runs the suites `changes` names (all on full).
+    # The -fsigned-char leg repeats x86's default signedness, so it is a
+    # merge-queue leg (issue #658): on a pull request its steps skip. A new
+    # matrix key would rename its required context, so the steps test
+    # extra_cflags instead.
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
@@ -85,23 +123,54 @@ jobs:
             suites: "hashmap memory hexdump mmt_utils mmt_inet_ntop"
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && (matrix.extra_cflags == '' || github.event_name != 'pull_request')
     - uses: ./.github/actions/bootstrap-deps
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && (matrix.extra_cflags == '' || github.event_name != 'pull_request')
+      with:
+        extra-packages: ccache
+    # Opt-in compiler cache (issue #553): MMT_CCACHE puts ccache in front of
+    # the compiler of every SDK the suites build (rules/arch-linux-gcc.mk).
+    # A pull request restores the newest cache main saved; only push and
+    # schedule runs save one (one entry per commit, issue #660's budget).
+    - name: Restore the compiler cache
+      if: needs.changes.outputs.code != 'false' && (matrix.extra_cflags == '' || github.event_name != 'pull_request')
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/ccache
+        key: ccache-unit-tests-${{ matrix.extra_cflags || 'default' }}-${{ github.sha }}
+        restore-keys: ccache-unit-tests-${{ matrix.extra_cflags || 'default' }}-
     - name: Run unit test suites
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && (matrix.extra_cflags == '' || github.event_name != 'pull_request')
       env:
+        MMT_CCACHE: ccache
+        CCACHE_DIR: ${{ runner.temp }}/ccache
+        CCACHE_MAXSIZE: 500M
         EXTRA_CFLAGS: ${{ matrix.extra_cflags }}
-      run: bash tests/run_all_tests.sh ${{ matrix.suites }}
+        # The leg's fixed list, else the tier's (#656); empty runs every suite.
+        SUITES: ${{ matrix.suites || needs.changes.outputs.suites }}
+      # word-split on purpose: SUITES is a list of [a-z0-9_] suite names
+      run: bash tests/run_all_tests.sh $SUITES
+    - name: Compiler cache statistics
+      if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && (matrix.extra_cflags == '' || github.event_name != 'pull_request') }}
+      env:
+        CCACHE_DIR: ${{ runner.temp }}/ccache
+      run: ccache --show-stats
+    - name: Save the compiler cache (push and schedule only)
+      if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && (matrix.extra_cflags == '' || github.event_name != 'pull_request') && (github.event_name == 'push' || github.event_name == 'schedule') }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/ccache
+        key: ccache-unit-tests-${{ matrix.extra_cflags || 'default' }}-${{ github.sha }}
 
   unit-tests-arm:
     # Native ARM run of the full suite set (issue #528, F-TEST-010). Plain
     # `char` is unsigned on AArch64, so every suite — and every SDK the
     # suites build — runs with ARM's char signedness, which the x86 legs
     # never see. The native ubuntu-24.04-arm runner is the one
-    # resource-budgets and the arm64 release packages already use.
+    # resource-budgets and the arm64 release packages already use. Runs on
+    # the tests, family and full tiers, on the tier's suites (#656).
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
@@ -114,7 +183,9 @@ jobs:
         uname -m
         echo | gcc -dM -E - | grep -q '__CHAR_UNSIGNED__'
     - name: Run unit test suites
-      run: bash tests/run_all_tests.sh
+      env:
+        SUITES: ${{ needs.changes.outputs.suites }}
+      run: bash tests/run_all_tests.sh $SUITES
 
   unit-tests-unsigned-char:
     # x86 mirror of unit-tests-arm (issue #528): the full suite set with
@@ -122,8 +193,12 @@ jobs:
     # the suites build (MMT_EXTRA_CFLAGS, appended after the dialect pin in
     # rules/arch-linux.mk), so an unsigned-char bug fails on both
     # architectures and an ARM-only failure points at something else.
+    # Runs on the tests, family and full tiers, on the tier's suites (#656).
+    # A merge-queue leg (issue #658): unit-tests-arm already runs unsigned
+    # char on every pull request, so this mirror skips on pull requests and
+    # runs in the merge queue, which waits for its required context.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -135,7 +210,9 @@ jobs:
     - name: Assert -funsigned-char makes plain char unsigned
       run: echo | gcc $EXTRA_CFLAGS -dM -E - | grep -q '__CHAR_UNSIGNED__'
     - name: Run unit test suites
-      run: bash tests/run_all_tests.sh
+      env:
+        SUITES: ${{ needs.changes.outputs.suites }}
+      run: bash tests/run_all_tests.sh $SUITES
 
   toolchain-floor:
     # Toolchain-floor gate (issue #218, F-DEP-207): the declared floor is
@@ -148,12 +225,15 @@ jobs:
     # deprecated on 2026-09-17 and removes on 2027-04-17 (issue #516); the
     # job keeps its name, so the required context is unchanged. The image
     # retires on the date tools/ci/base-images.txt records (docs/DECISIONS.md).
+    # Runs on the tests, family and full tiers, on the tier's suites (#656).
+    # A merge-queue leg (issue #658): it skips on pull requests, and `build`
+    # needs it, so the queue's required `build` context gates it.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     container:
-      image: "ubuntu:22.04@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b"
+      image: "ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11"
     steps:
     # git first, so actions/checkout makes a real clone (without git it
     # downloads a tarball with no history, and the suites read the tree with
@@ -183,7 +263,9 @@ jobs:
     - name: Build the SDK on the floor toolchain
       run: runuser -u floor -- make -C sdk -j"$(nproc)"
     - name: Run unit test suites
-      run: runuser -u floor -- bash tests/run_all_tests.sh
+      env:
+        SUITES: ${{ needs.changes.outputs.suites }}
+      run: runuser -u floor -- bash tests/run_all_tests.sh $SUITES
 
   sanitizer-tests:
     # Run the unit suites (tests/run_all_tests.sh) under the sanitizer
@@ -191,7 +273,8 @@ jobs:
     # (BUILD=asan / BUILD=tsan in rules/common.mk); the runner translates
     # them into per-suite instrumentation via SANITIZE=asan|tsan, and suites
     # that build the SDK internally inherit the matching BUILD= profile.
-    # A matrix job: on a docs-only change its steps skip (see `changes`).
+    # A matrix job: on a docs-only or tooling change its steps skip (see
+    # `changes`); otherwise it runs the tier's suites (#656).
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
@@ -206,14 +289,51 @@ jobs:
             sanitize: tsan
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false'
     - uses: ./.github/actions/bootstrap-deps
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false'
+      with:
+        extra-packages: ccache
+    - name: The BUILD=asan SDK profile compiles and is ASan-instrumented
+      # Folded in from the phase0 `ASan/UBSan profile compiles` job (issue
+      # #659), now a retired stub: the asan leg proves the profile itself.
+      if: matrix.sanitize == 'asan' && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false'
+      run: |
+        make -C sdk clean
+        make -C sdk -j"$(nproc)" BUILD=asan MMT_BASE="${RUNNER_TEMP}/mmt-asan"
+        lib="sdk/lib/libmmt_tcpip.so.$(grep -m1 '^VERSION' rules/common.mk | sed 's/.*:= *//')"
+        echo "Checking ${lib} for ASan instrumentation ..."
+        nm -D "${lib}" | grep -q '__asan_init' \
+          || { echo "::error::no ASan symbols in ${lib}"; exit 1; }
+        make -C sdk clean
+    # Opt-in compiler cache (issue #553), one per profile — see unit-tests.
+    - name: Restore the compiler cache
+      if: needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/ccache
+        key: ccache-sanitizer-tests-${{ matrix.sanitize }}-${{ github.sha }}
+        restore-keys: ccache-sanitizer-tests-${{ matrix.sanitize }}-
     - name: Run unit test suites under sanitizers (${{ matrix.profile }})
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false'
       env:
+        MMT_CCACHE: ccache
+        CCACHE_DIR: ${{ runner.temp }}/ccache
+        CCACHE_MAXSIZE: 500M
         SANITIZE: ${{ matrix.sanitize }}
-      run: bash tests/run_all_tests.sh
+        SUITES: ${{ needs.changes.outputs.suites }}
+      run: bash tests/run_all_tests.sh $SUITES
+    - name: Compiler cache statistics
+      if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' }}
+      env:
+        CCACHE_DIR: ${{ runner.temp }}/ccache
+      run: ccache --show-stats
+    - name: Save the compiler cache (push and schedule only)
+      if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/ccache
+        key: ccache-sanitizer-tests-${{ matrix.sanitize }}-${{ github.sha }}
 
   coverage:
     # Measure unit-suite coverage (gcov): run every suite instrumented with
@@ -222,9 +342,13 @@ jobs:
     # library, issue #185) plus tests/coverage/summary.json, print the
     # library line percentage and instrumented-file count, enforce the
     # committed floor (tests/coverage/floor.json), and publish the report as
-    # a CI artifact.
+    # a CI artifact. Full tier only (#656): the floors measure every suite
+    # and harness, so a subset would fail them. A merge-queue leg (issue
+    # #658): the floors are whole-repo metrics, checked once per merge, not
+    # per pull-request push; it skips on pull requests and its own required
+    # context gates the queue.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.changes.outputs.code != 'false' && needs.changes.outputs.full != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -242,17 +366,17 @@ jobs:
       # Issue #388 (F-TEST-004): per-family line coverage (core, tcpip,
       # mobile, business_app, dicom, optional ENABLESEC=1 security_fuzz) over
       # every handwritten build source, zero-hit sources included. Fails on a
-      # source disappearing from the denominator, a missing family, the
-      # original 30-file audit cohort below 82.9% or whole-SDK coverage below
-      # the floor in tests/coverage/floor.json ("sdk"). Writes
+      # source leaving the denominator, a missing family, a family below its
+      # floor (#524), the 30-file audit cohort below 82.9% or whole-SDK
+      # coverage below the floor in tests/coverage/floor.json ("sdk"). Writes
       # tests/coverage/sdk-coverage.json into the uploaded artifact.
       run: bash tools/ci/check-sdk-coverage.sh
-    - name: Report contiguous uncovered runs
-      # Issue #190 helper wiring (consumed by #243): lists contiguous runs of
-      # uncovered lines from the lcov tracefile. Report-only today — the gate
-      # (--max-run) is flipped on by the task that closes the gaps. A missing
-      # tracefile still fails the step (exit 2): a broken helper must fail CI.
-      run: bash tools/ci/report-uncovered-runs.sh --report-only
+    - name: Gate contiguous uncovered runs
+      # Issue #190 helper (consumed by #243), a gate since issue #524: lists
+      # contiguous runs of uncovered lines from the unit lcov tracefile and
+      # fails when one is longer than --max-run (default 10 lines). A missing
+      # tracefile also fails the step (exit 2): a broken helper must fail CI.
+      run: bash tools/ci/report-uncovered-runs.sh
     - name: Upload coverage report
       # Also after a failed gate: sdk-coverage.json names the vanished source
       # or the broken floor (issue #388).
@@ -264,27 +388,26 @@ jobs:
         retention-days: 14
 
   lint:
-    # Lint/static-analysis gate (issues #125, #189): shellcheck runs blocking
-    # across every tracked shell script; cppcheck gates on error severity and
-    # on the committed findings ratchet (tools/ci/cppcheck-ratchet.txt) and
-    # publishes its findings as a report artifact. The generated ASN.1 tree
-    # (src/mmt_mobile/asn1c) is excluded from the scan.
-    #
-    # The ratchet is only comparable under one cppcheck release (issue #345),
-    # so the job runs in the digest-pinned ubuntu:24.04 container and builds
-    # that release (CPPCHECK_PINNED_VERSION, tools/ci/run-cppcheck.sh) from
-    # its checksum-pinned source tarball with tools/ci/install-cppcheck.sh
-    # (issue #518): neither a runner-image refresh nor an apt archive update
-    # can move the analyser under the baseline. shellcheck comes from the
-    # container's apt, the same 0.9 release the ubuntu-24.04 runner ships.
+    # Lint gate (issues #125, #189): shellcheck on every tracked shell script
+    # (blocking); cppcheck gates on error severity and on the findings ratchet
+    # (tools/ci/cppcheck-ratchet.txt), skips the generated src/mmt_mobile/asn1c
+    # and uploads its findings. The ratchet is only comparable under one
+    # cppcheck release (#345): the job builds CPPCHECK_PINNED_VERSION from its
+    # checksum-pinned tarball (install-cppcheck.sh, #518) in a digest-pinned
+    # ubuntu:24.04 container; shellcheck 0.9 comes from its apt. Mode (#653):
+    # pull requests scan the one configuration the build compiles
+    # (CPPCHECK_MODE=pr); push, tags, merge queue and the weekly schedule scan
+    # every #ifdef configuration (full). Each mode has its own ratchet line.
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-24.04
-    # One cppcheck scan of the whole tree took ~16 min on a hosted runner
+    # One full cppcheck scan of the whole tree took ~16 min on a hosted runner
     # (issue #552); a cold cache or a widely included header rescans it all.
     timeout-minutes: 60
+    env:
+      CPPCHECK_MODE: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
     container:
-      image: "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c"
+      image: "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852"
     steps:
     # git first, so actions/checkout makes a real clone (shellcheck lists the
     # tracked scripts with git ls-files); retried as in toolchain-floor.
@@ -306,21 +429,22 @@ jobs:
       run: shellcheck $(git ls-files '*.sh')
     - name: Restore the cppcheck per-file results
       # Issue #552 (F-CI-007): --cppcheck-build-dir keeps each file's results,
-      # so a scan reanalyses only what changed. The key names the pinned
-      # release and the gate script (their change starts cold); restore-keys
-      # take the newest earlier save, and every run saves under its own SHA.
+      # so a scan reanalyses only what changed. The key names the scan mode,
+      # the pinned release and the gate script (their change starts cold);
+      # restore-keys take the newest earlier save, and every run saves under
+      # its own SHA.
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .cppcheck-build
-        key: cppcheck-${{ hashFiles('tools/ci/install-cppcheck.sh', 'tools/ci/run-cppcheck.sh') }}-${{ github.sha }}
+        key: cppcheck-${{ env.CPPCHECK_MODE }}-${{ hashFiles('tools/ci/install-cppcheck.sh', 'tools/ci/run-cppcheck.sh') }}-${{ github.sha }}
         restore-keys: |
-          cppcheck-${{ hashFiles('tools/ci/install-cppcheck.sh', 'tools/ci/run-cppcheck.sh') }}-
+          cppcheck-${{ env.CPPCHECK_MODE }}-${{ hashFiles('tools/ci/install-cppcheck.sh', 'tools/ci/run-cppcheck.sh') }}-
     - name: cppcheck (error-severity gate + findings ratchet)
       # Issue #189 (F-CI-004): two gates, both enforced, both read from one
       # scan (issue #552 dropped the second, error-only rescan). The script
       # writes cppcheck-report.xml (the artifact uploaded below) and fails
-      # when the total finding count rises above tools/ci/cppcheck-ratchet.txt
-      # or any finding has error severity.
+      # when the total finding count rises above the CPPCHECK_MODE line of
+      # tools/ci/cppcheck-ratchet.txt or any finding has error severity.
       env:
         CPPCHECK_BUILD_DIR: .cppcheck-build
       run: bash tools/ci/run-cppcheck.sh
@@ -339,9 +463,10 @@ jobs:
     # uploads SARIF to code scanning, so findings land on the repository's
     # Security tab. The ENABLESEC=1 build is traced so the optional
     # security/fuzz engines — code that only exists to parse hostile input —
-    # are inside the analysis surface too.
+    # are inside the analysis surface too. Family and full tiers (#656): a
+    # tests or tooling change compiles no SDK source differently.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' && needs.changes.outputs.tier != 'tests' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -356,6 +481,9 @@ jobs:
         languages: c-cpp
         queries: security-extended
         build-mode: manual
+        # TRAP caches (92-160 MB per main commit) filled most of the 10 GB
+        # repository cache budget and crowded out the small caches (#660).
+        trap-caching: false
     - name: Build the SDK for CodeQL extraction
       run: make -C sdk ENABLESEC=1 -j"$(nproc)"
     - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
@@ -436,14 +564,19 @@ jobs:
       # tag/schedule-only job), would block every PR — fail here instead.
       # PyYAML is installed explicitly so the result never depends on the
       # runner image; REQUIRE_PYYAML=1 makes its absence fatal for the
-      # self-test (the run_all_tests.sh copy skips without it).
+      # self-test (the run_all_tests.sh copy skips without it). The test map
+      # must name every suite and harness, tagged as their files show
+      # (issue #656).
       run: |
         python3 -c 'import yaml' 2>/dev/null || {
           sudo apt-get update && sudo apt-get install -y python3-yaml
         }
         bash tools/ci/check-required-checks.sh
+        bash tools/ci/check-test-map.sh
         REQUIRE_PYYAML=1 bash tools/ci/tests/test-required-checks.sh
         REQUIRE_PYYAML=1 bash tools/ci/tests/test-classify-changes.sh
+        REQUIRE_PYYAML=1 bash tools/ci/tests/test-harness-shards.sh
+        REQUIRE_PYYAML=1 bash tools/ci/tests/test-local-gates.sh
     - name: Package-declaration consistency (blocking — issue #219)
       # Was advisory until the .deb/.rpm declarations were reconciled with
       # the build; the contradictions it tracked are closed, so a regression
@@ -464,6 +597,26 @@ jobs:
       # helper runs as an ordinary blocking step, not in the advisory loop.
       # A rise above the baseline fails the job.
       run: bash tools/ci/lint-commented-code.sh
+    - name: Function shape and parameter count — all of src/ (blocking — issues #547, #548)
+      # Issue #548 split the last over-200-line functions of the engine,
+      # DICOM, NDN and NAS sources; issue #547 split those of src/mmt_tcpip
+      # and re-aimed both reports at every tracked src/ C source (generated
+      # asn1c and vendored code excluded). The gates are ≤200 lines and
+      # nesting depth ≤6 per function, ≤6 parameters; the functions still
+      # beyond them are recorded in the two scripts' committed ratchet
+      # files, so a new or grown offender — or a row left behind once its
+      # function is fixed — fails the job.
+      run: |
+        bash tools/ci/report-function-shape.sh
+        bash tools/ci/report-param-count.sh
+    - name: Unreachable sections (blocking — issue #541)
+      # Builds the default SDK at -O0 in a temporary copy of the tree with
+      # -ffunction-sections and -Wl,--print-gc-sections, and fails on a
+      # section the linker drops as unreachable that is neither generated,
+      # vendored nor justified in tools/ci/unreachable-sections-allowlist.txt
+      # — and on an allowlist row whose section is reachable again. The
+      # checkout's sdk/ is not touched.
+      run: bash tools/ci/report-unreachable-sections.sh
     - name: Packet-path I/O lint (blocking — issue #246)
       # The gate condition holds — zero unconditional printf/fprintf on
       # packet paths — so this helper runs as an ordinary blocking step, not
@@ -487,7 +640,6 @@ jobs:
           tools/ci/check-hardening-flags.sh
 
           tools/ci/check-public-decls.sh
-          "tools/ci/report-function-shape.sh src/mmt_tcpip/lib/protocols/proto_irc.c"
         )
         for spec in "${helpers[@]}"; do
           read -ra argv <<< "$spec"
@@ -507,6 +659,19 @@ jobs:
           esac
         done
         exit "$fail"
+    # Folded in from the former site-onboarding job (issues #396, #659): it
+    # rebuilt the site this job built above. Last, so the SDK the suite builds
+    # into its throwaway prefix leaves no sdk/lib for the advisory helpers.
+    - uses: ./.github/actions/bootstrap-deps
+    - name: Run the documented first run against the built site (docs_onboarding)
+      # The docs_onboarding suite against docs/_site: the landing page is
+      # checked as rendered, both download links must serve files
+      # byte-identical to docs/first-run/, and the displayed fetch/compile/run
+      # steps run verbatim in an empty directory against a throwaway SDK
+      # install, output diffed.
+      env:
+        DOCS_SITE_DIR: docs/_site
+      run: bash tests/docs_onboarding/run_tests.sh
 
   pre-commit:
     # Pre-commit framework gate (issue #187, F-CI-003). Contributor and
@@ -560,7 +725,7 @@ jobs:
 
   version-agreement:
     # Single version source (issue #483): every version site must agree with
-    # rules/common.mk VERSION — mmt_core.h, the ZIP fallback, the CHANGELOG
+    # rules/common.mk VERSION — mmt_core.h, mmt-dpi.spec, the CHANGELOG
     # heading, debian/changelog when present, and the installer pin with the
     # README/site mentions of it. A dedicated job so the verdict carries its
     # own status-check name; it needs no dependencies and no write access.
@@ -593,10 +758,38 @@ jobs:
     # Never skips on a docs-only change (issue #552): its runtime
     # protocol-count check compares README.md, docs/index.html and
     # docs/_config.yml with the built SDK, so it is a docs job too.
+    #
+    # Also the aggregate of the variant-build legs (issue #658):
+    # toolchain-floor (GCC 11) and assertions-live (NDEBUG=1) skip on pull
+    # requests and run in the merge queue, which waits only for required
+    # contexts. `build` is one, so it needs them and fails unless each
+    # succeeded — a skip is accepted on a pull request only. !cancelled()
+    # keeps it running when one of them fails: a job skipped by a failed need
+    # would report success. On a pull request they skip as soon as `changes`
+    # (their need) finishes, so `build` starts after `changes`; in the queue
+    # it starts after the slower of the two.
+    needs: [toolchain-floor, assertions-live]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
+    - name: Variant-build legs succeeded (merge queue, push and schedule)
+      env:
+        EVENT: ${{ github.event_name }}
+        FLOOR: ${{ needs.toolchain-floor.result }}
+        ASSERTIONS: ${{ needs.assertions-live.result }}
+      run: |
+        bad=0
+        for leg in "toolchain-floor=$FLOOR" "assertions-live=$ASSERTIONS"; do
+          result="${leg#*=}"
+          echo "${leg%%=*}: ${result}"
+          [ "$result" = success ] && continue
+          [ "$result" = skipped ] && [ "$EVENT" = pull_request ] && continue
+          echo "::error::${leg%%=*} did not succeed (${result})"
+          bad=1
+        done
+        exit "$bad"
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: ./.github/actions/bootstrap-deps
     - name: build-from-source
@@ -630,9 +823,10 @@ jobs:
     # installed consumer must run with LD_LIBRARY_PATH unset, `make uninstall`
     # must leave neither the prefix nor the drop-in, and `make -n install`
     # must not compile. It writes /etc, so it runs in a throwaway container
-    # (the ubuntu:24.04 pin recorded in tools/ci/base-images.txt).
+    # (the ubuntu:24.04 pin recorded in tools/ci/base-images.txt). Full tier
+    # only (#656).
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.full != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -641,7 +835,7 @@ jobs:
     - name: Root install / uninstall round trip in ubuntu:24.04
       run: |
         docker run --rm -v "$PWD":/work -w /work \
-          "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c" \
+          "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852" \
           bash tools/ci/tests/run-root-install.sh --install-deps
 
   assertions-live:
@@ -652,9 +846,12 @@ jobs:
     # common.mk); the job builds with it, proves -DNDEBUG never reached a
     # compile line, then runs the full unit-suite set with the variable in
     # the environment so the SDK the suites build internally is the
-    # assertions-live one too.
+    # assertions-live one too. Runs on the tests, family and full tiers, on
+    # the tier's suites (#656). A merge-queue leg (issue #658): it skips on
+    # pull requests, and `build` needs it, so the queue's required `build`
+    # context gates it.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -673,24 +870,40 @@ jobs:
     - name: Run unit test suites with assertions live
       env:
         NDEBUG: "1"
-      run: bash tests/run_all_tests.sh
+        SUITES: ${{ needs.changes.outputs.suites }}
+      run: bash tests/run_all_tests.sh $SUITES
 
+  # --- Retired contexts (issue #659) -----------------------------------------
+  # Each job below re-proved what another job proves, so it was folded into
+  # that job. Branch protection on main may still require its context, and a
+  # required context that no job reports blocks every pull request, so each
+  # keeps a stub under the same name: `if: false` skips it on every event and
+  # a skipped job reports success, using no runner. The contexts are listed
+  # in .github/retired-checks.txt, not .github/required-checks.txt;
+  # tools/ci/check-required-checks.sh checks both. Once a maintainer drops a
+  # context from protection, delete its stub and its retired-checks.txt line.
   enablesec:
-    # Compile the optional security/fuzz engines, which are only built when
-    # the SDK is built with ENABLESEC=1 (issue #126 / F-TEST-003): the CI gate
-    # that proves the engines compile in the shipped configuration. The
-    # rule_engine suite that exercises them is in DEFAULT_SUITES, so the
-    # unit-tests job runs it; this job no longer re-runs it (issue #552,
-    # F-CI-015).
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    # Was: `make -C sdk ENABLESEC=1` (issue #126). Now proved by the shared
+    # ENABLESEC=1 SDK build tests/run_all_tests.sh makes for rule_engine and
+    # installed_consumer (the unit-tests and sanitizer legs; every suite in
+    # the merge queue), and by codeql, which traces an ENABLESEC=1 build.
+    if: false
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-    - uses: ./.github/actions/bootstrap-deps
-    - name: Build the SDK with the security engines (ENABLESEC=1)
-      run: make -C sdk ENABLESEC=1 -j"$(nproc)"
+    - run: echo "retired (#659), see .github/retired-checks.txt"
+
+  asan-build:
+    # Was phase0-baseline.yml's BUILD=asan compile + `__asan_init` check. Now
+    # a step of sanitizer-tests (BUILD=asan, asan). Kept in this workflow so
+    # tools/phase0/ci/check_readme_gates.sh, which lists the phase0 gates,
+    # no longer shows it.
+    name: ASan/UBSan profile compiles
+    if: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - run: echo "retired (#659), see .github/retired-checks.txt"
 
   secret-scan:
     # Secret scanning gate (issue #160 / F-SEC-006): fail the workflow if
@@ -756,15 +969,28 @@ jobs:
     # fuzz-artifacts/ and the job fails. Every run first replays the
     # committed reproducers in tools/ci/fuzz/regressions (issue #486), so a
     # crash once found stays gated on every pull request whatever the seed.
+    # Family and full tiers (#656): a tests or tooling change compiles no
+    # SDK source differently, and the fuzz inputs are mapped full.
+    #
+    # libFuzzer (issue #530, F-TEST-013): run-fuzz.sh --libfuzzer builds the
+    # coverage-guided target tools/ci/fuzz/packet_fuzzer.c with clang. Every
+    # run replays the committed seeds (one capture per F-TEST-013 family)
+    # and regressions through it — the blocking, commit-deterministic part.
+    # The schedule then fuzzes for 1200 s from the corpus kept in the
+    # Actions cache and saves the grown, minimised corpus under a new key;
+    # other events replay that cached corpus without blocking, since its
+    # content depends on the cache, not on the commit. Their restore also
+    # keeps the entry from expiring between weekly runs; the corpus is
+    # uploaded as an artifact too, as a fallback.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' && needs.changes.outputs.tier != 'tests' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 80
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: ./.github/actions/bootstrap-deps
       with:
-        extra-packages: python3
+        extra-packages: python3 clang libclang-rt-18-dev
     - name: Replay the fuzz regressions, then fuzz the golden corpus + the fuzz engine
       env:
         FUZZ_SECONDS: ${{ github.event_name == 'schedule' && '1800' || '300' }}
@@ -773,6 +999,39 @@ jobs:
         # identical on every runner; the nightly run explores freely.
         FUZZ_ITER: ${{ github.event_name == 'schedule' && '0' || '1200' }}
       run: bash tools/ci/run-fuzz.sh --seconds "${FUZZ_SECONDS}" --seed "${FUZZ_SEED}" --iterations "${FUZZ_ITER}" --artifacts fuzz-artifacts
+    - name: Restore the libFuzzer corpus
+      if: ${{ !cancelled() }}
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: fuzz-corpus
+        key: fuzz-corpus-${{ github.run_id }}
+        restore-keys: |
+          fuzz-corpus-
+    - name: libFuzzer — replay the committed seeds and regressions
+      if: ${{ !cancelled() && github.event_name != 'schedule' }}
+      run: bash tools/ci/run-fuzz.sh --libfuzzer --replay-only --artifacts fuzz-artifacts --keep-fuzzer "${RUNNER_TEMP}/packet_fuzzer"
+    - name: libFuzzer — replay the cached corpus (advisory)
+      if: ${{ !cancelled() && github.event_name != 'schedule' && hashFiles('fuzz-corpus/**') != '' }}
+      continue-on-error: true
+      run: bash tools/ci/run-fuzz.sh --libfuzzer --replay-only --corpus fuzz-corpus --fuzzer "${RUNNER_TEMP}/packet_fuzzer" --artifacts fuzz-corpus-replay
+    - name: libFuzzer — replay, then fuzz from the cached corpus
+      if: ${{ !cancelled() && github.event_name == 'schedule' }}
+      # run_number, not run_id: libFuzzer's -seed is a 32-bit value.
+      run: bash tools/ci/run-fuzz.sh --libfuzzer --seconds 1200 --seed "${{ github.run_number }}" --corpus fuzz-corpus --artifacts fuzz-artifacts
+    - name: Save the libFuzzer corpus
+      if: ${{ !cancelled() && github.event_name == 'schedule' && hashFiles('fuzz-corpus/**') != '' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: fuzz-corpus
+        key: fuzz-corpus-${{ github.run_id }}
+    - name: Upload the libFuzzer corpus
+      if: ${{ !cancelled() && github.event_name == 'schedule' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: fuzz-corpus
+        path: fuzz-corpus/
+        if-no-files-found: ignore
+        retention-days: 30
     - name: Upload crash reproducers
       if: failure()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -814,15 +1073,19 @@ jobs:
 
   resource-budgets:
     # Resource-budget gate (issue #395, M4): run every resource_bounds fixture
-    # on each supported architecture (amd64 and arm64, the release package
-    # matrix) and check the committed deterministic budgets
+    # on arm64 and check the committed deterministic budgets
     # (tests/resource_bounds/budgets.json) with tools/ci/check-resource-budgets.py:
     # results.json schema validation, an independent re-evaluation of every
     # budget, and failure on an over-budget count or a missing dimension,
     # workload record or metric. The checker's --self-test proves each of
     # those failures is detected. Wall-clock is recorded as a labelled
     # observation only; no budget reads it.
-    # A matrix job: on a docs-only change its steps skip (see `changes`).
+    # amd64 is the resource_bounds suite's job (issue #659): it is in
+    # DEFAULT_SUITES, so unit-tests runs every fixture on x86 and its
+    # run_tests.sh runs the checker (and its --self-test) on the results; the
+    # former ubuntu-24.04 leg repeated that.
+    # A matrix job: on a docs-only change its steps skip (see `changes`), and
+    # below the full tier unless `changes` names resource_bounds (#656).
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: ${{ matrix.runner }}
@@ -830,62 +1093,34 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04-arm]
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && (needs.changes.outputs.full != 'false' || contains(format(' {0} ', needs.changes.outputs.suites), ' resource_bounds '))
     - name: Ensure jq and python3
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && (needs.changes.outputs.full != 'false' || contains(format(' {0} ', needs.changes.outputs.suites), ' resource_bounds '))
       run: command -v jq >/dev/null && command -v python3 >/dev/null || { sudo apt-get update -y && sudo apt-get install -y jq python3; }
     - name: Self-test the budget checker (breach and missing-record fixtures)
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && (needs.changes.outputs.full != 'false' || contains(format(' {0} ', needs.changes.outputs.suites), ' resource_bounds '))
       run: python3 tools/ci/check-resource-budgets.py --self-test
     - name: Run the resource_bounds fixtures and check every budget
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && (needs.changes.outputs.full != 'false' || contains(format(' {0} ', needs.changes.outputs.suites), ' resource_bounds '))
       env:
         RESOURCE_BOUNDS_RESULTS: ${{ runner.temp }}/resource-bounds/results.json
       run: bash tests/resource_bounds/run_tests.sh all
     - name: Re-check the published results (all dimensions required)
       # Explicit full-mode re-check of the uploaded file, independent of the
       # runner's own invocation.
-      if: needs.changes.outputs.code != 'false'
+      if: needs.changes.outputs.code != 'false' && (needs.changes.outputs.full != 'false' || contains(format(' {0} ', needs.changes.outputs.suites), ' resource_bounds '))
       run: python3 tools/ci/check-resource-budgets.py "${{ runner.temp }}/resource-bounds/results.json"
     - name: Upload resource-bound results
-      if: (success() || failure()) && needs.changes.outputs.code != 'false'
+      if: (success() || failure()) && needs.changes.outputs.code != 'false' && (needs.changes.outputs.full != 'false' || contains(format(' {0} ', needs.changes.outputs.suites), ' resource_bounds '))
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: resource-bounds-results-${{ runner.arch }}
         path: ${{ runner.temp }}/resource-bounds/results.json
         if-no-files-found: warn
         retention-days: 14
-
-  site-onboarding:
-    # Onboarding through the built site artifact (issue #396, M4): build the
-    # site with the same recipe Pages publishes (tools/ci/build-docs-site.sh —
-    # built-site link check + manifest), then run the docs_onboarding suite
-    # against docs/_site: the landing page is checked as rendered, both
-    # download links must serve files byte-identical to docs/first-run/, and
-    # the displayed fetch/compile/run steps are executed verbatim in an empty
-    # directory against a throwaway SDK install, output diffed.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-    - uses: ./.github/actions/bootstrap-deps
-    - name: Set up Ruby for the docs-site build
-      uses: ruby/setup-ruby@b1da4809b005e0178fe08a1d57317bffc00b7b4c # v1.332.0
-      with:
-        ruby-version: "3.4"
-        working-directory: docs
-        bundler-cache: true
-      env:
-        BUNDLE_FROZEN: "true"
-    - name: Build the site artifact
-      run: bash tools/ci/build-docs-site.sh
-    - name: Run the documented first run against the built site
-      env:
-        DOCS_SITE_DIR: docs/_site
-      run: bash tests/docs_onboarding/run_tests.sh
 
   toolchain-ceiling:
     # Toolchain-ceiling gate (issue #514, F-DEP-301/F-DEP-307): the newest GCC
@@ -897,9 +1132,13 @@ jobs:
     # suites' own test programs keep the -std their run_tests.sh pins (GCC
     # 15's C23 default where none is pinned) and get the GCC >= 15
     # diagnostics. The floor job above is unchanged. ubuntu-26.04 is a
-    # GitHub preview runner label.
+    # GitHub preview runner label. Runs on the tests, family and full tiers,
+    # on the tier's suites (#656). Not a merge-queue leg (issue #658): on a
+    # preview runner label, a stalled or retired runner would block the queue
+    # through `build`, so it stays on pull requests until a maintainer
+    # requires its context.
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.gates != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     env:
@@ -916,4 +1155,88 @@ jobs:
     - name: Build the SDK with the security engines as C23 (ENABLESEC=1)
       run: make -C sdk ENABLESEC=1 -j"$(nproc)"
     - name: Run unit test suites
-      run: bash tests/run_all_tests.sh
+      env:
+        SUITES: ${{ needs.changes.outputs.suites }}
+      run: bash tests/run_all_tests.sh $SUITES
+
+  abi-diff:
+    # ABI gate against the last release (issue #525 added the comparison,
+    # issue #536 the SOVERSION gate, issue #533 trims the exported symbol set
+    # it reports), both legs run by tools/ci/abi-diff.sh:
+    #   - types and symbols: the ABI_BASELINE tag and this commit, each
+    #     rebuilt in the release profile plus -g in a throwaway worktree
+    #     (hence the full-history checkout), compared within their public
+    #     headers;
+    #   - shipped symbols: the published ABI_BASELINE ubuntu-24.04 .deb for
+    #     this runner's architecture, checked against the release's
+    #     SHA256SUMS, against this commit's libraries, both sides stripped to
+    #     their ELF symbols.
+    # The compared HEAD build is held to the release hardening set, so the
+    # comparison is of the shipped profile. Both legs run --fail-on
+    # incompatible: an incompatible change fails the job unless the
+    # library's SONAME moved (bump SOVERSION in rules/common.mk, and record
+    # the break in CHANGELOG.md); a compatible change is only reported, and
+    # a broken tool, build or download fails it too. ABI_BASELINE moves to
+    # the new tag after each release (docs/Prepare-for-a-new-released-version.md).
+    # A required context (.github/required-checks.txt); full tier only (#656) — a
+    # skipped run reports success, and the merge queue always runs it.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.full != 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      ABI_BASELINE: v1.9.1
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - uses: ./.github/actions/bootstrap-deps
+      with:
+        extra-packages: abigail-tools
+    - name: ABI gate against the baseline tag (types and symbols)
+      run: |
+        out="$RUNNER_TEMP/abi-diff"
+        mkdir -p "$out"
+        abidiff --version
+        rc=0
+        bash tools/ci/abi-diff.sh --baseline-ref "$ABI_BASELINE" \
+          --keep-libs "$out/libs" --fail-on incompatible \
+          --report "$out/tag-report.txt" --summary "$out/tag-summary.md" || rc=$?
+        if [ -f "$out/tag-summary.md" ]; then cat "$out/tag-summary.md" >> "$GITHUB_STEP_SUMMARY"; fi
+        exit "$rc"
+    - name: The compared HEAD build kept the release hardening
+      run: bash tools/ci/check-hardening-flags.sh --built "$RUNNER_TEMP/abi-diff/libs/head/lib"
+    - name: ABI gate against the shipped baseline package (symbols)
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        out="$RUNNER_TEMP/abi-diff"
+        ver="${ABI_BASELINE#v}"
+        arch="$(uname -m)"
+        mkdir -p "$out/release"
+        gh release download "$ABI_BASELINE" --repo "$GITHUB_REPOSITORY" \
+          --dir "$out/release" --pattern SHA256SUMS \
+          --pattern "mmt-dpi_${ver}_*_ubuntu-24.04_${arch}.deb"
+        debs=("$out/release/mmt-dpi_${ver}"_*"_ubuntu-24.04_${arch}.deb")
+        test "${#debs[@]}" -eq 1 && test -f "${debs[0]}"
+        deb="$(basename "${debs[0]}")"
+        (cd "$out/release" && awk -v f="$deb" '$2 == f' SHA256SUMS | sha256sum -c -)
+        rc=0
+        bash tools/ci/abi-diff.sh --release-deb "${debs[0]}" \
+          --head-dir "$out/libs/head/lib" --fail-on incompatible \
+          --report "$out/release-report.txt" --summary "$out/release-summary.md" || rc=$?
+        if [ -f "$out/release-summary.md" ]; then cat "$out/release-summary.md" >> "$GITHUB_STEP_SUMMARY"; fi
+        exit "$rc"
+    - name: Upload the ABI reports
+      if: success() || failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: abi-diff-reports
+        path: |
+          ${{ runner.temp }}/abi-diff/*.txt
+          ${{ runner.temp }}/abi-diff/*.md
+        if-no-files-found: warn
+        retention-days: 14

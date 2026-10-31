@@ -17,19 +17,19 @@
  */
 int init_mobile_plugin() {
 	if (!init_proto_diameter_struct()) {
-		fprintf(stderr,	"Error initializing protocol PROTO_DIAMETER\n");
+		mmt_stderr_log("Error initializing protocol PROTO_DIAMETER\n");
 		return 0;
 	}
 	if (!init_proto_gtpv2_struct()) {
-		fprintf(stderr, "Error initializing protocol PROTO_GTPV2\n");
+		mmt_stderr_log("Error initializing protocol PROTO_GTPV2\n");
 		return 0;
 	}
 	if (!init_proto_ngap_struct()) {
-		fprintf(stderr, "Error initializing protocol PROTO_NGAP\n");
+		mmt_stderr_log("Error initializing protocol PROTO_NGAP\n");
 		return 0;
 	}
 	if (!init_proto_nas_5g_struct()) {
-		fprintf(stderr, "Error initializing protocol PROTO_NAS5G\n");
+		mmt_stderr_log("Error initializing protocol PROTO_NAS5G\n");
 		return 0;
 	}
 	return init_proto_s1ap();

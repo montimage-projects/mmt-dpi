@@ -276,10 +276,6 @@ static inline proto_statistics_internal_t * _create_protocol_stats_instance(prot
     return proto_stats;
 }
 
-proto_statistics_internal_t * create_protocol_stats_instance(protocol_instance_t * proto, proto_statistics_internal_t * parent_proto_stats) {
-	return _create_protocol_stats_instance( proto, parent_proto_stats);
-}
-
 /**
  * Returns a pointer to the protocol statistics of the child protocol identified by \child_proto_id
  * @param proto_stats pointer to the protocol stats instance
@@ -290,9 +286,6 @@ static inline proto_statistics_internal_t * _get_child_protocol_stats(proto_stat
     return (proto_statistics_internal_t *) find_int_key_value(proto_stats->encap_proto_stats, child_proto_id);
 }
 
-proto_statistics_internal_t * get_child_protocol_stats(proto_statistics_internal_t * proto_stats, uint32_t child_proto_id) {
-	return _get_child_protocol_stats( proto_stats, child_proto_id);
-}
 /**
  * Returns a pointer to the protocol statistics in the parent protocol encapsulated stats
  * @param proto pointer to the protocol instance
@@ -314,9 +307,6 @@ static inline proto_statistics_internal_t * _get_protocol_stats_from_parent(prot
     }
     return proto_stats;
 }
-proto_statistics_internal_t * get_protocol_stats_from_parent(protocol_instance_t * proto, proto_statistics_internal_t * parent_proto_stats) {
-	return _get_protocol_stats_from_parent( proto, parent_proto_stats);
-}
 
 /**
  * Prints the protocol stats tree rooted at the given protocol
@@ -324,20 +314,6 @@ proto_statistics_internal_t * get_protocol_stats_from_parent(protocol_instance_t
  * @param proto pointer to the root protocol
  */
 void print_protocol_stats_tree(FILE * f, protocol_instance_t * proto);
-
-/**
- * Prints the protocol stats for the given protocol
- * @param f file descriptor
- * @param proto pointer to the protocol
- */
-void print_protocol_stats(FILE * f, protocol_instance_t * proto) {
-    proto_statistics_internal_t * proto_stats = proto->proto_stats;
-    while (proto_stats) {
-        mmt_stream_printf(f, "Proto %u: \nnb\tpackets %"PRIu64" --- byte count %"PRIu64" --- sessions count %"PRIu64" --- timeout sessions count %"PRIu64"\n",
-                proto_stats->proto->protocol->proto_id, proto_stats->packets_count, proto_stats->data_volume, proto_stats->sessions_count, proto_stats->timedout_sessions_count);
-        proto_stats = proto_stats->next;
-    }
-}
 
 proto_statistics_t * get_protocol_stats(mmt_handler_t *mmt_handler, uint32_t proto_id) {
     if (mmt_handler == NULL) return NULL;
@@ -421,6 +397,11 @@ void internal_protocol_children_stats_iterator(void * key, void * value, void * 
     children_stats->data_volume += child_stats->data_volume;
     children_stats->packets_count += child_stats->packets_count;
     children_stats->payload_volume += child_stats->payload_volume;
+    for (int d = 0; d < 2; d++) {
+        children_stats->packets_count_direction[d]  += child_stats->packets_count_direction[d];
+        children_stats->data_volume_direction[d]    += child_stats->data_volume_direction[d];
+        children_stats->payload_volume_direction[d] += child_stats->payload_volume_direction[d];
+    }
     children_stats->sessions_count += child_stats->sessions_count;
     children_stats->timedout_sessions_count += child_stats->timedout_sessions_count;
 }
@@ -432,6 +413,11 @@ void get_children_stats(proto_statistics_t * parent_stats, proto_statistics_t * 
     children_stats->data_volume = temp_stats.data_volume;
     children_stats->packets_count = temp_stats.packets_count;
     children_stats->payload_volume = temp_stats.payload_volume;
+    for (int d = 0; d < 2; d++) {
+        children_stats->packets_count_direction[d]  = temp_stats.packets_count_direction[d];
+        children_stats->data_volume_direction[d]    = temp_stats.data_volume_direction[d];
+        children_stats->payload_volume_direction[d] = temp_stats.payload_volume_direction[d];
+    }
     children_stats->sessions_count = temp_stats.sessions_count;
     children_stats->timedout_sessions_count = temp_stats.timedout_sessions_count;
 }
@@ -442,66 +428,32 @@ void reset_proto_stats(protocol_instance_t * proto) {
         proto_stats->data_volume = 0;
         proto_stats->payload_volume = 0;
         proto_stats->packets_count = 0;
+        memset(proto_stats->packets_count_direction, 0, sizeof(proto_stats->packets_count_direction));
+        memset(proto_stats->data_volume_direction, 0, sizeof(proto_stats->data_volume_direction));
+        memset(proto_stats->payload_volume_direction, 0, sizeof(proto_stats->payload_volume_direction));
         proto_stats->sessions_count = 0;
         proto_stats->timedout_sessions_count = 0;
         proto_stats = proto_stats->next;
     }
 }
 /**
-* Update statistic of protocol on packet
-* @ipacket                  packet with new data to update
-* @configured_protocol      touched
-* @parent_stats             Statistic of protocol parent
-*/
-proto_statistics_internal_t * update_proto_stats_on_packet(ipacket_t * ipacket, protocol_instance_t * configured_protocol, proto_statistics_internal_t * parent_stats, uint32_t proto_offset, unsigned index) {
-    if (likely(isProtocolStatisticsEnabled(ipacket->mmt_handler))) {
-        /* Cumulative per-packet counters; the application polls/resets them (docs/DECISIONS.md, #329). */
-        proto_statistics_internal_t * proto_stats = _get_protocol_stats_from_parent(configured_protocol, parent_stats);
-
-        if (likely(proto_stats)) {
-            proto_stats->touched         = 1;
-            proto_stats->packets_count  += 1;
-            proto_stats->data_volume    += ipacket->p_hdr->original_len;
-            proto_stats->payload_volume += ipacket->p_hdr->len - proto_offset;
-            // Update the fist packet
-            if (proto_stats->packets_count == 1) {
-                proto_stats->first_packet_time = ipacket->p_hdr->ts;
-                proto_stats->ip_frag_packets_count = 0;
-                proto_stats->ip_frag_data_volume = 0;
-                proto_stats->ip_df_packets_count = 0;
-                proto_stats->ip_df_data_volume = 0;
-            }
-            proto_stats->last_packet_time = ipacket->p_hdr->ts;
-
-            // Check if this is IP protocol, then update ip_fragment information
-            if(likely(configured_protocol->protocol->proto_id == 178 || configured_protocol->protocol->proto_id == 179 || configured_protocol->protocol->proto_id == 182 )){
-                if(ipacket->is_fragment[index]){
-                    proto_stats->ip_frag_packets_count ++;
-                    if(ipacket->is_completed[index]){
-                        proto_stats->ip_frag_data_volume += ipacket->p_hdr->original_caplen;
-                        proto_stats->ip_df_packets_count += ipacket->nb_reassembled_packets[index];
-                        proto_stats->ip_df_data_volume += ipacket->total_caplen;
-                    }else{
-                        proto_stats->ip_frag_data_volume += ipacket->p_hdr->caplen;
-                    }
-                }
-            }
-        }
-        return proto_stats;
-    }else{
-        return NULL;
-    }
-}
-/**
- * Increase session_count of protocol
- * @param  ipacket             packet of new session
- * @param  configured_protocol instace of protocol
- * @param  parent_stats        statistic of parent protocol
- * @param  new_session         new session
- * @return                     updated protocol statistic
+ * Update the statistics of a protocol for the packet being processed.
+ *
+ * Issue #543: one updater for both paths of proto_packet_process() — the
+ * former update_proto_stats_on_packet()/_on_new_session() twins. The two
+ * differences they had drifted into are kept as they were, tied to
+ * new_session (docs/DECISIONS.md, #543): the first packet of a session
+ * counts payload_volume from p_hdr->original_len, the others from
+ * p_hdr->len; and only the other packets count IPv6 (182) fragments, the
+ * first packet counting them for IP (178) and IP-in-IP (179) only.
+ * @ipacket                  packet with new data to update
+ * @configured_protocol      touched
+ * @parent_stats             Statistic of protocol parent
+ * @new_session              non-zero when the packet opened a session (sessions_count += 1)
+ * @return                   updated protocol statistic, NULL when statistics are disabled
  */
-proto_statistics_internal_t * update_proto_stats_on_new_session(ipacket_t * ipacket, protocol_instance_t * configured_protocol, proto_statistics_internal_t * parent_stats, int new_session, uint32_t proto_offset, unsigned index) {
-    if (!isProtocolStatisticsEnabled(ipacket->mmt_handler)) {
+proto_statistics_internal_t * update_proto_stats(ipacket_t * ipacket, protocol_instance_t * configured_protocol, proto_statistics_internal_t * parent_stats, int new_session, uint32_t proto_offset, unsigned index) {
+    if (unlikely(!isProtocolStatisticsEnabled(ipacket->mmt_handler))) {
         return NULL;
     }
 
@@ -511,31 +463,47 @@ proto_statistics_internal_t * update_proto_stats_on_new_session(ipacket_t * ipac
     if (likely(proto_stats)) {
         if (new_session) {
             proto_stats->sessions_count += 1;
-            proto_stats->touched         = 1;
-            proto_stats->packets_count  += 1;
-            proto_stats->data_volume    += ipacket->p_hdr->original_len;
-            proto_stats->payload_volume += ipacket->p_hdr->original_len - proto_offset;
-            // Update the fist packet
-            if (proto_stats->packets_count == 1) {
-                proto_stats->first_packet_time = ipacket->p_hdr->ts;
-                proto_stats->ip_frag_packets_count = 0;
-                proto_stats->ip_frag_data_volume = 0;
-                proto_stats->ip_df_packets_count = 0;
-                proto_stats->ip_df_data_volume = 0;
-            }
-            proto_stats->last_packet_time = ipacket->p_hdr->ts;
+        }
+        const uint64_t payload = (new_session ? ipacket->p_hdr->original_len : ipacket->p_hdr->len) - proto_offset;
+        proto_stats->touched         = 1;
+        proto_stats->packets_count  += 1;
+        proto_stats->data_volume    += ipacket->p_hdr->original_len;
+        proto_stats->payload_volume += payload;
+        /* Issue #546: the per-direction counters were documented but never
+         * written. [0] counts the packets travelling in the direction of the
+         * session's first packet (uplink, as get_session_ul_packet_count()),
+         * [1] the others; a layer the packet crosses without a session
+         * (below the sessionizing protocol) has no direction and is counted
+         * in the totals only. proto_session_management() ran just before,
+         * so the session and its last_packet_direction are this packet's. */
+        const mmt_session_t * session = ipacket->session;
+        if (session != NULL) {
+            const unsigned dir = session->last_packet_direction != session->setup_packet_direction;
+            proto_stats->packets_count_direction[dir]  += 1;
+            proto_stats->data_volume_direction[dir]    += ipacket->p_hdr->original_len;
+            proto_stats->payload_volume_direction[dir] += payload;
+        }
+        // Update the fist packet
+        if (proto_stats->packets_count == 1) {
+            proto_stats->first_packet_time = ipacket->p_hdr->ts;
+            proto_stats->ip_frag_packets_count = 0;
+            proto_stats->ip_frag_data_volume = 0;
+            proto_stats->ip_df_packets_count = 0;
+            proto_stats->ip_df_data_volume = 0;
+        }
+        proto_stats->last_packet_time = ipacket->p_hdr->ts;
 
-            // Check if this is IP protocol, then update ip_fragment information
-            if(likely(configured_protocol->protocol->proto_id == 178 || configured_protocol->protocol->proto_id == 179)){
-                if(ipacket->is_fragment[index]){
-                    proto_stats->ip_frag_packets_count ++;
-                    if(ipacket->is_completed[index]){
-                        proto_stats->ip_frag_data_volume += ipacket->p_hdr->original_caplen;
-                        proto_stats->ip_df_packets_count += ipacket->nb_reassembled_packets[index];
-                        proto_stats->ip_df_data_volume += ipacket->total_caplen;
-                    }else{
-                        proto_stats->ip_frag_data_volume += ipacket->p_hdr->caplen;
-                    }
+        // Check if this is IP protocol, then update ip_fragment information
+        uint32_t proto_id = configured_protocol->protocol->proto_id;
+        if(likely(proto_id == 178 || proto_id == 179 || (!new_session && proto_id == 182))){
+            if(ipacket->is_fragment[index]){
+                proto_stats->ip_frag_packets_count ++;
+                if(ipacket->is_completed[index]){
+                    proto_stats->ip_frag_data_volume += ipacket->p_hdr->original_caplen;
+                    proto_stats->ip_df_packets_count += ipacket->nb_reassembled_packets[index];
+                    proto_stats->ip_df_data_volume += ipacket->total_caplen;
+                }else{
+                    proto_stats->ip_frag_data_volume += ipacket->p_hdr->caplen;
                 }
             }
         }

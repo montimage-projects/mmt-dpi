@@ -65,7 +65,6 @@ int icmp_data_extraction(const ipacket_t * packet, unsigned proto_index,
      * past the capture buffer. */
     size_t data_start = (size_t) proto_offset + (size_t) attribute_offset;
     if (!mmt_have_bytes(packet, data_start, 0)) {
-        MMT_LOG( PROTO_ICMP, MMT_LOG_DEBUG, "*** Warning: malformed packet (icmp length mismatch)\n" );
         return 0;
     }
     int data_len = (int) (packet->p_hdr->caplen - data_start);
@@ -80,35 +79,6 @@ int icmp_data_extraction(const ipacket_t * packet, unsigned proto_index,
         default:
             return 0;
     }
-}
-
-classified_proto_t icmp_classify_next_proto(ipacket_t * ipacket, unsigned index, void * args) {
-    int offset = get_packet_offset_at_index(ipacket, index);
-    classified_proto_t retval;
-    retval.offset = -1;
-    retval.proto_id = -1;
-    retval.status = NonClassified;
-
-    char type = *(char *) & ipacket->data[offset];
-
-    switch (type) {
-        case ICMP_DEST_UNREACH:
-        case ICMP_SOURCE_QUENCH:
-        case ICMP_REDIRECT:
-        case ICMP_TIME_EXCEEDED:
-        case ICMP_PARAMETERPROB:
-            retval.proto_id = PROTO_IP;
-            retval.offset = 8;
-            retval.status = Classified;
-            break;
-        default:
-            retval.proto_id = PROTO_UNKNOWN;
-            retval.offset = 8;
-            retval.status = Classified;
-            break;
-    }
-
-    return retval;
 }
 
 static attribute_metadata_t icmp_attributes_metadata[ICMP_ATTRIBUTES_NB] = {

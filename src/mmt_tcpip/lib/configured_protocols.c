@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "mmt_common_internal_include.h"
+#include "packet_processing.h" /* issue #540: mmt_classifier_mark_legacy() */
 #include "../include/mmt_tcpip_plugin.h"
 #include "../include/mmt_tcpip_protocols.h"
 
@@ -25,6 +26,20 @@ int mmt_register_classifier(uint32_t parent_proto,
         return 0;
     }
     return 1;
+}
+
+/* Issue #542 (F-CLEAN-012): the registration a MMT_PROTO_SIMPLE row of
+ * proto_init_list.def stands for — the body of each of the 506 identical
+ * proto_*.c stubs it replaced, so the registry is built by the same calls in
+ * the same order. */
+static int mmt_register_simple_protocol(mmt_proto_id_t proto_id,
+        const char *proto_alias) {
+    protocol_t *protocol_struct =
+        init_protocol_struct_for_registration(proto_id, proto_alias);
+    if (protocol_struct == NULL) {
+        return 0;
+    }
+    return register_protocol(protocol_struct, proto_id);
 }
 
 int init_proto() {
@@ -56,14 +71,28 @@ int init_tcpip_plugin() {
 
     /* Protocol init functions — data lives in proto_init_list.def, the same
      * list that declares these functions in mmt_common_internal_include.h
-     * (issue #148). Order decides classifier chain order. */
-    static const struct { int (*init)(void); const char *name; } proto_init_table[] = {
-#define MMT_PROTO_INIT(init_fn, display_name) { init_fn, display_name },
+     * (issue #148). Order decides classifier chain order. A MMT_PROTO_SIMPLE
+     * row has no init function: its id and alias go to
+     * mmt_register_simple_protocol() (issue #542). */
+    static const struct {
+        int (*init)(void);
+        mmt_proto_id_t id;
+        const char *alias;
+        const char *name;
+    } proto_init_table[] = {
+#define MMT_PROTO_INIT(init_fn, display_name) { init_fn, 0, NULL, display_name },
+#define MMT_PROTO_SIMPLE(proto_id, proto_alias, display_name) \
+        { NULL, proto_id, proto_alias, display_name },
 #include "proto_init_list.def"
+#undef MMT_PROTO_SIMPLE
 #undef MMT_PROTO_INIT
     };
     for (size_t i = 0; i < sizeof(proto_init_table)/sizeof(proto_init_table[0]); i++) {
-        if (!proto_init_table[i].init()) {
+        int ok = (proto_init_table[i].init != NULL)
+            ? proto_init_table[i].init()
+            : mmt_register_simple_protocol(proto_init_table[i].id,
+                    proto_init_table[i].alias);
+        if (!ok) {
             mmt_stderr_log( "Error initializing protocol %s\n Exiting\n", proto_init_table[i].name);
             return 0;
         }
@@ -72,21 +101,35 @@ int init_tcpip_plugin() {
     /* Inter-protocol classifier registrations — data lives in
      * inter_proto_classif_list.def (issue #238, F-CLEAN-006: the ~160
      * REGISTER_INTER_PROTO_OR_FAIL calls that used to fill this body were
-     * data expressed as code). Order is registration order again. */
+     * data expressed as code). Order is registration order again.
+     * Issue #540 (F-BUG-311): a MMT_INTER_PROTO_LEGACY row registers the
+     * same way, in the same place, and its chain node is then marked legacy
+     * — walked only under the opt-in `legacy` DPI profile. */
     static const struct {
         uint32_t parent;
         generic_classification_function classify_fn;
         int weight;
         const char *name;
+        int legacy;
     } inter_proto_table[] = {
-#define MMT_INTER_PROTO(parent, fn, w) { parent, fn, w, #fn },
+#define MMT_INTER_PROTO(parent, fn, w) { parent, fn, w, #fn, 0 },
+#define MMT_INTER_PROTO_LEGACY(parent, fn, w) { parent, fn, w, #fn, 1 },
 #include "inter_proto_classif_list.def"
+#undef MMT_INTER_PROTO_LEGACY
 #undef MMT_INTER_PROTO
     };
     for (size_t i = 0; i < sizeof(inter_proto_table)/sizeof(inter_proto_table[0]); i++) {
         if (!mmt_register_classifier(inter_proto_table[i].parent,
                     inter_proto_table[i].classify_fn,
                     inter_proto_table[i].weight, inter_proto_table[i].name)) {
+            return 0;
+        }
+        if (inter_proto_table[i].legacy
+                && !mmt_classifier_mark_legacy(
+                    get_protocol_struct_by_id(inter_proto_table[i].parent),
+                    inter_proto_table[i].classify_fn)) {
+            mmt_stderr_log("Error marking legacy classification function %s for parent protocol %u\n Exiting\n",
+                    inter_proto_table[i].name, (unsigned) inter_proto_table[i].parent);
             return 0;
         }
     }

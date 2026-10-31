@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 #include "mmt_core.h"
+#include "dbg.h" /* internal diagnostics + likely/unlikely (issue #537) */
 #include "mmt_tcpip_internal_defs_macros.h"
 #include "mmt_tcpip_plugin_structs.h"
 
@@ -78,7 +79,6 @@ extern "C" {
     int mmt_check_imap(ipacket_t * ipacket, unsigned index);
     int mmt_check_smtp(ipacket_t * ipacket, unsigned index);
     int mmt_check_ftp(ipacket_t * ipacket, unsigned index);
-    int mmt_check_ndn(ipacket_t * ipacket, unsigned index);
     int mmt_check_gtp(ipacket_t * ipacket, unsigned index);
     int mmt_check_ndn_http(ipacket_t * ipacket, unsigned index);
     int mmt_check_usenet(ipacket_t * ipacket, unsigned index);
@@ -214,7 +214,9 @@ extern "C" {
      * both in one list is what makes adding a protocol a single-line edit
      * (issue #148). */
 #define MMT_PROTO_INIT(init_fn, display_name) int init_fn();
+#define MMT_PROTO_SIMPLE(proto_id, proto_alias, display_name)
 #include "proto_init_list.def"
+#undef MMT_PROTO_SIMPLE
 #undef MMT_PROTO_INIT
 
 #ifdef	__cplusplus

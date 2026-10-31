@@ -68,16 +68,32 @@ else
     # (a) Declared-version sites: must equal VERSION exactly.
     agree "src/mmt_core/public_include/mmt_core.h #define VERSION" "$VERSION" \
         "$(first_match "$ROOT/src/mmt_core/public_include/mmt_core.h" 's/^#define VERSION "\([^"]*\)".*/\1/p')"
-    agree "dist/ZIP/mmt-install-common.sh VERSION fallback" "$VERSION" \
-        "$(first_match "$ROOT/dist/ZIP/mmt-install-common.sh" 's/^VERSION="\${VERSION:-\([^}]*\)}".*/\1/p')"
+    agree "mmt-dpi.spec Version:" "$VERSION" \
+        "$(first_match "$ROOT/mmt-dpi.spec" 's/^Version:[[:space:]]*\([^[:space:]]*\).*/\1/p')"
+    # Its newest %changelog entry too: SOURCE_DATE_EPOCH is read from it.
+    agree "mmt-dpi.spec newest %changelog entry" "$VERSION" \
+        "$(sed -n '/^%changelog/,$p' "$ROOT/mmt-dpi.spec" 2>/dev/null | sed -n 's/^\*.* - \([^ -]*\)-[^ ]*$/\1/p' | head -n 1)"
     agree "CHANGELOG.md topmost 'Version' heading" "$VERSION" \
         "$(first_match "$ROOT/CHANGELOG.md" 's/^Version \([0-9][^ ]*\).*/\1/p')"
-    # debian/ is not tracked on main yet (issue #475): checked only when present.
+    # debian/ (issue #475): checked when present, so a tree without it still validates.
     if [ -f "$ROOT/debian/changelog" ]; then
         agree "debian/changelog upstream version" "$VERSION" \
             "$(first_match "$ROOT/debian/changelog" '1s/^[^ ]* (\([0-9]*:\)\{0,1\}\([^)]*\)).*/\2/p' | sed 's/-[^-]*$//; s/+\(dfsg\|ds\).*$//')"
     else
         echo "  ○ debian/changelog absent — skipped"
+    fi
+    # Release signing (issue #538): debian/upstream/signing-key.asc and
+    # debian/watch's pgpsigurlmangle come together. The checker sits beside
+    # this script, so a --root fixture without tools/ci still validates.
+    if [ -f "$ROOT/debian/watch" ]; then
+        if sig_out="$(bash "$(dirname "$0")/../tools/ci/sign-source-tarball.sh" --root "$ROOT" --check 2>&1)"; then
+            echo "  $sig_out"
+        else
+            echo "  $sig_out"
+            ERRORS=$((ERRORS + 1))
+        fi
+    else
+        echo "  ○ debian/watch absent — release signing pairing skipped"
     fi
     # (b) Published-release sites: the installer pins the latest PUBLISHED tag,
     # which lags VERSION between the bump and the tag (a tagged commit cannot
@@ -107,6 +123,13 @@ else
             "$(first_match "$ROOT/docs/_includes/quick-start.md" 's/.*pinned release tag (`\(v[^`]*\)`).*/\1/p')"
         agree "docs/index.html hero version" "$RELEASE_TAG" \
             "$(first_match "$ROOT/docs/index.html" 's/.*<\/span>\(v[0-9][^ ]*\) ·.*/\1/p')"
+        # The ABI gate's baseline is the last published tag too (issue #536):
+        # the abi-diff job and the script's default move with the installer
+        # pin, so the gate never keeps comparing against a stale release.
+        agree ".github/workflows/c-cpp.yml abi-diff ABI_BASELINE" "$RELEASE_TAG" \
+            "$(first_match "$ROOT/.github/workflows/c-cpp.yml" 's/^[[:space:]]*ABI_BASELINE:[[:space:]]*\(v[^[:space:]]*\).*/\1/p')"
+        agree "tools/ci/abi-diff.sh default baseline_ref" "$RELEASE_TAG" \
+            "$(first_match "$ROOT/tools/ci/abi-diff.sh" 's/^baseline_ref=\(v[^[:space:]]*\).*/\1/p')"
     fi
 fi
 # Check 2: mmt-test directory does NOT exist (doc should note this)
@@ -126,10 +149,8 @@ check "git is available" "command -v git"
 # Check 5: CHANGELOG.md exists
 check "CHANGELOG.md exists" "test -f $ROOT/CHANGELOG.md"
 
-# Check 6: dist/ZIP/ directory exists
-check "dist/ZIP/install.sh exists" "test -f $ROOT/dist/ZIP/install.sh"
-check "dist/ZIP/uninstall.sh exists" "test -f $ROOT/dist/ZIP/uninstall.sh"
-check "dist/ZIP/mmt-install-common.sh exists" "test -f $ROOT/dist/ZIP/mmt-install-common.sh"
+# Check 6: the offline ZIP is retired (issue #550) — nothing to bump there
+check "dist/ZIP/ is retired" "test ! -e $ROOT/dist/ZIP"
 
 # Check 7: CI workflows exist
 check ".github/workflows/c-cpp.yml exists" "test -f $ROOT/.github/workflows/c-cpp.yml"

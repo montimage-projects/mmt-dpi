@@ -107,9 +107,15 @@ if [ -z "${MMT_FI_PREFIX:-}" ]; then
     trap 'rm -rf "${PREFIX}"' EXIT
 fi
 
-make -C "${REPO_ROOT}/sdk" ${SDK_BUILD_PROFILE:+"BUILD=${SDK_BUILD_PROFILE}"} clean >/dev/null
-make -C "${REPO_ROOT}/sdk" ${SDK_BUILD_PROFILE:+"BUILD=${SDK_BUILD_PROFILE}"} MMT_BASE="${PREFIX}" -j"${JOBS}" >/dev/null
-make -C "${REPO_ROOT}/sdk" ${SDK_BUILD_PROFILE:+"BUILD=${SDK_BUILD_PROFILE}"} MMT_BASE="${PREFIX}" install >/dev/null
+if [ "${MMT_SDK_PREBUILT:-0}" = "1" ]; then
+    # tests/run_all_tests.sh built and installed it once (issue #654).
+    [ -e "${PREFIX}/dpi/lib/libmmt_core.so" ] || { echo "✗ MMT_SDK_PREBUILT=1 but MMT_FI_PREFIX='${MMT_FI_PREFIX:-}' holds no installed SDK" >&2; exit 1; }
+    echo "  reusing the prebuilt SDK in ${PREFIX} (MMT_SDK_PREBUILT=1)"
+else
+    make -C "${REPO_ROOT}/sdk" ${SDK_BUILD_PROFILE:+"BUILD=${SDK_BUILD_PROFILE}"} clean >/dev/null
+    make -C "${REPO_ROOT}/sdk" ${SDK_BUILD_PROFILE:+"BUILD=${SDK_BUILD_PROFILE}"} MMT_BASE="${PREFIX}" -j"${JOBS}" >/dev/null
+    make -C "${REPO_ROOT}/sdk" ${SDK_BUILD_PROFILE:+"BUILD=${SDK_BUILD_PROFILE}"} MMT_BASE="${PREFIX}" install >/dev/null
+fi
 
 "${CC}" -Wall -Wextra -std=c11 -g -O1 -fPIC -shared \
     -DFI_INTERPOSE -I"${SCRIPT_DIR}" \
@@ -117,12 +123,18 @@ make -C "${REPO_ROOT}/sdk" ${SDK_BUILD_PROFILE:+"BUILD=${SDK_BUILD_PROFILE}"} MM
 
 # u_char comes from sys/types.h via pcap.h — the -D'u_char=...' shim the
 # source-compiled suites need would collide with that typedef.
+# Issue #533: test_fi_engine calls hash_utils map-space internals that
+# libmmt_core.so hides, so it links the static archive (never -lmmt_core as
+# well). malloc stays a dynamic libc call, so LD_PRELOAD still interposes it.
+# shellcheck source=tools/phase0/tests/static_core_link.sh
+. "${REPO_ROOT}/tools/phase0/tests/static_core_link.sh"
+mmt_static_core_link "${PREFIX}/dpi/lib" || exit 2
 "${CC}" -Wall -Wextra -std=gnu11 -g -O1 \
     -I"${SCRIPT_DIR}" -I"${CORE_PRIV}" -I"${CORE_PUB}" \
     -I"${PREFIX}/dpi/include" \
     -o "${BIN_ENGINE}" "${SCRIPT_DIR}/test_fi_engine.c" \
     -L"${PREFIX}/dpi/lib" -L"${SCRIPT_DIR}" \
-    -lmmt_core -lfi_alloc -ldl -lpcap
+    "${MMT_STATIC_CORE_LDFLAGS[@]}" -lfi_alloc -ldl -lpcap
 
 # The engine binary exercises libmmt_tcpip plugin loading; init_extraction()
 # resolves plugins relative to the install prefix, so run from a neutral

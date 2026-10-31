@@ -17,13 +17,13 @@ Phase 0 changes **no production code** — it adds tooling and captured baseline
 | `golden_pcaps.txt` | The fixed golden pcap set (paths relative to the mmt-test `data-sets/` root). |
 | `throughput_pcaps.txt` | The bigFlows/smallFlows perf-benchmark set (issue #251) — deliberately separate from `golden_pcaps.txt` so the classification fingerprint's input set is unchanged. |
 | `capture_baseline.sh` | Orchestrator: build+install at `-O3`, compile the drivers, capture all baselines into `baseline/`. |
-| `run_all_harnesses.sh` | Aggregate runner (issue #183): enumerates `tests/run_*.sh`, builds the SDK once per required profile into a shared prefix, and replays every harness against it. Reachable from the suite runner via `bash tests/run_all_tests.sh --with-harnesses`. |
+| `run_all_harnesses.sh` | Aggregate runner (issue #183): enumerates `tests/run_*.sh`, builds the SDK once per required profile into a shared prefix, and replays every harness against it. `--group`/`--shard` select one slice of the enumeration (issue #655 — the CI `harness-*` legs), `--only` keeps the named harnesses (their `run_<stem>.sh` stems) before that (issue #656 — a pull request's selection), `--list` prints the selection without building, and `--log-dir` keeps one log per harness plus a `verdicts.tsv` table. Reachable from the suite runner via `bash tests/run_all_tests.sh --with-harnesses`. `--profile coverage` (issue #524) instead builds one `BUILD=coverage` SDK and replays every harness against it except its `COVERAGE_SKIP` list; `bash tests/run_all_tests.sh --coverage` runs it as its harness arm (see *Coverage profile* below). |
 | `baseline/classification.txt` | **The golden classification baseline.** The asserted regression oracle. |
 | `baseline/classification/` | Per-pcap fingerprints (one file each), for granular diffs. |
 | `baseline/throughput.txt` | Throughput reference snapshot (environment-dependent — compare relative deltas). |
 | `baseline/perf/throughput.txt` | Same-machine throughput + RSS reference for the `throughput_pcaps.txt` benchmark set (issue #251). |
-| `ci/accuracy/` | Reviewed accuracy corpus (F-TEST-003): DNS/TLS/QUIC/HTTP-2 (issue #389), S1AP/NGAP/NAS and unknown/malformed traffic (issue #390). Synthetic captures plus `corpus.json`, which records per capture the family, the case (positive / negative / ambiguous, or `unknown` in the abstention family), the expected per-packet handling, the sha256 of the reviewed bytes, redistribution provenance and review notes. Checked by `tools/ci/tests/check-accuracy-corpus.py`; deliberately **not** in `ci/golden_pcaps.txt`, so the golden fingerprint's input set is unchanged. Regenerate with `gen_tcpip_pcap.py --out-dir ci/accuracy --accuracy` and `gen_mobile_pcap.py --out-dir ci/accuracy --accuracy`. |
-| `ci/baseline/memory.txt` | The M4 library-RSS ceiling (KiB), enforced by `tests/run_memory_ceiling_test.sh` in the CI harness matrix (issue #251). |
+| `ci/accuracy/` | Reviewed accuracy corpus (F-TEST-003): DNS/TLS/QUIC/HTTP-2 (issue #389), S1AP/NGAP/NAS and unknown/malformed traffic (issue #390), and a positive and a negative case per classifier of the default TCP/UDP chains (issue #527). Synthetic captures plus `corpus.json`, which records per capture the family, the case (positive / negative / ambiguous, or `unknown` in the abstention family), the default-chain classifiers it exercises (`classifiers`), the expected per-packet handling, the sha256 of the reviewed bytes, redistribution provenance and review notes. `coverage-pending.txt` lists, each with its reason, the chain classifiers still owed a case pair; the list only shrinks (enforced against the base commit by `--base`). Checked by `tools/ci/tests/check-accuracy-corpus.py`; deliberately **not** in `ci/golden_pcaps.txt`, so the golden fingerprint's input set is unchanged. Regenerate with `gen_tcpip_pcap.py --out-dir ci/accuracy --accuracy` and `gen_mobile_pcap.py --out-dir ci/accuracy --accuracy`. |
+| `ci/baseline/memory.txt` | The M4 library-RSS ceiling (KiB), enforced by `tests/run_memory_ceiling_test.sh` in the CI `harness-default` leg (issue #251). |
 | `baseline/valgrind.txt` | Valgrind leak baseline, or a SKIPPED note + exact command when valgrind is absent. |
 
 ## The ASan/UBSan build profile (`BUILD=asan`)
@@ -95,33 +95,39 @@ git diff tools/phase0/baseline/classification.txt   # must be empty for phases 1
 
 `.github/workflows/phase0-baseline.yml` enforces these gates on every push
 and PR to `main`, except that the `changes` job skips them on a PR that
-changes only `docs/` and root-level Markdown (issue #552). The job list below is **generated from the workflow** —
+changes only `docs/` and root-level Markdown (issue #552) or only tooling
+(issue #656, `tools/ci/classify-changes.sh`). The job list below is **generated from the workflow** —
 run `bash tools/phase0/ci/check_readme_gates.sh --write` after editing the
 workflow (the check mode runs in the `verify-helpers` CI job, so a stale
 list fails the build):
 
 <!-- begin-generated: ci-gates -->
 - `changes` — changes
-- `asan-build` — ASan/UBSan profile compiles
-- `list-harnesses` — Enumerate phase0 harnesses
-- `harness-*` — harness-${{ matrix.harness }}
+- `harness-*` — harness-${{ matrix.shard }}
 - `harness-gate` — harness-gate
 - `classification-gate` — Golden classification fingerprint unchanged
 - `leak-gate` — leak-gate
 - `precision-gate` — Labelled-pcap precision/recall holds or improves (M9, issue #74)
-- matrix expansion: `harness-*` fans out to 50 jobs, one per `tools/phase0/tests/run_*.sh`
+- matrix expansion: `harness-*` runs 5 legs, slices of `tools/phase0/run_all_harnesses.sh` that together run all 50 `tools/phase0/tests/run_*.sh`
 <!-- end-generated: ci-gates -->
 
 What each gate asserts:
 
-- **`asan-build`** — `make BUILD=asan` must compile and the resulting library
-  must carry ASan instrumentation (`__asan_init`). Architecture-independent;
-  protects the Phase 2 verification vehicle.
+- **BUILD=asan profile** — `make BUILD=asan` must compile and the resulting
+  library must carry ASan instrumentation (`__asan_init`).
+  Architecture-independent; protects the Phase 2 verification vehicle. No
+  longer a job of this workflow (issue #659): it is a step of the
+  `sanitizer-tests (BUILD=asan, asan)` leg of `c-cpp.yml`, and the old
+  `ASan/UBSan profile compiles` context is a retired stub there
+  (`.github/retired-checks.txt`).
 - **`classification-gate`** — runs `tools/phase0/ci/check_classification.sh`,
   which builds+installs the library, classifies a small **self-contained** pcap
   subset (vendored under `ci/pcaps/`, ~0.6 MB, no dependency on the mmt-test
   repo) and diffs the fingerprint against the committed
-  `ci/baseline/classification.txt`. Any diff fails the job.
+  `ci/baseline/classification.txt`. Any diff fails the job. It exports
+  `MMT_DETERMINISTIC_SEED=1`, as `check_precision.sh` does: hash-table seeds
+  are random per process since issue #551, and the variable restores the
+  fixed legacy seed sequence (`src/mmt_core/src/hash_utils.c`).
 - **`precision-gate`** — runs `tools/phase0/ci/check_precision.sh`, which runs
   the labelled-pcap precision/recall harness (`phase0_precision`) over the
   labelled subset (`ci/labels.txt`), folds the retained predicted labels into
@@ -129,6 +135,14 @@ What each gate asserts:
   #373: a wrong prediction is an FN of the actual class and an FP of the
   predicted class; an abstention is an FN of the actual class only), and diffs
   the resulting metrics against the committed `ci/baseline/precision.txt`.
+  It then regenerates the seeded random-payload **abstention set**
+  (`gen_tcpip_pcap.py --abstention`: 12 payload lengths from 1 to 1400 bytes,
+  TCP and UDP, 8 flows each, bytes, ports and server addresses all derived
+  from a fixed seed — issue #527), runs the same harness over it and renders
+  its own section after the labelled metrics: per capture and overall, the
+  packets still given an application verdict and the **unknown rate**
+  (abstained / total). The section never enters the labelled confusion
+  matrix, and a change in it fails the gate like any other metric change.
   Missing pcaps, empty harness output and malformed rows **fail** the gate —
   labelled examples are never silently dropped. Enforces the Phase 7 (M9,
   issue #74) acceptance criterion that precision/recall **holds or improves**.
@@ -139,7 +153,17 @@ What each gate asserts:
   vice versa — but every corrected baseline carries its explanation in the PR
   body (issue #373, F-TEST-002).
   The same job then runs `tools/ci/tests/check-accuracy-corpus.py` against
-  the SDK it just installed (issues #389 and #390, F-TEST-003). The oracle runs
+  the SDK it just installed (issues #389 and #390, F-TEST-003). The oracle
+  first checks classifier coverage (issue #527): it reads every
+  `MMT_INTER_PROTO(PROTO_TCP|PROTO_UDP, …)` registration of
+  `src/mmt_tcpip/lib/inter_proto_classif_list.def` and fails when a
+  registered classifier has no positive and negative/ambiguous case naming it
+  and no `ci/accuracy/coverage-pending.txt` entry, when a pending entry is
+  already covered or no longer registered, or when a case names a classifier
+  the chains do not register. CI passes `--base HEAD^1`, so the list only
+  shrinks: an entry the base commit's list lacks for a classifier the base
+  already registers fails (a REF without the pending file skips this check
+  with a note; one that does not resolve exits 2). It then runs
   every capture listed in `ci/accuracy/corpus.json` and fails on a missing
   capture, an unlabelled one, a missing label/provenance/review field, a
   sha256 or generator-reproducibility mismatch, a family without both a
@@ -149,7 +173,10 @@ What each gate asserts:
   get no application verdict and which are still attributed —
   `acc_malformed_s1ap` and `acc_malformed_ngap_ppid60` record known false
   accepts (S1AP and NGAP are trusted on SCTP PPID 18 / 60 alone), so fixing
-  them means updating those expectations. Its report
+  them means updating those expectations, as do `acc_unknown_mqtt_port`
+  (MQTT is accepted on TCP/1883 for any plain-text payload) and the
+  `ambiguous` cases recording known false negatives
+  (`acc_bittorrent_dht_ambiguous`, `acc_mysql8_ambiguous`). Its report
   gives per-family support, wire-protocol hits, abstentions and false accepts,
   an unknown/malformed abstention table, and lists heuristic application
   attribution (e.g. `ssl.google` derived from a TLS SNI) **separately** —
@@ -161,17 +188,54 @@ What each gate asserts:
   prefix locally (running `make -C sdk clean` before and after, so an in-tree
   `sdk/` build is discarded, not left pointing at the deleted prefix);
   `--prefix P --no-build` reuses an installed SDK and `--offline` checks the
-  manifest only. When a classifier change intentionally alters a case's
+  manifest and the classifier coverage only. When a classifier change intentionally alters a case's
   handling, update that case's `expected` block and review notes in the same
   PR.
-- **`list-harnesses` / `harness-*` matrix** — the setup job enumerates
-  `tools/phase0/tests/run_*.sh` and fans out one `harness-<script>` job per
-  file (issue #182), so a newly added harness is gated with no workflow
-  edit. Each script builds+installs the SDK under its declared profile into
-  a fresh `mktemp -d` prefix (removed by an exit trap) and fails the job on
-  a non-zero exit. Locally the same enumeration is driven by
-  `run_all_harnesses.sh` (or `tests/run_all_tests.sh --with-harnesses`),
-  sharing one SDK build per profile instead of one per harness.
+- **`harness-*` legs / `harness-gate`** — five legs (issue #655), each
+  running one slice of `run_all_harnesses.sh`: `asan-1of3` to `asan-3of3`
+  (`--group asan --shard K/3`), `default` (`--group none,default`) and
+  `tsan` (`--group tsan`). The runner enumerates `tests/run_*.sh` at run
+  time and groups the scripts by the profile their build step names, so a
+  newly added harness is gated with no workflow edit; each leg builds its
+  profile once into a shared prefix and replays its harnesses against it
+  with `MMT_SDK_PREBUILT=1`. A failing harness is named in the leg's verdict
+  table (also in the job summary), as an `::error` annotation, and by its
+  own log in the `phase0-harness-logs-<leg>` artifact. `harness-gate` is the
+  one required context: it fails unless every leg succeeds (or all are
+  skipped on a docs-only or tooling pull request). On a pull request that
+  `changes` classifies below `full` (one suite, harness or family, issue
+  #656), each leg passes `--only` the harnesses it names — the changed
+  ones, the family's and the smoke set of `tools/ci/test-map.txt` — and a
+  leg left with none builds nothing and passes; every other run passes no
+  `--only` and runs them all. `tools/ci/tests/test-harness-shards.sh`
+  pins that the legs cover every harness exactly once. Locally,
+  `run_all_harnesses.sh` with no selector (or `tests/run_all_tests.sh
+  --with-harnesses`) runs all of them.
+
+### Coverage profile (`run_all_harnesses.sh --profile coverage`)
+
+The harness arm of `bash tests/run_all_tests.sh --coverage` (issue #524,
+F-TEST-006). One `make -C sdk clean`, one `make -C sdk BUILD=coverage` and
+install into a shared prefix; every harness runs against it with
+`MMT_SDK_PREBUILT=1`, whatever profile its own build step names, so the
+phase0 harnesses count in the coverage report as the `harness` cohort of
+`tests/coverage/summary.json` (the caller harvests the `src/` counters once
+afterwards — the runner's exit `make -C sdk clean` leaves them). Four
+harnesses are skipped, each with its reason in the script's
+`COVERAGE_SKIP` list, and the skipped count is printed:
+
+- `run_classified_flow_fastpath_test.sh`, `run_position_unknown_guard_test.sh`,
+  `run_session_lookup_perf_test.sh` — they assert debug counters armed only
+  in assert-enabled or sanitizer builds (`#if !defined(NDEBUG) ||
+  defined(MMT_BUILD_ASAN)`); `BUILD=coverage` keeps the release `-DNDEBUG`,
+  so the counters are compiled out.
+- `run_mt_tsan_test.sh` — refuses an SDK that is not `BUILD=tsan`.
+
+Every other harness failure is fatal, and a `COVERAGE_SKIP` entry that
+names no harness is a setup error (exit 2). The option is explicit — the
+runner never reads `SDK_BUILD_PROFILE` — so `--with-harnesses` keeps its
+per-profile builds. The golden fingerprint and the accuracy corpus are not
+replayed under coverage (issue #554).
 
 ### Not enforced by CI
 
@@ -184,9 +248,9 @@ Equally deliberate — these signals exist but nothing fails on them
 - `baseline/throughput.txt` — informational trend, environment-dependent.
 - `baseline/valgrind.txt` — asserted only where valgrind is installed; the
   capture records SKIPPED otherwise.
-- `tools/phase0/run_all_harnesses.sh` and
-  `tests/run_all_tests.sh --with-harnesses` — local aggregate runners; the
-  CI gate is the per-harness `harness-*` matrix, not these.
+- `tests/run_all_tests.sh --with-harnesses` — the local aggregate run of
+  every harness; CI runs the same harnesses through `run_all_harnesses.sh`
+  in the sharded `harness-*` legs above.
 - The `tests/run_all_tests.sh` suites themselves are gated by the
   `unit-tests`/`sanitizer-tests`/`coverage` jobs in `c-cpp.yml`, not by this
   workflow.

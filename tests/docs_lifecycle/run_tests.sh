@@ -37,17 +37,19 @@ CITING_DOCS=(docs/USER_GUIDE.md docs/THREADING.md docs/Global-Handler.md docs/MM
 # <path>:<start>[-<end>] <TAB> <regex the start line must match>
 #   [<TAB> <regex the end line must match>]
 CITATIONS="$(cat <<'TABLE'
-src/mmt_core/src/packet_registry.c:1255	^bool init_extraction\(\)
-src/mmt_core/src/packet_registry.c:1303-1304	^ *if \(!init_plugins\(\)\) return 0;	mmt_configured_handlers_map = init_map_space
-src/mmt_core/src/packet_registry.c:950	^mmt_handler_t \*mmt_init_handler\(
-src/mmt_core/src/packet_registry.c:1097	insert_key_value\(mmt_configured_handlers_map
-src/mmt_core/src/packet_pipeline.c:1505	^bool packet_process\(
-src/mmt_core/src/packet_registry.c:1130	^void mmt_close_handler\(mmt_handler_t
-src/mmt_core/src/packet_registry.c:1180	delete_key_value\(mmt_configured_handlers_map
-src/mmt_core/src/packet_registry.c:1333	^void close_extraction\(\)
-src/mmt_core/src/packet_registry.c:1333-1351	^void close_extraction\(\)	^\}$
-src/mmt_core/src/packet_registry.c:1336	iterate_through_mmt_handlers\(mmt_close_handler_internal
-src/mmt_core/src/packet_registry.c:1350	^ *close_plugins\(\);
+src/mmt_core/src/packet_registry.c:616	^bool init_extraction\(\)
+src/mmt_core/src/packet_registry.c:658-659	^ *if \(!init_plugins\(\)\) return 0;	if \(!init_handlers_map\(\)\)
+src/mmt_core/src/packet_registry_handler.c:408	mmt_configured_handlers_map = init_map_space
+src/mmt_core/src/packet_registry_handler.c:116	^mmt_handler_t \*mmt_init_handler\(
+src/mmt_core/src/packet_registry_handler.c:263	insert_key_value\(mmt_configured_handlers_map
+src/mmt_core/src/packet_pipeline.c:1473	^bool packet_process\(
+src/mmt_core/src/packet_registry_handler.c:296	^void mmt_close_handler\(mmt_handler_t
+src/mmt_core/src/packet_registry_handler.c:346	delete_key_value\(mmt_configured_handlers_map
+src/mmt_core/src/packet_registry.c:667	^void close_extraction\(\)
+src/mmt_core/src/packet_registry.c:667-679	^void close_extraction\(\)	^\}$
+src/mmt_core/src/packet_registry.c:670	^ *close_handlers_map\(\);
+src/mmt_core/src/packet_registry_handler.c:414	iterate_through_mmt_handlers\(mmt_close_handler_internal
+src/mmt_core/src/packet_registry.c:678	^ *close_plugins\(\);
 src/examples/packet_handler.c:63	if *\(!init_extraction\(\)\)
 src/examples/packet_handler.c:69	mmt_handler = mmt_init_handler\(
 src/examples/packet_handler.c:100	if *\(!packet_process\(mmt_handler
@@ -55,15 +57,15 @@ src/examples/packet_handler.c:108	^	mmt_close_handler\(mmt_handler\);
 src/examples/packet_handler.c:111	^	close_extraction\(\);
 src/mmt_core/public_include/mmt_core.h:185	MMTAPI bool MMTCALL init_extraction\(\);
 src/mmt_core/public_include/mmt_core.h:198	MMTAPI void MMTCALL close_extraction\(\);
-src/mmt_core/public_include/mmt_core.h:1228	MMTAPI char\* MMTCALL mmt_version\(\);
+src/mmt_core/public_include/mmt_core.h:1229	MMTAPI char\* MMTCALL mmt_version\(\);
 src/mmt_core/public_include/mmt_core.h:106-110	^#define EVA_IP_FRAGMENT_PACKET 1	^#define EVA_IP_FRAGMENT_DUPLICATED 5
 src/mmt_core/public_include/mmt_core.h:125	^typedef void \(\*generic_evasion_handler_callback\)
 src/mmt_core/public_include/mmt_core.h:218	^MMTAPI void MMTCALL mmt_close_handler\(
-src/mmt_core/public_include/mmt_core.h:229	^MMTAPI uint64_t MMTCALL get_active_session_count\(
-src/mmt_core/public_include/mmt_core.h:331	^MMTAPI bool MMTCALL register_evasion_handler\(
-src/mmt_core/public_include/mmt_core.h:580	^MMTAPI bool MMTCALL set_fragment_in_packet\(
-src/mmt_core/public_include/mmt_core.h:592	^MMTAPI bool MMTCALL set_fragmented_packet_in_session\(
-src/mmt_core/public_include/mmt_core.h:604	^MMTAPI bool MMTCALL set_fragment_in_session\(
+src/mmt_core/public_include/mmt_core.h:230	^MMTAPI uint64_t MMTCALL get_active_session_count\(
+src/mmt_core/public_include/mmt_core.h:332	^MMTAPI bool MMTCALL register_evasion_handler\(
+src/mmt_core/public_include/mmt_core.h:581	^MMTAPI bool MMTCALL set_fragment_in_packet\(
+src/mmt_core/public_include/mmt_core.h:593	^MMTAPI bool MMTCALL set_fragmented_packet_in_session\(
+src/mmt_core/public_include/mmt_core.h:605	^MMTAPI bool MMTCALL set_fragment_in_session\(
 src/mmt_core/src/plugins_engine.c:50-53	secure_getenv\(PLUGINS_DIR_ENV\)	return PLUGINS_REPOSITORY_OPT;
 src/mmt_core/src/plugins_engine.c:94-96	!load_plugin\( path \)	retval = 0;
 TABLE
@@ -160,9 +162,15 @@ fi
 # ---------------------------------------------------------------------------
 # [3/4] Build + install into a throwaway prefix
 # ---------------------------------------------------------------------------
-PREFIX="$(mktemp -d)"
 WORK="$(mktemp -d)"
-trap 'rm -rf "${WORK}" "${PREFIX}"' EXIT
+if [ "${MMT_SDK_PREBUILT:-0}" = "1" ]; then
+    # tests/run_all_tests.sh built and installed it once (issue #654).
+    PREFIX="${MMT_PREFIX:-}"
+    trap 'rm -rf "${WORK}"' EXIT
+else
+    PREFIX="$(mktemp -d)"
+    trap 'rm -rf "${WORK}" "${PREFIX}"' EXIT
+fi
 BUILD_LOG="${WORK}/build.log"
 CC="${CC:-gcc}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 2)}"
@@ -172,13 +180,18 @@ else
     set --
 fi
 
-echo "  [3/4] building + installing SDK into ${PREFIX} ..."
-make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
-if ! make -C "${REPO_ROOT}/sdk" "$@" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
-    echo "✗ SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
-fi
-if ! make -C "${REPO_ROOT}/sdk" "$@" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
-    echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+if [ "${MMT_SDK_PREBUILT:-0}" = "1" ]; then
+    [ -e "${PREFIX}/dpi/lib/libmmt_core.so" ] || { echo "✗ MMT_SDK_PREBUILT=1 but MMT_PREFIX='${PREFIX}' holds no installed SDK" >&2; exit 1; }
+    echo "  [3/4] reusing the prebuilt SDK in ${PREFIX} (MMT_SDK_PREBUILT=1) ..."
+else
+    echo "  [3/4] building + installing SDK into ${PREFIX} ..."
+    make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
+    if ! make -C "${REPO_ROOT}/sdk" "$@" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
+        echo "✗ SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
+    if ! make -C "${REPO_ROOT}/sdk" "$@" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
+        echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
 fi
 
 # ---------------------------------------------------------------------------

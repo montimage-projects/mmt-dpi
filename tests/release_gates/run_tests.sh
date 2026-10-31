@@ -44,15 +44,63 @@
 # It also runs the shlib-deps self-test beside tools/ci/shlib-deps.sh
 # (issue #515), which maps each libxml2 soname to its runtime package on
 # fixture payloads (libxml2.so.16 -> libxml2-16 on Ubuntu 26.04).
-# It also runs the docs-only filter self-test beside
-# tools/ci/classify-changes.sh (issues #528, #552), which classifies fixture
-# path lists and pins the c-cpp.yml / phase0-baseline.yml job wiring that
-# keeps every required context reporting on a docs-only pull request. Its
+# It also runs the path-to-test selection self-test beside
+# tools/ci/classify-changes.sh (issues #528, #552, #656), which classifies
+# fixture path lists, runs tools/ci/check-test-map.sh on the map and on
+# broken copies of it, and pins the c-cpp.yml / phase0-baseline.yml job
+# wiring that keeps every required context reporting on every tier. Its
 # wiring half skips without PyYAML; verify-helpers runs it with PyYAML
 # required.
 # It also runs the commented-out code ratchet self-test beside
 # tools/ci/lint-commented-code.sh (issue #529), which drives the real lint on
 # a fixture git repository with fixture baselines and vendored-source lists.
+# It also runs the public-API contract checker self-test beside
+# tools/ci/check-api-contracts.sh (issue #525), which drives the real checker
+# on fixture name lists (missing, stale, duplicate and waiver-ratchet cases)
+# and proves CONTRACT() rejects an undeclared name at compile time, and the
+# ABI-diff self-test beside tools/ci/abi-diff.sh (issue #525), which maps stub
+# abidiff exit codes to verdicts on dummy libraries (no SDK build, no
+# network).
+# It also runs the plugin export-gate self-test beside
+# scripts/validate-exported-symbols.sh (issue #534), which drives the real
+# validator on a fixture shared object and fixture documents (an unrecorded
+# export, a removed one, a missing section, --write; no SDK build).
+# It also runs the phase0 harness-shard self-test beside
+# tools/phase0/run_all_harnesses.sh (issue #655), which drives the runner's
+# --group/--shard/--list selectors and a fixture run that builds no SDK, and
+# pins that the phase0-baseline.yml harness legs cover every harness once.
+# Its wiring half skips without PyYAML; verify-helpers runs it with PyYAML
+# required.
+# It also runs the shared-build self-test beside tests/run_all_tests.sh
+# (issue #654), which drives a copy of the real runner over fake suites with
+# a stub make on PATH (one build per group, the incremental ENABLESEC=1
+# build, the prefixes handed to consumers, a failed build; no SDK build).
+# It also runs the weak-type ratchet self-test beside
+# tools/ci/count-weak-types.sh (issue #539), which drives the real counter on
+# fixture headers to prove its `opaque` metric fails on a non-allowlisted or
+# unnamed mmt_opaque_t parameter (no SDK build).
+# It also runs the compiler-cache self-test beside rules/arch-linux-gcc.mk
+# (issue #553), which evaluates the real makefiles (no compile) to pin that
+# MMT_CCACHE is opt-in and that only plugins_engine.o and packet_processing.o
+# carry the per-prefix and per-commit defines, and the local-gates self-test
+# beside tools/ci/local-gates.sh (issue #553), which drives it with a stub
+# container runtime and fixture workflows (no docker; the workflow-reading
+# checks skip without PyYAML, the verify-helpers job requires it).
+# It also runs the source-signing self-test beside
+# tools/ci/sign-source-tarball.sh (issue #538), which drives the real script
+# on fixture debian/ trees (key/watch pairing, the key/secret refusals; no
+# OpenPGP key is created) and pins its place in the release job.
+# It also runs the shape-ratchet self-test beside
+# tools/ci/report-function-shape.sh and tools/ci/report-param-count.sh
+# (issue #547), which drives both on a fixture git repository with fixture
+# ratchets (recorded, unrecorded, grown, stale and malformed rows; no SDK
+# build).
+# It also runs the unreachable-section probe self-test beside
+# tools/ci/report-unreachable-sections.sh (issue #541), which drives the real
+# probe on a fixture git repository with fixture linker logs and allowlists
+# (allowlisted, unlisted, stale and malformed rows, the generated/vendored and
+# anonymous exclusions, unmapped and ambiguous objects) and its build path
+# against a stub make (no SDK build).
 set -e
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../tools/ci/tests"
 python3 "${TESTS_DIR}/test-release-gates.py" "$@"
@@ -70,3 +118,14 @@ bash "${TESTS_DIR}/test-release-bootstrap.sh"
 bash "${TESTS_DIR}/test-shlib-deps.sh"
 bash "${TESTS_DIR}/test-classify-changes.sh"
 bash "${TESTS_DIR}/test-commented-code-ratchet.sh"
+bash "${TESTS_DIR}/test-api-contracts.sh"
+bash "${TESTS_DIR}/test-abi-diff.sh"
+bash "${TESTS_DIR}/test-exported-symbols.sh"
+bash "${TESTS_DIR}/test-harness-shards.sh"
+bash "${TESTS_DIR}/test-shared-sdk-build.sh"
+bash "${TESTS_DIR}/test-weak-types.sh"
+bash "${TESTS_DIR}/test-ccache-launcher.sh"
+bash "${TESTS_DIR}/test-local-gates.sh"
+bash "${TESTS_DIR}/test-source-signing.sh"
+bash "${TESTS_DIR}/test-shape-ratchet.sh"
+bash "${TESTS_DIR}/test-unreachable-sections.sh"

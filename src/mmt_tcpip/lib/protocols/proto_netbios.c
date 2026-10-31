@@ -101,15 +101,6 @@ MSG_TYPE values (in hexidecimal):
 #define NB_MSG_POSITIVE_QUERY_RESPONSE 21
 #define NB_MSG_NEGATIVE_QUERY_RESPONSE 22
 
-struct mmt_netbios_header_struct {
-  uint8_t msg_type;
-  uint8_t flags;
-  uint16_t datagram_id;
-  uint32_t source_ip;
-  uint16_t source_port;
-  uint8_t * data;
-};
-
 static void mmt_int_netbios_add_connection(ipacket_t * ipacket) {
     mmt_internal_add_connection(ipacket, PROTO_NETBIOS, MMT_REAL_PROTOCOL);
 }
@@ -127,20 +118,13 @@ int mmt_check_netbios_tcp(ipacket_t * ipacket, unsigned index) {
         uint16_t dport;
         dport = ntohs(packet->tcp->dest);
 
-        MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG, "netbios tcp start\n");
 
         /* destination port must be 139 */
         if (dport == 139 || dport == 445) {
-            MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG, "found netbios with destination port 139\n");
             /* payload_packet_len must be 72 */
             if (packet->payload_packet_len == 72) {
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG, "found netbios with payload_packen_len = 72. \n");
 
                 if (packet->payload[0] == 0x81 && packet->payload[1] == 0 && ntohs(get_u16(packet->payload, 2)) == 68) {
-                    MMT_LOG(PROTO_NETBIOS,
-                            MMT_LOG_DEBUG,
-                            "found netbios with session request = 81, flags=0 and length od following bytes = 68. \n");
 
                     mmt_int_netbios_add_connection(ipacket);
                     return 1;
@@ -148,8 +132,182 @@ int mmt_check_netbios_tcp(ipacket_t * ipacket, unsigned index) {
             }
         }
 
-        MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG, "exclude netbios\n");
         MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_NETBIOS);
+    }
+    return 0;
+}
+
+/*
+ * Helpers of mmt_check_netbios_udp() for the port 137 name-service checks,
+ * split out of it without behaviour change (issue #547): each returns 1
+ * after adding the NETBIOS connection (the caller then returns 1, as the
+ * original code did) and 0 when none of its tests matched.
+ */
+static int netbios_udp137_check_header(ipacket_t * ipacket, struct mmt_tcpip_internal_packet_struct *packet) {
+    if (ntohs(get_u16(packet->payload, 2)) == 0 &&
+            ntohs(get_u16(packet->payload, 4)) == 1 &&
+            ntohs(get_u16(packet->payload, 6)) == 0 &&
+            ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
+
+
+        mmt_int_netbios_add_connection(ipacket);
+        return 1;
+    }
+    if (packet->payload[2] == 0x80 &&
+            ntohs(get_u16(packet->payload, 4)) == 1 &&
+            ntohs(get_u16(packet->payload, 6)) == 0 &&
+            ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 1) {
+
+
+        mmt_int_netbios_add_connection(ipacket);
+        return 1;
+    }
+    if (ntohs(get_u16(packet->payload, 2)) == 0x4000 &&
+            ntohs(get_u16(packet->payload, 4)) == 1 &&
+            ntohs(get_u16(packet->payload, 6)) == 0 &&
+            ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 1) {
+
+
+        mmt_int_netbios_add_connection(ipacket);
+        return 1;
+    }
+    if (ntohs(get_u16(packet->payload, 2)) == 0x8400 &&
+            ntohs(get_u16(packet->payload, 4)) == 0 &&
+            ntohs(get_u16(packet->payload, 6)) == 1 &&
+            ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
+
+
+        mmt_int_netbios_add_connection(ipacket);
+        return 1;
+    }
+    if (ntohs(get_u16(packet->payload, 2)) == 0x8500 &&
+            ntohs(get_u16(packet->payload, 4)) == 0 &&
+            ntohs(get_u16(packet->payload, 6)) == 1 &&
+            ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
+
+
+        mmt_int_netbios_add_connection(ipacket);
+        return 1;
+    }
+    if (ntohs(get_u16(packet->payload, 2)) == 0x2910 &&
+            ntohs(get_u16(packet->payload, 4)) == 1 &&
+            ntohs(get_u16(packet->payload, 6)) == 0 &&
+            ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 1) {
+
+
+        mmt_int_netbios_add_connection(ipacket);
+        return 1;
+    }
+    if (ntohs(get_u16(packet->payload, 2)) == 0xAD86 &&
+            ntohs(get_u16(packet->payload, 4)) == 0 &&
+            ntohs(get_u16(packet->payload, 6)) == 1 &&
+            ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
+
+
+        mmt_int_netbios_add_connection(ipacket);
+        return 1;
+    }
+    if (ntohs(get_u16(packet->payload, 2)) == 0x0110 &&
+            ntohs(get_u16(packet->payload, 4)) == 1 &&
+            ntohs(get_u16(packet->payload, 6)) == 0 &&
+            ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
+
+
+        mmt_int_netbios_add_connection(ipacket);
+        return 1;
+    }
+    return 0;
+}
+
+static int netbios_udp137_check_name_query(ipacket_t * ipacket, struct mmt_tcpip_internal_packet_struct *packet) {
+    if ((ntohs(get_u16(packet->payload, 2)) & 0xf800) == 0) {
+
+
+        if (get_u16(packet->payload, 4) == htons(1) &&
+                get_u16(packet->payload, 6) == 0 &&
+                get_u16(packet->payload, 8) == 0 && get_u16(packet->payload, 10) == 0) {
+
+            /* name is encoded as described in rfc883 */
+            uint8_t name_length = packet->payload[12];
+
+
+            if (packet->payload_packet_len == 12 + 1 + name_length + 1 + 2 + 2) {
+
+
+                /* null terminated? */
+                if (packet->payload[12 + name_length + 1] == 0 &&
+                        get_u16(packet->payload, 12 + name_length + 2) == htons(0x0020) &&
+                        get_u16(packet->payload, 12 + name_length + 4) == htons(0x0001)) {
+
+                    mmt_int_netbios_add_connection(ipacket);
+                    return 1;
+                }
+            }
+        }
+    } else if ((ntohs(get_u16(packet->payload, 2)) & 0xf800) == 0x8000) {
+
+
+        if (get_u16(packet->payload, 4) == 0 &&
+                get_u16(packet->payload, 6) == htons(1) &&
+                get_u16(packet->payload, 8) == 0 && get_u16(packet->payload, 10) == 0) {
+
+            /* name is encoded as described in rfc883 */
+            uint8_t name_length = packet->payload[12];
+
+
+            if (packet->payload_packet_len >= 12 + 1 + name_length + 1 + 2 + 2) {
+
+
+                /* null terminated? */
+                if (packet->payload[12 + name_length + 1] == 0 &&
+                        get_u16(packet->payload, 12 + name_length + 2) == htons(0x0020) &&
+                        get_u16(packet->payload, 12 + name_length + 4) == htons(0x0001)) {
+
+                    mmt_int_netbios_add_connection(ipacket);
+                    return 1;
+                }
+            }
+        } else if (get_u16(packet->payload, 4) == 0 &&
+                get_u16(packet->payload, 6) == 0 &&
+                get_u16(packet->payload, 8) == 0 && get_u16(packet->payload, 10) == 0) {
+
+            /* name is encoded as described in rfc883 */
+            uint8_t name_length = packet->payload[12];
+
+
+            if (packet->payload_packet_len >= 12 + 1 + name_length + 1 + 2 + 2) {
+
+
+                /* null terminated? */
+                if (packet->payload[12 + name_length + 1] == 0 &&
+                        get_u16(packet->payload, 12 + name_length + 2) == htons(0x000A) &&
+                        get_u16(packet->payload, 12 + name_length + 4) == htons(0x0001)) {
+
+                    mmt_int_netbios_add_connection(ipacket);
+                    return 1;
+                }
+            }
+        } else if (get_u16(packet->payload, 4) == 0 &&
+                get_u16(packet->payload, 6) == 0 &&
+                get_u16(packet->payload, 8) == htons(1) && get_u16(packet->payload, 10) == htons(1)) {
+
+            /* name is encoded as described in rfc883 */
+            uint8_t name_length = packet->payload[12];
+
+
+            if (packet->payload_packet_len >= 12 + 1 + name_length + 1 + 2 + 2) {
+
+
+                /* null terminated? */
+                if (packet->payload[12 + name_length + 1] == 0 &&
+                        get_u16(packet->payload, 12 + name_length + 2) == htons(0x0002) &&
+                        get_u16(packet->payload, 12 + name_length + 4) == htons(0x0001)) {
+
+                    mmt_int_netbios_add_connection(ipacket);
+                    return 1;
+                }
+            }
+        }
     }
     return 0;
 }
@@ -167,222 +325,16 @@ int mmt_check_netbios_udp(ipacket_t * ipacket, unsigned index) {
         uint16_t dport;
         dport = ntohs(packet->udp->dest);
 
-        MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG, "netbios udp start\n");
 
         /*check standard NETBIOS over udp to port 137 */
         if (dport == 137 && packet->payload_packet_len >= 50) {
-            MMT_LOG(PROTO_NETBIOS,
-                    MMT_LOG_DEBUG, "found netbios port 137 and payload_packet_len 50\n");
 
-            if (ntohs(get_u16(packet->payload, 2)) == 0 &&
-                    ntohs(get_u16(packet->payload, 4)) == 1 &&
-                    ntohs(get_u16(packet->payload, 6)) == 0 &&
-                    ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
-
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG, "found netbios with questions = 1 and answers = 0, authority = 0  \n");
-
-                mmt_int_netbios_add_connection(ipacket);
-                return 1;
-            }
-            if (packet->payload[2] == 0x80 &&
-                    ntohs(get_u16(packet->payload, 4)) == 1 &&
-                    ntohs(get_u16(packet->payload, 6)) == 0 &&
-                    ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 1) {
-
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG, "found netbios with questions = 1 and answers, authority, additional = 0  \n");
-
-                mmt_int_netbios_add_connection(ipacket);
-                return 1;
-            }
-            if (ntohs(get_u16(packet->payload, 2)) == 0x4000 &&
-                    ntohs(get_u16(packet->payload, 4)) == 1 &&
-                    ntohs(get_u16(packet->payload, 6)) == 0 &&
-                    ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 1) {
-
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG, "found netbios with questions = 1 and answers = 0, authority = 0  \n");
-
-                mmt_int_netbios_add_connection(ipacket);
-                return 1;
-            }
-            if (ntohs(get_u16(packet->payload, 2)) == 0x8400 &&
-                    ntohs(get_u16(packet->payload, 4)) == 0 &&
-                    ntohs(get_u16(packet->payload, 6)) == 1 &&
-                    ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
-
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG,
-                        "found netbios with flag 8400 questions = 0 and answers = 1, authority, additional = 0  \n");
-
-                mmt_int_netbios_add_connection(ipacket);
-                return 1;
-            }
-            if (ntohs(get_u16(packet->payload, 2)) == 0x8500 &&
-                    ntohs(get_u16(packet->payload, 4)) == 0 &&
-                    ntohs(get_u16(packet->payload, 6)) == 1 &&
-                    ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
-
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG,
-                        "found netbios with flag 8500 questions = 0 and answers = 1, authority, additional = 0  \n");
-
-                mmt_int_netbios_add_connection(ipacket);
-                return 1;
-            }
-            if (ntohs(get_u16(packet->payload, 2)) == 0x2910 &&
-                    ntohs(get_u16(packet->payload, 4)) == 1 &&
-                    ntohs(get_u16(packet->payload, 6)) == 0 &&
-                    ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 1) {
-
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG,
-                        "found netbios with flag 2910, questions = 1 and answers, authority=0, additional = 1  \n");
-
-                mmt_int_netbios_add_connection(ipacket);
-                return 1;
-            }
-            if (ntohs(get_u16(packet->payload, 2)) == 0xAD86 &&
-                    ntohs(get_u16(packet->payload, 4)) == 0 &&
-                    ntohs(get_u16(packet->payload, 6)) == 1 &&
-                    ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
-
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG,
-                        "found netbios with flag ad86 questions = 0 and answers = 1, authority, additional = 0  \n");
-
-                mmt_int_netbios_add_connection(ipacket);
-                return 1;
-            }
-            if (ntohs(get_u16(packet->payload, 2)) == 0x0110 &&
-                    ntohs(get_u16(packet->payload, 4)) == 1 &&
-                    ntohs(get_u16(packet->payload, 6)) == 0 &&
-                    ntohs(get_u16(packet->payload, 8)) == 0 && ntohs(get_u16(packet->payload, 10)) == 0) {
-
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG,
-                        "found netbios with flag 0110 questions = 1 and answers = 0, authority, additional = 0  \n");
-
-                mmt_int_netbios_add_connection(ipacket);
+            if (netbios_udp137_check_header(ipacket, packet) != 0) {
                 return 1;
             }
 
-            if ((ntohs(get_u16(packet->payload, 2)) & 0xf800) == 0) {
-
-                MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG, "possible netbios name query request\n");
-
-                if (get_u16(packet->payload, 4) == htons(1) &&
-                        get_u16(packet->payload, 6) == 0 &&
-                        get_u16(packet->payload, 8) == 0 && get_u16(packet->payload, 10) == 0) {
-
-                    /* name is encoded as described in rfc883 */
-                    uint8_t name_length = packet->payload[12];
-
-                    MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                            "possible netbios name query request, one question\n");
-
-                    if (packet->payload_packet_len == 12 + 1 + name_length + 1 + 2 + 2) {
-
-                        MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                                "possible netbios name query request, length matches\n");
-
-                        /* null terminated? */
-                        if (packet->payload[12 + name_length + 1] == 0 &&
-                                get_u16(packet->payload, 12 + name_length + 2) == htons(0x0020) &&
-                                get_u16(packet->payload, 12 + name_length + 4) == htons(0x0001)) {
-
-                            MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                                    "found netbios name query request\n");
-                            mmt_int_netbios_add_connection(ipacket);
-                            return 1;
-                        }
-                    }
-                }
-            } else if ((ntohs(get_u16(packet->payload, 2)) & 0xf800) == 0x8000) {
-
-                MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                        "possible netbios name query response\n");
-
-                if (get_u16(packet->payload, 4) == 0 &&
-                        get_u16(packet->payload, 6) == htons(1) &&
-                        get_u16(packet->payload, 8) == 0 && get_u16(packet->payload, 10) == 0) {
-
-                    /* name is encoded as described in rfc883 */
-                    uint8_t name_length = packet->payload[12];
-
-                    MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                            "possible netbios positive name query response, one answer\n");
-
-                    if (packet->payload_packet_len >= 12 + 1 + name_length + 1 + 2 + 2) {
-
-                        MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                                "possible netbios name query response, length matches\n");
-
-                        /* null terminated? */
-                        if (packet->payload[12 + name_length + 1] == 0 &&
-                                get_u16(packet->payload, 12 + name_length + 2) == htons(0x0020) &&
-                                get_u16(packet->payload, 12 + name_length + 4) == htons(0x0001)) {
-
-                            MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                                    "found netbios name query response\n");
-                            mmt_int_netbios_add_connection(ipacket);
-                            return 1;
-                        }
-                    }
-                } else if (get_u16(packet->payload, 4) == 0 &&
-                        get_u16(packet->payload, 6) == 0 &&
-                        get_u16(packet->payload, 8) == 0 && get_u16(packet->payload, 10) == 0) {
-
-                    /* name is encoded as described in rfc883 */
-                    uint8_t name_length = packet->payload[12];
-
-                    MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                            "possible netbios negative name query response, one answer\n");
-
-                    if (packet->payload_packet_len >= 12 + 1 + name_length + 1 + 2 + 2) {
-
-                        MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                                "possible netbios name query response, length matches\n");
-
-                        /* null terminated? */
-                        if (packet->payload[12 + name_length + 1] == 0 &&
-                                get_u16(packet->payload, 12 + name_length + 2) == htons(0x000A) &&
-                                get_u16(packet->payload, 12 + name_length + 4) == htons(0x0001)) {
-
-                            MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                                    "found netbios name query response\n");
-                            mmt_int_netbios_add_connection(ipacket);
-                            return 1;
-                        }
-                    }
-                } else if (get_u16(packet->payload, 4) == 0 &&
-                        get_u16(packet->payload, 6) == 0 &&
-                        get_u16(packet->payload, 8) == htons(1) && get_u16(packet->payload, 10) == htons(1)) {
-
-                    /* name is encoded as described in rfc883 */
-                    uint8_t name_length = packet->payload[12];
-
-                    MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                            "possible netbios redirect name query response, one answer\n");
-
-                    if (packet->payload_packet_len >= 12 + 1 + name_length + 1 + 2 + 2) {
-
-                        MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                                "possible netbios name query response, length matches\n");
-
-                        /* null terminated? */
-                        if (packet->payload[12 + name_length + 1] == 0 &&
-                                get_u16(packet->payload, 12 + name_length + 2) == htons(0x0002) &&
-                                get_u16(packet->payload, 12 + name_length + 4) == htons(0x0001)) {
-
-                            MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG,
-                                    "found netbios name query response\n");
-                            mmt_int_netbios_add_connection(ipacket);
-                            return 1;
-                        }
-                    }
-                }
+            if (netbios_udp137_check_name_query(ipacket, packet) != 0) {
+                return 1;
             }
             /* Only the name query/response forms above are matched; the other
              * RFC 1002 name-service opcodes (registration, release, refresh,
@@ -395,18 +347,12 @@ int mmt_check_netbios_udp(ipacket_t * ipacket, unsigned index) {
                 packet->payload_packet_len >= 14 &&
                 ntohs(get_u16(packet->payload, 10)) == packet->payload_packet_len - 14) {
 
-            MMT_LOG(PROTO_NETBIOS,
-                    MMT_LOG_DEBUG, "found netbios port 138 and payload length >= 112 \n");
 
 
             if (packet->payload[0] >= 0x11 && packet->payload[0] <= 0x16) {
 
-                MMT_LOG(PROTO_NETBIOS,
-                        MMT_LOG_DEBUG, "found netbios with MSG-type 0x11,0x12,0x13,0x14,0x15 or 0x16\n");
 
                 if (ntohl(get_u32(packet->payload, 4)) == ntohl(packet->iph->saddr)) {
-                    MMT_LOG(PROTO_NETBIOS,
-                            MMT_LOG_DEBUG, "found netbios with checked ip-address.\n");
 
                     mmt_int_netbios_add_connection(ipacket);
                     return 1;
@@ -414,7 +360,6 @@ int mmt_check_netbios_udp(ipacket_t * ipacket, unsigned index) {
             }
         }
 
-        MMT_LOG(PROTO_NETBIOS, MMT_LOG_DEBUG, "exclude netbios\n");
         MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_NETBIOS);
     }
     return 0;
@@ -424,18 +369,23 @@ DIRECT_UNIQUE, DIRECT_GROUP, & BROADCAST DATAGRAM
 */
 int netbios_classify_next_proto(ipacket_t * ipacket, unsigned index) {
     int offset = get_packet_offset_at_index(ipacket, index);
-    // uint8_t * netbios_type = (uint8_t *) & ipacket->data[offset];
-    // printf("Message type: %d\n", *netbios_type);
-    struct mmt_netbios_header_struct * netbios_header = (struct mmt_netbios_header_struct *) & ipacket->data[offset];
+    /* Issue #531: the header is read byte-wise within caplen — overlaying
+     * a header struct (8-byte aligned: it ended in a pointer) on the packet
+     * was a misaligned access (UBSan) and read source_port (bytes 8-9) past
+     * a shorter capture. */
+    if (offset < 0 || (uint64_t) offset + 10 > ipacket->p_hdr->caplen)
+        return 0;
+    const uint8_t *netbios_header = &ipacket->data[offset];
+    const uint16_t source_port = ntohs(get_u16(netbios_header, 8));
     classified_proto_t retval;
     retval.proto_id = 0;
     // Classify base on port number
-    if (ntohs(netbios_header->source_port) == 138 || ntohs(netbios_header->source_port) == 445) {
+    if (source_port == 138 || source_port == 445) {
       retval.proto_id = PROTO_SMB;
     }
     retval.status = Classified;
     retval.offset = -1;
-    switch(netbios_header->msg_type){
+    switch(netbios_header[0]){
       case NB_MSG_SESSION_MESSAGE:
         retval.offset = 4;
         break;

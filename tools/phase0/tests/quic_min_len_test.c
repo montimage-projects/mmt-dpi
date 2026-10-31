@@ -39,6 +39,7 @@
 #include <netinet/udp.h>
 
 #include "mmt_core.h"
+#include "ipacket_internal.h" /* issue #535: ipacket_internal_t fixtures (private) */
 /*
  * mmt_check_quic() reads ipacket->internal_packet->{payload, payload_packet_len,
  * udp, flow, mmt_selection_packet, detection_bitmask}. The internal packet and
@@ -95,7 +96,7 @@ static uint8_t *make_buf(const uint8_t *src, size_t len)
  */
 static int run_check_quic(const uint8_t *payload, int payload_len)
 {
-    ipacket_t pkt;
+    ipacket_internal_t pkt;
     struct mmt_tcpip_internal_packet_struct ip;
     struct mmt_internal_tcpip_session_struct flow;
     struct udphdr udp;
@@ -122,7 +123,7 @@ static int run_check_quic(const uint8_t *payload, int payload_len)
     memset(&ip.detection_bitmask, 0xFF, sizeof(ip.detection_bitmask));
 
     pkt.internal_packet = &ip;
-    return mmt_check_quic(&pkt, 0);
+    return mmt_check_quic(&pkt.pub, 0);
 }
 
 /* ---- minimum-length gate: short datagrams rejected without over-read (AC #1 + #2) ----
@@ -185,7 +186,13 @@ int main(void)
      * allocates the global protocol registry init_proto_quic_struct()
      * registers into. */
     init_extraction();
-    init_proto_quic_struct();
+    /* Issue #534: this test links libmmt_tcpip's static archive, a copy
+     * apart from the plugin init_extraction() loaded, which registered
+     * PROTO_QUIC already. Register it again through this copy, the one the
+     * direct calls below read, so its file-scope bitmasks are filled. */
+    unregister_protocol_by_id(PROTO_QUIC);
+    CHECK(init_proto_quic_struct() == PROTO_REGISTERED,
+          "init_proto_quic_struct() registers PROTO_QUIC through the static copy");
     test_min_len_gate();
     test_version_read_in_bounds();
     printf("=== %d checks, %d failure(s) ===\n", g_checks, g_failures);

@@ -101,40 +101,6 @@ void mmt_segblk_free_all(mmt_segblk_t *head, uint64_t *reserved) {
 }
 
 /**
- * Create a new TCP segment
- * @param   seq Sequence number
- * @param   next_seq Next segment sequence number
- * @param   len len of segment
- * @param   data data of segment
- * @return NULL if cannot allocate memory for a new TCP segment
- *              a pointer points to new TCP segment. The new node has the key = 0, all other attributes are NULL
- */
-tcp_seg_t * tcp_seg_new(uint64_t packet_id, uint64_t seq, uint64_t next_seq, uint64_t ack, uint16_t len, uint8_t * data){
-	// mmt_stream_printf(stdout, "[tcp_seg_new] New segment of packet: %lu\n", packet_id);
-	tcp_seg_t * new_seg = (tcp_seg_t *) malloc(sizeof(tcp_seg_t));
-	if (new_seg == NULL) {
-		// mmt_debug_log("[tcp_seg_new] Cannot create a new tcp_seg_t");
-		return NULL;
-	}else{
-		new_seg->packet_id = packet_id;
-		new_seg->seq = seq;
-		new_seg->next_seq = next_seq;
-		new_seg->ack = ack;
-		new_seg->len = len;
-		new_seg->in_arena = 0; /* Issue #201: malloc-backed node */
-		new_seg->data = data;
-		new_seg->next = NULL;
-		new_seg->prev = NULL;
-		new_seg->blk = NULL;   /* Issue #245: not store-carved */
-		new_seg->blk_size = 0;
-		new_seg->idx_height = 0; /* Issue #382: not indexed */
-		new_seg->idx_left = NULL;
-		new_seg->idx_right = NULL;
-		return new_seg;
-	}
-}
-
-/**
  * Issue #20 (P2): create a TCP segment with its node and payload copy carved
  * from a per-flow arena (one bump-allocation each, no per-segment malloc/free).
  */
@@ -215,82 +181,7 @@ void tcp_seg_free_list(tcp_seg_t * head) {
 	}
 }
 
-/**
- * Insert a new node into a Link-list of tcp segment
- * @param  root current root of Link-list of tcp segment
- * @param  node new node to be inserted
- * @return      new root of the Link-list of tcp segment
- */
-tcp_seg_t * tcp_seg_insert(tcp_seg_t * root, tcp_seg_t * seg){
-	if (seg == NULL){
-		mmt_debug_log("[tcp_seg_insert] Cannot insert NULL segment\n");
-		return NULL;
-	}
 
-	if (root == NULL) {
-		root = seg;
-		return root;
-	}
-
-	tcp_seg_t * current_seg = root;
-
-	while(current_seg) {
-		/* Issue #245 (F-PERF-004): count the nodes examined — in-order
-		 * arrivals are appended via the caller's tail pointer and never
-		 * reach this walk, so a runaway counter means a regression. */
-		mmt_tcp_reasm_stat_visit();
-		if (current_seg->seq == seg->seq) {
-			// Duplicated segment. Issue #380 (F-PERF-002) settles the #245
-			// policy: the first segment is kept and later duplicates are
-			// rejected (proto_tcp.c does so before allocating any storage).
-			mmt_debug_log("[tcp_seg_insert] Duplicated segment: seq %lu - packets: %lu, %lu (ignored)\n", seg->seq, current_seg->packet_id, seg->packet_id);
-			return NULL; // duplicated segment
-		}
-		/* Issue #245: wrap-aware ordering — a post-2^32 sequence continues
-		 * the stream instead of sorting before the head. */
-		if (tcp_seq_before(seg->seq, current_seg->seq)){
-			// Found the place to add new segment
-			seg->next = current_seg;
-			seg->prev = current_seg->prev;
-			if (current_seg->prev){
-				current_seg->prev->next = seg;
-			}
-
-			current_seg->prev = seg;
-			if (seg->prev == NULL){
-				// New segment should be the root
-				return seg;
-			}
-			return root;
-		}
-
-		if (current_seg->next == NULL){
-			// The new segment is the biggest sequence number -> add to the end of the list
-			current_seg->next = seg;
-			seg->prev = current_seg;
-			return root;
-		}
-
-		current_seg = current_seg->next;
-	}
-	mmt_debug_log("[tcp_seg_insert] Should not be here seq: %lu - packets: %lu\n", seg->seq, seg->packet_id);
-	return NULL; // Should not be here
-
-}
-
-
-
-tcp_seg_t * tcp_seg_locate(tcp_seg_t * root, uint64_t seq){
-	/* Issue #380 (F-PERF-002): the tcp_seg_insert() walk without the node —
-	 * the caller detects duplicates before carving any storage. */
-	tcp_seg_t * current_seg = root;
-	while (current_seg) {
-		mmt_tcp_reasm_stat_visit();
-		if (!tcp_seq_before(current_seg->seq, seq)) return current_seg;
-		current_seg = current_seg->next;
-	}
-	return NULL;
-}
 
 /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  //
 //  Issue #382 (F-PERF-003): AVL index over the pending list                 //
@@ -428,74 +319,6 @@ void tcp_seg_idx_reset(tcp_seg_t ** root, tcp_seg_t * head){
 	*root = NULL;
 	for (tcp_seg_t * s = head; s != NULL; s = s->next)
 		s->idx_height = 0;
-}
-
-/**
- * Search in the given Link-list of tcp segment a node which has the seq equals with given seq
- * @param  root root of Link-list of tcp segment
- * @param  key  key value to search the node
- * @return      NULL - if there isn't any node in given Link-list of tcp segment which has the given key value
- *                   a pointer points to the node which has given key value
- */
-tcp_seg_t * tcp_seg_find(tcp_seg_t * root, uint64_t seq){
-	if (root == NULL) return NULL;
-	tcp_seg_t * current_seg = root;
-
-
-	while(current_seg){
-		if (current_seg->seq == seq) return current_seg;
-		current_seg = current_seg->next;
-	}
-
-	return NULL;
-}
-
-/**
- * Show current Link-list of tcp segment structure
- * @param seg root of the Link-list of tcp segment
- */
-void tcp_seg_show_list(tcp_seg_t * seg){
-	if (seg == NULL) {
-		mmt_stream_printf(stdout, "[Empty]\n");
-	} else {
-		tcp_seg_t * current_seg = seg;
-		mmt_stream_printf(stdout, "packet_id | prev_seg | seg | seq | next_seq | ack | data | next_seq \n");
-		while(current_seg){
-			tcp_seg_show(current_seg);
-			current_seg = current_seg->next;
-		}
-
-	}
-
-}
-
-/**
- * Show current TCP segment
- * @param seg given seg
- */
-void tcp_seg_show(tcp_seg_t * seg) {
-	if (seg == NULL){
-		mmt_stream_printf(stdout, "[NULL]\n");
-	} else {
-		mmt_stream_printf(stdout, "[%lu | %p | %p | %lu | %lu | %lu | %d | %p | %p]\n", seg->packet_id, seg->prev, seg, seg->seq, seg->next_seq, seg->ack, seg->len, seg->data, seg->next);
-	}
-}
-
-/**
- * Get the number of segment in the list
- * @param  seg root of the tree
- * @return      number of seg in the Link-list
- */
-int tcp_seg_size(tcp_seg_t * seg) {
-	int size = 0;
-
-	tcp_seg_t * current_seg = seg;
-
-	while(current_seg){
-		size++;
-		current_seg = current_seg->next;
-	}
-	return size;
 }
 
 int tcp_seg_reassembly(uint8_t * data, tcp_seg_t * root, uint32_t len){

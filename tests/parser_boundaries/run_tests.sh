@@ -22,7 +22,8 @@
 #
 #   test_dtls_wire_extent_unit.c — drives internal_extract_attribute() over
 #                               crafted ipacket/attribute fixtures plus the
-#                               real _dtls_extract_attribute() (linked SDK).
+#                               real _dtls_extract_attribute() (linked SDK;
+#                               the core is the static archive, #533).
 #   test_dtls_wire_extent_api.c  — packet/API path: crafted
 #                               Ethernet/IPv4/UDP/DTLS frames through
 #                               mmt_init_handler + packet_process with a
@@ -154,10 +155,45 @@
 #                               libmmt_tmobile.a whole-archive (the shared
 #                               library hides the asn1c symbols).
 #
+# Issue #531 adds the "classify" fixture: a classifier sweep over the TCP/IP
+# dissectors with the most uncovered classifier-body lines — each case
+# replays its protocol's opening exchange (TCP handshake first) to the
+# classifier's add-connection call, every attribute of the protocol is
+# extracted, and the direct-download-link host matcher is walked host by
+# host. Under SANITIZE=asan its NetBIOS cases pin the fix of
+# netbios_classify_next_proto(), which overlaid a pointer-aligned struct on
+# the packet (UBSan misaligned access) and read past a short capture.
+#
+#   test_tcpip_classify_api.c — packet/API path: crafted
+#                               Ethernet/IPv4/{TCP,UDP} exchanges through
+#                               mmt_init_handler + packet_process, one host
+#                               pair per case.
+#
+# Issue #542 adds the "registration" fixture: the 506 registration-only
+# proto_*.c stubs became MMT_PROTO_SIMPLE(id, alias, name) rows of
+# proto_init_list.def, registered by one generic helper in
+# configured_protocols.c — every row must still register under its id and
+# resolve both ways by its alias.
+#
+#   test_simple_registration_api.c — expands proto_init_list.def's
+#                               MMT_PROTO_SIMPLE rows and checks each against
+#                               the registry after init_extraction().
+#
+# Issue #544 adds the "ftp-sessions" fixture: the 25 FTP session extractors
+# resolve the control and data sessions through one helper of
+# proto_ftp_extract.c — each attribute must read the same from the control
+# connection and from the data connection of one passive download, and
+# nothing session-scoped from a data flow detached by the 226 reset.
+#
+#   test_ftp_session_attrs_api.c — packet/API path: crafted
+#                               Ethernet/IPv4/TCP FTP control and data
+#                               connections through mmt_init_handler +
+#                               packet_process.
+#
 # Usage: tests/parser_boundaries/run_tests.sh [fixture ...]
 #   no arguments runs every fixture; "udp"/"dtls"/"dns-soa"/"dns-txt"/"dns-names"/"nfs"/"int"/
-#   "tcp-options"/"radius-dns"/"quic"/"gre"/"classifier-audit"/"tcp-events"/"s1ap-integer"
-#   select a fixture family.
+#   "tcp-options"/"radius-dns"/"quic"/"gre"/"classifier-audit"/"tcp-events"/"s1ap-integer"/
+#   "classify"/"registration"/"ftp-sessions" select a fixture family.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -165,7 +201,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # --- fixture selection -----------------------------------------------------
 FIXTURES=( "$@" )
-[ "${#FIXTURES[@]}" -eq 0 ] && FIXTURES=(udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic gre classifier-audit tcp-events s1ap-integer)
+[ "${#FIXTURES[@]}" -eq 0 ] && FIXTURES=(udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic gre classifier-audit tcp-events s1ap-integer classify registration ftp-sessions)
 UNIT_TESTS=()
 API_TESTS=()
 MOBILE_TESTS=()
@@ -214,8 +250,17 @@ for f in "${FIXTURES[@]}"; do
         s1ap-integer)
             MOBILE_TESTS+=(s1ap_integer_length)
             ;;
+        classify)
+            API_TESTS+=(tcpip_classify_api)
+            ;;
+        registration)
+            API_TESTS+=(simple_registration_api)
+            ;;
+        ftp-sessions)
+            API_TESTS+=(ftp_session_attrs_api)
+            ;;
         *)
-            echo "✗ unknown parser_boundaries fixture '$f' (known: udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic gre classifier-audit tcp-events s1ap-integer)" >&2
+            echo "✗ unknown parser_boundaries fixture '$f' (known: udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic gre classifier-audit tcp-events s1ap-integer classify registration ftp-sessions)" >&2
             exit 2
             ;;
     esac
@@ -249,13 +294,19 @@ echo "  repo root      : ${REPO_ROOT}"
 echo "  install prefix : ${PREFIX}"
 
 # --- [1/3] SDK build+install (needed by the API-path tests) ----------------
-echo "  [1/3] building + installing SDK ..."
-make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
-if ! make -C "${REPO_ROOT}/sdk" "$@" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
-    echo "✗ SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
-fi
-if ! make -C "${REPO_ROOT}/sdk" "$@" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
-    echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+if [ "${MMT_SDK_PREBUILT:-0}" = "1" ]; then
+    # tests/run_all_tests.sh built and installed it once (issue #654).
+    [ -e "${PREFIX}/dpi/lib/libmmt_core.so" ] || { echo "✗ MMT_SDK_PREBUILT=1 but MMT_PREFIX='${MMT_PREFIX:-}' holds no installed SDK" >&2; exit 1; }
+    echo "  [1/3] reusing the prebuilt SDK (MMT_SDK_PREBUILT=1) ..."
+else
+    echo "  [1/3] building + installing SDK ..."
+    make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
+    if ! make -C "${REPO_ROOT}/sdk" "$@" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
+        echo "✗ SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
+    if ! make -C "${REPO_ROOT}/sdk" "$@" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
+        echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
 fi
 
 INC="${PREFIX}/dpi/include"
@@ -279,11 +330,29 @@ for name in "${UNIT_TESTS[@]}"; do
         "${UNIT_INCS[@]}" -o "${SCRIPT_DIR}/test_${name}" \
         "${SCRIPT_DIR}/test_${name}.c"
 done
+# Issue #533: test_dtls_wire_extent_unit calls internal_extract_attribute(),
+# which libmmt_core.so hides, so it links the static archive instead.
+# shellcheck source=tools/phase0/tests/static_core_link.sh
+. "${REPO_ROOT}/tools/phase0/tests/static_core_link.sh"
+mmt_static_core_link "${LIB}" || exit 2
+# Issue #534: the tests below call libmmt_tcpip internals (_dtls_extract_attribute,
+# the nfs_*/tcp_* extraction functions), which the plugin hides, so they link
+# its static archive instead of -lmmt_tcpip.
+mmt_static_plugin_link "${LIB}" tcpip || exit 2
 for name in "${API_TESTS[@]}"; do
+    core_link=(-lmmt_core)
+    if [ "${name}" = dtls_wire_extent_unit ]; then
+        core_link=("${MMT_STATIC_CORE_LDFLAGS[@]}")
+    fi
+    tcpip_link=(-lmmt_tcpip)
+    case "${name}" in
+        dtls_wire_extent_unit|dtls_wire_extent_api|nfs_rpc_header_bounds|tcp_options_bounds)
+            tcpip_link=("${MMT_STATIC_PLUGIN_LDFLAGS[@]}") ;;
+    esac
     "${CC}" "${extra_cflags[@]}" -O1 -g -Wall -Wextra -std=gnu11 \
         -o "${SCRIPT_DIR}/test_${name}" "${SCRIPT_DIR}/test_${name}.c" \
         -I"${INC}" -I"${REPO_ROOT}/src/mmt_tcpip/lib" "${UNIT_INCS[@]}" \
-        -L"${LIB}" -lmmt_tcpip -lmmt_core -ldl -lpcap -lpthread -lm
+        -L"${LIB}" "${tcpip_link[@]}" "${core_link[@]}" -ldl -lpcap -lpthread -lm
 done
 for name in "${MOBILE_TESTS[@]}"; do
     "${CC}" "${extra_cflags[@]}" -O1 -g -Wall -Wextra -std=gnu11 \
@@ -332,4 +401,4 @@ if [ "${rc}" -ne 0 ]; then
     echo "✗ parser boundary tests failed" >&2
     exit 1
 fi
-echo "✓ parser boundary tests passed (issues #330, #331, #332, #333, #375, #376, #377, #378, #407, #409, #453, #455, #505, #513)"
+echo "✓ parser boundary tests passed (issues #330, #331, #332, #333, #375, #376, #377, #378, #407, #409, #453, #455, #505, #513, #531, #542, #544)"

@@ -18,7 +18,7 @@ extern "C" {
 #include "mmt_exports.h"
 #include "plugin_defs.h"
 #include "proto_meta.h"
-#include "dbg.h"
+/* dbg.h (debug/check/log_err/likely/...) is SDK-internal since issue #537. */
 #include "mmt_utils.h"
 
 /* NOTE: DLT/protocol constants (DLT_EN10MB, THALES_TDMA_PROTO, ECITIZ_PROTO) logically belong to protocol stacks
@@ -224,8 +224,9 @@ MMTAPI void MMTCALL mmt_close_handler(
  * Get number of active session
  * @param  mmt_handler MMT Handler
  * @return             number of active session
- *                     -1 if the mmt_handler is NULL
+ *                     MMT_INVALID_SESSION_COUNT if the mmt_handler is NULL
  */
+#define MMT_INVALID_SESSION_COUNT UINT64_MAX /**< issue #546: the value `return -1` used to produce */
 MMTAPI uint64_t MMTCALL get_active_session_count(
     mmt_handler_t *mmt_handler
 );
@@ -237,7 +238,7 @@ MMTAPI uint64_t MMTCALL get_active_session_count(
  */
 MMTAPI const char* MMTCALL get_protocol_stack_name(
     uint32_t s_id
-);
+) __attribute__((deprecated("no known caller (issue #541); removal in 2.0.0")));
 
 /**
  * Returns a positive value if the given packet handler id is already registered, 0 otherwise.
@@ -811,13 +812,13 @@ MMTAPI bool MMTCALL disable_ip_address_classify(
  * predefined or file-defined profile name before mmt_init_handler().
  * MMT_DPI_PROFILES_FILE points at a data file adding custom named profiles —
  * one per line:
- *     <name> <max_depth> <app_protocol_classify> <port_classify> <ip_address_classify>
+ *     <name> <max_depth> <app_protocol_classify> <port_classify> <ip_address_classify> [<legacy>]
  * (e.g. "edge 4 1 0 0"; '#' starts a comment). Predefined names are
  * reserved: a file entry reusing one is skipped with a diagnostic.
  *
- * The default handler configuration is unchanged — equivalent to
- * MMT_DPI_PROFILE_DEFAULT — so the bundled classification output stays
- * byte-identical unless a profile is explicitly applied.
+ * The default handler configuration is MMT_DPI_PROFILE_DEFAULT. Since #540
+ * the defunct-service checkers run only under the by-name `legacy` profile
+ * (or a file profile whose optional sixth column is 1).
  */
 
 /**
@@ -831,28 +832,28 @@ typedef struct mmt_dpi_profile_struct {
     uint8_t ip_address_classify;      /**< 0/1 — IP-range attribution */
 } mmt_dpi_profile_t;
 
-/* The predefined profile objects are plain `extern` — never MMTAPI: inside
- * the SDK build MMTAPI is empty, which would turn these declarations into
- * one tentative definition per translation unit. */
+/* The predefined profile objects are MMTAPI data (#533): MMTAPI is `extern`
+ * in both build modes (mmt_exports.h), so these stay declarations, and its
+ * default visibility exports them from the -fvisibility=hidden core. */
 /** Today's built-in defaults, spelled out: unlimited depth, application
  * detection on, IP-range on, port attribution off. Applying this profile
  * restores the stock configuration. */
-extern const mmt_dpi_profile_t MMT_DPI_PROFILE_DEFAULT;
+MMTAPI const mmt_dpi_profile_t MMT_DPI_PROFILE_DEFAULT;
 /** Everything on: unlimited depth plus all three heuristic levers,
  * including port attribution. */
-extern const mmt_dpi_profile_t MMT_DPI_PROFILE_FULL;
+MMTAPI const mmt_dpi_profile_t MMT_DPI_PROFILE_FULL;
 /** Middle ground: inspect through the first application layer and one
  * encapsulation hop (depth 5, enough for TLS SNI attribution), application
  * and IP-range detection on, port attribution off. */
-extern const mmt_dpi_profile_t MMT_DPI_PROFILE_BALANCED;
+MMTAPI const mmt_dpi_profile_t MMT_DPI_PROFILE_BALANCED;
 /** Maximum throughput: structural classification only — path stops at the
  * transport layer (depth 3), every heuristic lever off. Sessions and
  * L2–L4 statistics still work; no application protocol is detected. */
-extern const mmt_dpi_profile_t MMT_DPI_PROFILE_MINIMAL;
+MMTAPI const mmt_dpi_profile_t MMT_DPI_PROFILE_MINIMAL;
 
 /**
  * Apply a DPI profile to a handler: sets classification_max_depth and the
- * three detection toggles in one call. May be called any time after
+ * three detection toggles, and turns the legacy checkers off (#540). Callable any time after
  * mmt_init_handler(); mid-stream application only affects subsequent
  * classification (layers already recorded in existing session paths stay).
  * @param  mmt_handler mmt handler
@@ -866,7 +867,7 @@ MMTAPI bool MMTCALL mmt_apply_dpi_profile(
 );
 
 /**
- * Apply a named DPI profile: searches the four predefined profiles first,
+ * Apply a named DPI profile: searches the five predefined ones (`legacy` too) first,
  * then the custom names loaded via mmt_load_dpi_profiles_file() (or
  * MMT_DPI_PROFILES_FILE). Name matching is case-insensitive.
  * @param  mmt_handler mmt handler
@@ -881,7 +882,7 @@ MMTAPI bool MMTCALL mmt_apply_dpi_profile_by_name(
 
 /**
  * Load custom named DPI profiles from a data file — one profile per line:
- *   <name> <max_depth> <app_protocol_classify> <port_classify> <ip_address_classify>
+ *   <name> <max_depth> <app_protocol_classify> <port_classify> <ip_address_classify> [<legacy>]
  * '#' starts a comment; blank and malformed lines are skipped. Names are
  * case-insensitive, must not collide with a predefined profile or an
  * already-loaded name, and are truncated at 31 chars. Loaded profiles are
@@ -1131,7 +1132,7 @@ MMTAPI void MMTCALL disable_protocol_statistics(
 );
 
 /**
- * Enables the analysis sub-process for the protocol with the given id
+ * Enables the analysis sub-process for the protocol with the given id, on this handler only
  * @param mmt_handler mmt handler
  * @param proto_id protocol identifier
  */
@@ -1141,7 +1142,7 @@ MMTAPI void MMTCALL enable_protocol_analysis(
 );
 
 /**
- * Disables the analysis sub-process for the protocol with the given id
+ * Disables the analysis sub-process for the protocol with the given id, on this handler only
  * @param mmt_handler mmt handler
  * @param proto_id protocol identifier
  */
@@ -1151,7 +1152,7 @@ MMTAPI void MMTCALL disable_protocol_analysis(
 );
 
 /**
- * Enables the classification sub-process for the protocol with the given id
+ * Enables the classification sub-process for the protocol with the given id, on this handler only
  * @param mmt_handler mmt handler
  * @param proto_id protocol identifier
  */
@@ -1161,7 +1162,7 @@ MMTAPI void MMTCALL enable_protocol_classification(
 );
 
 /**
- * Disables the classification sub-process for the protocol with the given id
+ * Disables the classification sub-process for the protocol with the given id, on this handler only
  * @param mmt_handler mmt handler
  * @param proto_id protocol identifier
  */
@@ -1348,7 +1349,7 @@ static inline int mmt_memcmp( mmt_const_opaque_t x, mmt_const_opaque_t y, size_t
 /**
  * Print Montimage information
  */
-void mmt_print_info();
+MMTAPI void MMTCALL mmt_print_info();
 
 /* Typed inline accessors for weak-type scope (ABI-compatible wrappers, file:line mmt_core.h) */
 static inline mmt_attr_scope_t mmt_attr_get_scope_typed(const attribute_t *attr) {

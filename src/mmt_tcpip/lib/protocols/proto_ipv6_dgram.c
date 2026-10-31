@@ -152,19 +152,16 @@ int ipv6_dgram_update(ipv6_dgram_t *dg, const mmt_una_ipv6hdr_t *ip, unsigned av
    uint32_t declared = ntohs(ip->payload_len);
    if (ext_header_len >= declared || payload_offset > avail)
    {
-      MMT_LOG( PROTO_IPV6, MMT_LOG_DEBUG, "*** Warning: malformed packet (ipv6 fragment length mismatch)\n" );
       return 1;
    }
    uint32_t payload_len = declared - ext_header_len;
    if ((uint64_t) payload_offset + payload_len > avail)
    {
-      MMT_LOG( PROTO_IPV6, MMT_LOG_DEBUG, "*** Warning: malformed packet (ipv6 fragment beyond captured data)\n" );
       return 1;
    }
    /* Bound the reassembled extent exactly like the IPv4 path. */
    if ((uint64_t) fragment_offset * 8 + payload_len > MMT_IP_FRAG_MAX_DGRAM)
    {
-      MMT_LOG( PROTO_IPV6, MMT_LOG_DEBUG, "*** Warning: malformed packet (ipv6 fragment extent out of range)\n" );
       return 1;
    }
    const uint8_t *payload = (const uint8_t *)ip + payload_offset;
@@ -240,42 +237,11 @@ int ipv6_dgram_is_complete(ipv6_dgram_t *dg)
  * @param dg a pointer to a ipv6_dgram_t previously initialized with dgram_init()
  */
 
-void ipv6_dgram_dump(ipv6_dgram_t *dg)
-{
-   (void)mmt_stream_printf(stdout,"--- IP DATAGRAM ---\n");
-   (void)mmt_stream_printf(stdout,"   id: %p\n", dg);
-   (void)mmt_stream_printf(stdout,"  len: %d\n", dg->len);
-
-   ipv6_dgram_dump_holes(dg);
-}
-
 /**
  * Dump a datagram as a list of holes
  *
  * @param dg a pointer to a ipv6_dgram_t previously initialized with dgram_init()
  */
-
-void ipv6_dgram_dump_holes(ipv6_dgram_t *dg)
-{
-   ip_frags_t *holes = &dg->holes;
-   ip_frag_t *hole = holes->lh_first;
-
-   (void)mmt_stream_printf(stdout,"holes:");
-
-   if (hole == 0)
-   {
-      (void)mmt_stream_printf(stdout," none - datagram is complete\n");
-      return;
-   }
-
-   while (hole)
-   {
-      ip_frag_dump(hole);
-      hole = hole->frags.le_next;
-   }
-
-   (void)mmt_stream_printf(stdout,"\n");
-}
 
 /**
  * Update holes in a datagram
@@ -364,7 +330,6 @@ int ipv6_dgram_update_holes(ipv6_dgram_t *dg, const uint8_t *x, unsigned off, un
     * mirrors the IPv4 path. */
    if ((uint64_t) off + len > MMT_IP_FRAG_MAX_DGRAM)
    {
-      MMT_LOG( PROTO_IPV6, MMT_LOG_DEBUG, "*** Warning: malformed packet (ipv6 fragment extent out of range)\n" );
       return 1;
    }
 

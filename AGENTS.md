@@ -8,12 +8,14 @@ the toolchain line, the `MMT_BASE` prefix contract and the sanitizer rules.
 ## Commands
 
 - Build (there is no top-level Makefile): `make -C sdk -j$(nproc)` — exit 0 = green; warnings are informational (never `-Werror`)
-- Test: `bash tests/run_all_tests.sh` — 30/30 suites pass; standalone (no prior build or install); the SDK-building suites run `make -C sdk clean` first, so a run discards an existing `sdk/` build. Count, runtime band and exit codes: [docs/AGENT_ENVIRONMENT.md §3](docs/AGENT_ENVIRONMENT.md#3-testing)
+- Test: `bash tests/run_all_tests.sh` — 30/30 suites pass; standalone (no prior build or install); the runner runs `make -C sdk clean` and builds the SDK once per group for the suites that consume it (`installer` and `sdk_coverage` build their own), so a run discards an existing `sdk/` build. Count, runtime band and exit codes: [docs/AGENT_ENVIRONMENT.md §3](docs/AGENT_ENVIRONMENT.md#3-testing)
 - One suite or a subset: `bash tests/run_all_tests.sh hashmap memory`
 - Sanitized suites: `SANITIZE=asan|tsan bash tests/run_all_tests.sh` (mirrors `BUILD=asan`/`BUILD=tsan`; tsan re-execs under `setarch -R`)
 - Coverage: `bash tests/run_all_tests.sh --coverage` — line coverage of the instrumented `src/` subset, not the whole SDK; whole-SDK per-family numbers: `bash tools/ci/check-sdk-coverage.sh` after that run
 - Phase0 gates (golden fingerprint, precision/recall): `MMT_PREFIX=$(mktemp -d) bash tools/phase0/ci/check_classification.sh` and `MMT_PREFIX=$(mktemp -d) bash tools/phase0/ci/check_precision.sh`
 - Pre-push tier (minutes): `bash tests/run_all_tests.sh --with-harnesses`
+- PR gates locally: `bash tools/ci/local-gates.sh --fast` (the lint, verify-helpers and doc-validators steps, read from `c-cpp.yml`, in the pinned container; `--full` adds the suites and phase0 gates) — [docs/AGENT_ENVIRONMENT.md §8](docs/AGENT_ENVIRONMENT.md#8-working-tree-gate-and-access-notes)
+- Opt-in compiler cache: `MMT_CCACHE=ccache bash tests/run_all_tests.sh` (or `make -C sdk MMT_CCACHE=ccache`); unset changes nothing
 - Lint: `shellcheck $(git ls-files '*.sh')`; cppcheck via `bash tools/ci/run-cppcheck.sh` (pinned version, see [docs/AGENT_ENVIRONMENT.md §1](docs/AGENT_ENVIRONMENT.md#1-toolchain-requirements))
 - Doc validators: `for s in scripts/validate-*.sh; do bash "$s" || exit 1; done`
 - Optional security engines: `make -C sdk ENABLESEC=1 -j$(nproc)` (requires libxml2-dev)
@@ -31,7 +33,7 @@ the toolchain line, the `MMT_BASE` prefix contract and the sanitizer rules.
 | `rules/*.mk` | Every build flag: `MMT_BASE`, `BUILD=asan\|tsan\|coverage`, `ENABLESEC`, `DEBUG`, `SHOWLOG` |
 | `tests/` | Standalone unit suites (list in `DEFAULT_SUITES` of `tests/run_all_tests.sh`) |
 | `tools/phase0/` | CI baseline gates: golden-pcap classification fingerprint, precision/recall, ASan/TSan harnesses |
-| `dist/ZIP/` | Hand-maintained installer sources for the prebuilt ZIP — tracked, edit like any source |
+| `mmt-dpi.spec`, `debian/` | Distribution packaging (FHS, `make -C sdk install-fhs`): the RPM recipe and the Debian source package |
 
 ## Constraints
 

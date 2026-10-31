@@ -34,13 +34,19 @@ fi
 echo "  repo root      : ${REPO_ROOT}"
 echo "  install prefix : ${PREFIX}"
 
-echo "  [1/3] building + installing SDK ..."
-make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
-if ! make -C "${REPO_ROOT}/sdk" "$@" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
-    echo "✗ SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
-fi
-if ! make -C "${REPO_ROOT}/sdk" "$@" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
-    echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+if [ "${MMT_SDK_PREBUILT:-0}" = "1" ]; then
+    # tests/run_all_tests.sh built and installed it once (issue #654).
+    [ -e "${PREFIX}/dpi/lib/libmmt_core.so" ] || { echo "✗ MMT_SDK_PREBUILT=1 but MMT_PREFIX='${MMT_PREFIX:-}' holds no installed SDK" >&2; exit 1; }
+    echo "  [1/3] reusing the prebuilt SDK (MMT_SDK_PREBUILT=1) ..."
+else
+    echo "  [1/3] building + installing SDK ..."
+    make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
+    if ! make -C "${REPO_ROOT}/sdk" "$@" -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
+        echo "✗ SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
+    if ! make -C "${REPO_ROOT}/sdk" "$@" MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
+        echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
 fi
 
 INC="${PREFIX}/dpi/include"
@@ -57,9 +63,14 @@ SRC_INC=(
 
 echo "  [2/3] compiling test ..."
 read -r -a extra_cflags <<< "${EXTRA_CFLAGS:-}"
+# Issue #534: the test calls the nas_* decoders, which libmmt_tmobile.so
+# hides, so it links the static archive (tools/phase0/tests/static_core_link.sh).
+# shellcheck source=tools/phase0/tests/static_core_link.sh
+. "${REPO_ROOT}/tools/phase0/tests/static_core_link.sh"
+mmt_static_plugin_link "${LIB}" tmobile || exit 2
 ${CC} "${extra_cflags[@]}" -O2 -Wall -o "${SCRIPT_DIR}/test_nas_ies_tail" \
     "${TEST_SRC}" "${SRC_INC[@]}" \
-    -I "${INC}" -L "${LIB}" -lmmt_tmobile -lmmt_core
+    -I "${INC}" -L "${LIB}" "${MMT_STATIC_PLUGIN_LDFLAGS[@]}" -lmmt_core
 
 echo "  [3/3] running test ..."
 LD_LIBRARY_PATH="${LIB}:${LD_LIBRARY_PATH:-}" \

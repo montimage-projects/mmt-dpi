@@ -120,31 +120,6 @@ int tls_get_number_records(const ipacket_t * ipacket){
     return nb_record;
 }
 
-/**
- * Check if a message_type value is a valid one
- * 
-    Message types
-    Code    Description
-    0   HelloRequest
-    1   ClientHello
-    2   ServerHello
-    4   NewSessionTicket
-    11  Certificate
-    12  ServerKeyExchange
-    13  CertificateRequest
-    14  ServerHelloDone
-    15  CertificateVerify
-    16  ClientKeyExchange
-    20  Finished
- * @param  message_type [description]
- * @return              [description]
- */
-int ssl_is_tls_message_type(int message_type){
-    return !(message_type < 0 
-        || message_type > 20 
-        || (message_type > 4 && message_type < 11)
-        || (message_type > 16 && message_type < 20));
-}
 //////////////// SSL attributes extraction routines.
 
 int ssl_server_name_extraction(const ipacket_t * ipacket, unsigned proto_index, attribute_t * extracted_data) {
@@ -914,7 +889,6 @@ int mmt_classify_ssl(ipacket_t * ipacket, unsigned index) {
             return 1;
         } else {
             // SSLv3 Record
-            MMT_LOG(PROTO_SSL, MMT_LOG_DEBUG, "sslv3 len match\n");
             flow->l4.tcp.ssl_stage += 1;
         }
     }
@@ -924,7 +898,6 @@ int mmt_classify_ssl(ipacket_t * ipacket, unsigned index) {
 	if (packet->payload[2] == 0x01 && packet->payload[3] == 0x03
 		&& (packet->payload[4] == 0x00 || packet->payload[4] == 0x01 || packet->payload[4] == 0x02)
 		&& (packet->payload_packet_len - packet->payload[1] == 2)) {
-	  MMT_LOG(PROTO_SSL, MMT_LOG_DEBUG, "sslv2 len match\n");
 	  flow->l4.tcp.ssl_stage += 1;
 	  return 4;
 	}
@@ -935,7 +908,6 @@ int mmt_classify_ssl(ipacket_t * ipacket, unsigned index) {
 		&& (packet->payload_packet_len - 2) >= packet->payload[1]
 		&& (flow->l4.tcp.ssl_stage > 0)) {
 
-		MMT_LOG(PROTO_SSL, MMT_LOG_DEBUG, "sslv2 server len match\n");
    	    flow->l4.tcp.ssl_stage += 1;
 	  return 4;
 	}
@@ -946,7 +918,6 @@ int mmt_classify_ssl(ipacket_t * ipacket, unsigned index) {
 			&& (packet->payload[2] == 0x00 || packet->payload[2] == 0x01 || packet->payload[2] == 0x02 || packet->payload[2] == 0x03)
 			&& (packet->payload_packet_len <= (ssl_read_u16_be(packet->payload, 3) + 5))) {
 		// SSLv3 Record
-		MMT_LOG(PROTO_SSL, MMT_LOG_DEBUG, "sslv3 len match\n");
 		flow->l4.tcp.ssl_stage += 1;
 		return 4;
 	}
@@ -960,7 +931,6 @@ int mmt_classify_ssl(ipacket_t * ipacket, unsigned index) {
 			&& (packet->payload[2] == 0x00 || packet->payload[2] == 0x01 || packet->payload[2] == 0x02 || packet->payload[2] == 0x03)
 			&& (packet->payload_packet_len - ssl_read_u16_be(packet->payload, 3) == 5)) {
 		// SSLv3 Record
-		MMT_LOG(PROTO_SSL, MMT_LOG_DEBUG, "sslv3 len match\n");
 		flow->l4.tcp.ssl_stage += 1;
 		return 4;
 	}
@@ -970,7 +940,6 @@ int mmt_classify_ssl(ipacket_t * ipacket, unsigned index) {
         return 4;
     }
 
-    MMT_LOG(PROTO_SSL, MMT_LOG_DEBUG, "exclude ssl\n");
     MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SSL);
     return 0;
 }

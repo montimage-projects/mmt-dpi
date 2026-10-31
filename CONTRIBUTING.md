@@ -105,26 +105,115 @@ Path-filtered work reports through an always-running aggregate instead:
 `packages-gate` in `release-packages.yml` passes when a PR touches no
 packaging path and otherwise requires every package leg.
 
-A docs-only PR — every changed file under `docs/` or a Markdown file at the
-repository root — skips the C jobs of `c-cpp.yml` and `phase0-baseline.yml`
-(issue #552). The `changes` job classifies the diff with
-`tools/ci/classify-changes.sh`; a job skipped by its `if:` reports success, and
-the matrix jobs run with their steps skipped so each leg still reports its own
-context. The docs jobs (`doc-validators`, which then also runs the
-`docs_lifecycle` suite, `verify-helpers`, `version-agreement`, `pre-commit`,
-`secret-scan`, `site-onboarding` and `build`) always run.
+The `changes` job of `c-cpp.yml` and `phase0-baseline.yml` classifies a PR's
+diff with `tools/ci/classify-changes.sh` into one of five tiers, the highest
+any changed path reaches (issues #552, #656):
+
+| Tier | Paths | What runs besides the always-on jobs |
+|------|-------|--------------------------------------|
+| `docs` | `docs/`, Markdown at the repository root | nothing else: the C jobs skip |
+| `tooling` | `tools/ci/`, `scripts/`, non-workflow `.github/` files, root dotfiles — that only tooling and unit suites reference | `unit-tests` on the tooling self-test suites and the suites that reference the file, `lint` |
+| `tests` | one suite's `tests/<suite>/` files, one harness's `tools/phase0/tests/` files | those plus the smoke set, on every suite leg (sanitizers, ARM, unsigned char, toolchains, assertions), the selected harnesses and the phase0 gates |
+| `family` | one family's own sources (a tcpip dissector, `src/mmt_mobile`, `src/mmt_dicom`, `src/mmt_business_app`) | the family's suites and harnesses, those that name the file or reach it through a `tools/ci` self-test they delegate to, plus the smoke set, as above, and `codeql`, `fuzz` |
+| `full` | everything else: `src/mmt_core`, any header, the transport dissectors, shared tcpip code, `rules/`, `sdk/`, workflows, actions, the runners, the map, an unmapped or quoted path | every job on the whole suite and harness set, plus `coverage`, `root-install`, `abi-diff` |
+
+The always-on jobs are `build`, `verify-helpers` (which also runs the
+`docs_onboarding` suite against the site it builds), `version-agreement`,
+`pre-commit`, `secret-scan` and `doc-validators` (which also
+runs the `docs_lifecycle` suite on a docs-only change; the other tiers add it
+to the selected suites when a docs path is part of the change). Pushes, tags,
+the schedule and merge-queue runs are always `full`. A job skipped by its `if:`
+reports success, and the matrix jobs run with their steps skipped so each leg
+still reports its own context. Every condition on the classifier's outputs is
+fail-closed — it reads `!= 'false'`, so a failed `changes` job runs
+everything.
+
+Queue-only legs (issue #658): `unit-tests-unsigned-char` (the x86 mirror of
+`unit-tests-arm`), the `-fsigned-char` leg of `unit-tests` (x86's default
+signedness), `coverage` (whole-repo floors, checked once per merge),
+`toolchain-floor` and `assertions-live` skip on every pull request and run
+in the merge queue, on push and on the schedule. The
+merge queue waits only for the contexts branch protection requires, so a leg
+may leave the PR path only when protection requires its context or that of
+an aggregate needing it: `check-required-checks.sh` fails a job that skips
+on pull requests in an always-on workflow unless that workflow triggers on
+`merge_group` and the job reports a context of `required-checks.txt` or a
+required aggregate needs it — one whose job-level `if:` is exactly
+`always()` or `!cancelled()`, so it runs whatever the need's outcome, and
+that reads the need's result — and `--live` fails when that context is not
+live-required. The first three report their own required contexts; the two
+variant-build legs are needed by `build`, whose first step fails unless each
+succeeded (a skip passes on a pull request only). So a failed or flaky
+`toolchain-floor` or `assertions-live` run now evicts its queue entry,
+although neither context is required live. `toolchain-ceiling` stays on pull
+requests: it runs on the `ubuntu-26.04` preview label, and a stalled or
+retired preview runner would hold `build` until the queue's 120-minute
+timeout evicted every entry — moving it waits for the maintainer to require
+its context. The full package matrix still runs on pull requests:
+`packages-gate` is not live-required, so a failed package leg
+in the queue would not block the merge. Once a maintainer requires it
+(below), `release-packages.yml` can keep one deb, one rpm and one
+reproducibility leg on pull requests and move the rest to the queue.
+
+Retired contexts (issue #659): a job folded into another keeps an `if: false`
+stub under its old name while protection may still require that context — a
+skipped job reports success and takes no runner. Those contexts are listed in
+[`.github/retired-checks.txt`](.github/retired-checks.txt), not in
+`required-checks.txt`; the checker requires each to name a stub. Applying
+`required-checks.txt` (below) drops them from protection; then delete the
+stubs and their lines.
+
+The selection comes from [`tools/ci/test-map.txt`](tools/ci/test-map.txt):
+`path` globs map paths to tiers (the first match wins), and each suite and
+harness carries tags — its families, `smoke` for the set that runs on every
+`tests` and `family` PR, `tooling`, `docs`. A new suite in `DEFAULT_SUITES`
+or a new `tools/phase0/tests/run_<stem>.sh` needs an entry:
+`tools/ci/check-test-map.sh` (run by `verify-helpers` and the
+`release_gates` suite) fails on a missing or stale entry, on an entry whose
+files — including the `tools/ci` and `tools/phase0` files they name, followed
+through `tools/ci`, so a suite carries what its delegate loads — load a
+family's library without that family's tag (or `smoke`), and on
+a family-only entry that names no source file of one of its families — tag
+anything that exercises the whole SDK `smoke`.
 
 Renaming a job whose check is required: update `.github/required-checks.txt`
 in the same PR, and swap the context in branch protection when that PR merges.
+
+`main` merges through a merge queue once a maintainer applies the ruleset
+below (issue #657, recorded in [`docs/DECISIONS.md`](docs/DECISIONS.md)). A PR
+then does not have to be up to date with `main`: "Merge when ready" adds it to
+the queue, which tests the merge result once, on a `merge_group` run, before
+it lands. The `changes` jobs skip nothing on that run, so the queue runs the
+full check set. Every workflow that reports a required context therefore also
+triggers on `merge_group`, and `check-required-checks.sh` fails a context that
+a merge-queue run would not report: no `merge_group` trigger, or a job-level
+`if:` that keeps the job off it.
 
 The file does not change protection by itself. A maintainer with admin access
 applies it (after the PR that changed it has merged, so every context exists):
 
 ```bash
-# Required status checks: exactly the committed list, from GitHub Actions.
-jq -Rn '{strict: true, checks: [inputs | select(test("^\\s*(#|$)") | not)
+# Required status checks: exactly the committed list, from GitHub Actions. Not
+# strict (up to date before merging): the merge queue tests each merge result.
+jq -Rn '{strict: false, checks: [inputs | select(test("^\\s*(#|$)") | not)
         | {context: ., app_id: 15368}]}' .github/required-checks.txt \
   | gh api -X PATCH repos/montimage-projects/mmt-dpi/branches/main/protection/required_status_checks --input -
+# Merge queue on main: a repository ruleset (classic protection has no merge
+# queue setting). Squash is the only merge method the repository allows; the
+# 120-minute response timeout clears the longest required job chains (80 min:
+# the packages chain, and c-cpp.yml's changes 5 + toolchain-floor or
+# assertions-live 45 + build 30).
+gh api -X POST repos/montimage-projects/mmt-dpi/rulesets --input - <<'JSON'
+{"name": "main merge queue", "target": "branch", "enforcement": "active",
+ "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+ "rules": [{"type": "merge_queue", "parameters": {
+   "merge_method": "SQUASH", "grouping_strategy": "ALLGREEN",
+   "max_entries_to_build": 5, "min_entries_to_merge": 1,
+   "max_entries_to_merge": 5, "min_entries_to_merge_wait_minutes": 5,
+   "check_response_timeout_minutes": 120}}]}
+JSON
+# Check: the merge queue applies to main (read-only; prints merge_queue).
+gh api repos/montimage-projects/mmt-dpi/rules/branches/main --jq '.[].type'
 # Reviews: 1 approving code-owner review, stale approvals dismissed.
 gh api -X PATCH repos/montimage-projects/mmt-dpi/branches/main/protection/required_pull_request_reviews \
   -F required_approving_review_count=1 -F require_code_owner_reviews=true -F dismiss_stale_reviews=true

@@ -47,8 +47,9 @@
 #      and the verdict JSON, which jq must parse (step 8);
 #   8. #511/#512: a malformed rule file (malformed/*.xml) or a missing or
 #      over-long embedded-function call makes init_sec_lib() return an error
-#      and free what it built (LSan), a second init_sec_lib() is refused
-#      (one engine per process, also under a two-thread race), embedded
+#      and free what it built (LSan), a second init_sec_lib() on one handler
+#      is refused (one engine per handler, also under a two-thread race;
+#      #551: two handlers run two engines independently), embedded
 #      functions resolve at load from a test libembedded_functions.so, a
 #      NOT_VALID instance no longer loops forever, and a reaction runs from
 #      MMT_SEC_REACTION_DIR, printing U32/IP attributes from 4 bytes and
@@ -118,13 +119,19 @@ echo "  repo root      : ${REPO_ROOT}"
 echo "  install prefix : ${PREFIX}"
 
 # --- 1. build + install the SDK with the security engine --------------------
-echo "  [1/8] building + installing SDK (ENABLESEC=1) ..."
-make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
-if ! make -C "${REPO_ROOT}/sdk" "$@" ENABLESEC=1 -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
-    echo "✗ ENABLESEC SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
-fi
-if ! make -C "${REPO_ROOT}/sdk" "$@" ENABLESEC=1 MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
-    echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+if [ "${MMT_SDK_PREBUILT:-0}" = "1" ]; then
+    # tests/run_all_tests.sh built and installed it once (issue #654).
+    [ -e "${PREFIX}/dpi/lib/libmmt_security.so" ] || { echo "✗ MMT_SDK_PREBUILT=1 but MMT_PREFIX='${MMT_PREFIX:-}' holds no installed ENABLESEC=1 SDK" >&2; exit 1; }
+    echo "  [1/8] reusing the prebuilt SDK (ENABLESEC=1, MMT_SDK_PREBUILT=1) ..."
+else
+    echo "  [1/8] building + installing SDK (ENABLESEC=1) ..."
+    make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
+    if ! make -C "${REPO_ROOT}/sdk" "$@" ENABLESEC=1 -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
+        echo "✗ ENABLESEC SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
+    if ! make -C "${REPO_ROOT}/sdk" "$@" ENABLESEC=1 MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
+        echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
 fi
 
 INC="${PREFIX}/dpi/include"
@@ -367,7 +374,7 @@ echo "  $(grep -c '^ok - ' "${FUZZ_LOG}") assertions passed (fuzz engine)"
 echo "  [8/8] rule evaluator characterisation (F-TEST-004, #509) ..."
 EVAL_SRC="${SCRIPT_DIR}/test_rule_eval.c"
 EVAL_BIN="${SCRIPT_DIR}/test_rule_eval"
-${CC} "${extra_cflags[@]}" -O2 -Wall \
+${CC} "${extra_cflags[@]}" -O2 -Wall -pthread \
     -I "${INC}" -I "${REPO_ROOT}/src/mmt_security" -o "${EVAL_BIN}" \
     "${EVAL_SRC}" -L "${LIB}" \
     -lmmt_security -lmmt_core -lmmt_tcpip -lmmt_tmobile -lxml2 -lm
@@ -396,6 +403,22 @@ run_expect_ok "rule evaluator characterisation" "${EVAL_LOG}" \
     "${EVAL_BIN}" "${SCRIPT_DIR}/eval"
 grep '^ok - ' "${EVAL_LOG}" | sed 's/^/  /'
 echo "  $(grep -c '^ok - ' "${EVAL_LOG}") scenarios passed (rule evaluator)"
+
+# #551 (F-BUG-215): two handlers of one process run two engines with
+# different rule files — fed in turn from one thread, then concurrently from
+# two (the TSan run covers the per-handler state) — and each reports only
+# its own rule's verdicts.
+TWO_LOG="${WORK}/two_engines.log"
+run_expect_ok "two engines in one process" "${TWO_LOG}" \
+    "${EVAL_ENV[@]}" "${EVAL_BIN}" two-engines "${SCRIPT_DIR}/eval"
+grep '^ok - ' "${TWO_LOG}" | sed 's/^/  /'
+# #551: close_sec_lib() frees an engine with live instances (LSan) and the
+# handler reloads; a handler closed without it never blocks a later one; an
+# application's own packet handler 1 is refused and left registered.
+LIFE_LOG="${WORK}/engine_lifecycle.log"
+run_expect_ok "engine lifecycle" "${LIFE_LOG}" \
+    "${EVAL_ENV[@]}" "${LSAN_ENV[@]}" "${EVAL_BIN}" engine-lifecycle "${SCRIPT_DIR}/eval"
+grep '^ok - ' "${LIFE_LOG}" | sed 's/^/  /'
 
 # #510 (F-BUG-209): every history the callback reported is a JSON document
 # jq parses, and json_escape.xml's quote/backslash/control-character

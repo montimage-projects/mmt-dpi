@@ -34,10 +34,25 @@ else
 fi
 WORK="$(mktemp -d)"
 BUILD_LOG="${WORK}/build.log"
+# Put back what the failure legs move out of the prefix, even when a leg
+# aborts: a shared prefix (MMT_SDK_PREBUILT=1, issue #654) outlives this
+# suite. Runs before WORK, which holds the moved engine, is removed.
+restore_prefix() {
+    local f
+    if [ -e "${WORK}/mmt-dpi.pc" ]; then
+        mv "${WORK}/mmt-dpi.pc" "${PREFIX}/dpi/lib/pkgconfig/mmt-dpi.pc"
+    fi
+    if [ -e "${PREFIX}/plugins/libmmt_tdicom.so.bak" ]; then
+        mv "${PREFIX}/plugins/libmmt_tdicom.so.bak" "${PREFIX}/plugins/libmmt_tdicom.so"
+    fi
+    for f in "${WORK}/"libmmt_security.so.*; do
+        [ ! -e "$f" ] || mv "$f" "${PREFIX}/dpi/lib/"
+    done
+}
 if [ -n "${PREFIX_CREATED:-}" ]; then
-    trap 'rm -rf "${WORK}" "${PREFIX}"' EXIT
+    trap 'restore_prefix; rm -rf "${WORK}" "${PREFIX}"' EXIT
 else
-    trap 'rm -rf "${WORK}"' EXIT
+    trap 'restore_prefix; rm -rf "${WORK}"' EXIT
 fi
 
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 2)}"
@@ -68,13 +83,19 @@ echo "=== installed-consumer suite (issue #374) ==="
 echo "  install prefix : ${PREFIX}"
 
 # --- 1. build + install the packaged configuration ----------------------------
-echo "  [1/4] building + installing SDK (ENABLESEC=1) ..."
-make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
-if ! make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}" ENABLESEC=1 -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
-    echo "✗ ENABLESEC SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
-fi
-if ! make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}" ENABLESEC=1 MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
-    echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+if [ "${MMT_SDK_PREBUILT:-0}" = "1" ]; then
+    # tests/run_all_tests.sh built and installed it once (issue #654).
+    [ -e "${PREFIX}/dpi/lib/libmmt_security.so" ] || { echo "✗ MMT_SDK_PREBUILT=1 but MMT_PREFIX='${MMT_PREFIX:-}' holds no installed ENABLESEC=1 SDK" >&2; exit 1; }
+    echo "  [1/4] reusing the prebuilt SDK (ENABLESEC=1, MMT_SDK_PREBUILT=1) ..."
+else
+    echo "  [1/4] building + installing SDK (ENABLESEC=1) ..."
+    make -C "${REPO_ROOT}/sdk" clean >/dev/null 2>&1 || true
+    if ! make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}" ENABLESEC=1 -j"${JOBS}" MMT_BASE="${PREFIX}" >"${BUILD_LOG}" 2>&1; then
+        echo "✗ ENABLESEC SDK build failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
+    if ! make -C "${REPO_ROOT}/sdk" "${SDK_MAKE_ARGS[@]}" ENABLESEC=1 MMT_BASE="${PREFIX}" install >>"${BUILD_LOG}" 2>&1; then
+        echo "✗ SDK install failed — last lines:" >&2; tail -20 "${BUILD_LOG}" >&2; exit 1
+    fi
 fi
 
 # --- 2. happy path --------------------------------------------------------------
@@ -100,6 +121,33 @@ for opt in -O0 -O2; do
     check "byte-order consumer compiles and passes (${opt})" byte_order_consumer "${opt}"
 done
 
+# Header namespace (issue #537, F-BUG-010/F-CLEAN-011): a consumer that
+# defines its own debug/check/likely/unlikely and includes EVERY installed
+# header compiles with -Werror (no redefinition), no dbg.h macro leaks out,
+# and the class-table lookups link from libmmt_tcpip instead of being
+# compiled into the consumer.
+check "installed headers carry no dbg.h" \
+    test -z "$(find "${PREFIX}/dpi/include" -name dbg.h)"
+check_fail "installed mmt_tcpip.h carries no static inline bodies" \
+    grep -n 'static inline' "${PREFIX}/dpi/include/tcpip/mmt_tcpip.h"
+ALL_HEADERS="${WORK}/all_installed_headers.h"
+(cd "${PREFIX}/dpi/include" && find . -name '*.h' | sed 's|^\./||' | LC_ALL=C sort \
+    | sed 's|.*|#include "&"|') > "${ALL_HEADERS}"
+check "every installed header is listed for the namespace consumer" \
+    test "$(wc -l < "${ALL_HEADERS}")" -ge 20
+header_macros_consumer() {
+    local own="$1" bin="${WORK}/header_macros$1"
+    "${CC:-gcc}" "${extra_cflags[@]}" -Wall -Wextra -Werror -DMMT_OWN_MACROS="${own}" \
+        -DMMT_ALL_HEADERS_FILE="\"${ALL_HEADERS}\"" -o "${bin}" \
+        "${SCRIPT_DIR}/test_header_macros.c" \
+        -I "${PREFIX}/dpi/include" -L "${PREFIX}/dpi/lib" -lmmt_tcpip -lmmt_core -ldl \
+        && LD_LIBRARY_PATH="${PREFIX}/dpi/lib" "${bin}"
+}
+check "header-namespace consumer with its own debug/check/likely compiles -Werror and passes" \
+    header_macros_consumer 1
+check "header-namespace consumer sees no internal macro and passes" \
+    header_macros_consumer 0
+
 # Provenance: a real file is hashed and every log line is tagged.
 : > "${WORK}/mmt-dpi_test.deb"
 WANT_SHA="$(sha256sum "${WORK}/mmt-dpi_test.deb" | awk '{print substr($1,1,12)}')"
@@ -123,6 +171,20 @@ for f in "${PREFIX}/dpi/lib/"libmmt_security.so.*; do mv "$f" "${WORK}/"; done
 check_fail "missing libmmt_security engine fails" \
     bash "${DRIVER}" --prefix "${PREFIX}" --distro suite-local
 for f in "${WORK}/"libmmt_security.so.*; do mv "$f" "${PREFIX}/dpi/lib/"; done
+
+# Issue #550: the consumer builds through the install's own mmt-dpi.pc. A
+# missing one must fail, and so must one found elsewhere on PKG_CONFIG_PATH
+# that describes another install.
+mv "${PREFIX}/dpi/lib/pkgconfig/mmt-dpi.pc" "${WORK}/mmt-dpi.pc"
+check_fail "missing mmt-dpi.pc fails" \
+    env PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR="${WORK}/no-pc" \
+        bash "${DRIVER}" --prefix "${PREFIX}" --distro suite-local
+mkdir -p "${WORK}/other-pc"
+sed 's|^libdir=.*|libdir=/nonexistent/lib|' "${WORK}/mmt-dpi.pc" > "${WORK}/other-pc/mmt-dpi.pc"
+check_fail "an mmt-dpi.pc naming another libdir fails" \
+    env PKG_CONFIG_PATH="${WORK}/other-pc" PKG_CONFIG_LIBDIR="${WORK}/no-pc" \
+        bash "${DRIVER}" --prefix "${PREFIX}" --distro suite-local
+mv "${WORK}/mmt-dpi.pc" "${PREFIX}/dpi/lib/pkgconfig/mmt-dpi.pc"
 
 # A wrong expected label must fail the classification verdict.
 printf 'ftp_txt.pcap    http\n' > "${WORK}/fixtures-wrong-label.txt"

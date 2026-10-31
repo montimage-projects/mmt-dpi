@@ -17,8 +17,22 @@
 # context in branch protection when that PR merges (the old name is never
 # reported again, so every later PR would wait on it).
 #
-# A docs-only pull request skips the C jobs (issue #552) and every context
-# here still reports: see the `changes` job of c-cpp.yml.
+# A docs-only pull request skips the C jobs (issue #552), and a tooling, tests
+# or family pull request runs only the tests its paths select (issue #656,
+# tools/ci/classify-changes.sh with tools/ci/test-map.txt); every context
+# here still reports on each tier: see the `changes` job of c-cpp.yml.
+#
+# main is set up to merge through a merge queue (issue #657): every workflow
+# reporting a context here also triggers on `merge_group`, and the helper
+# fails a context that a merge-queue run would not report (see its header).
+# A job that skips on pull requests and runs only in the queue (issue #658)
+# must report a context listed here, or be needed by one whose job-level if:
+# is exactly always() or !cancelled() and that reads its result, or the queue
+# would not wait for it. The queue waits only for contexts protection
+# requires LIVE: check with `check-required-checks.sh --live`.
+#
+# Retired contexts (issue #659) — folded into another job but possibly still
+# required by protection — are listed in .github/retired-checks.txt, not here.
 
 # --- c-cpp.yml -------------------------------------------------------------
 build
@@ -27,14 +41,23 @@ unit-tests
 # swaps the context at its merge, #490).
 unit-tests (-fsigned-char, hashmap memory hexdump mmt_utils mmt_inet_ntop)
 # Unsigned plain char: the full suite set on native ARM and with
-# -funsigned-char on x86 (issue #528).
+# -funsigned-char on x86 (issue #528). unit-tests-unsigned-char and the
+# -fsigned-char leg above run in the merge queue only (issue #658): on a pull
+# request they skip, so their contexts must stay required for the queue to
+# gate them.
 unit-tests-arm
 unit-tests-unsigned-char
+# A merge-queue leg (issue #658), skipped on pull requests: `build`
+# (required live) needs it and fails unless it succeeded, so the queue gates
+# it before its own context is required live. Likewise assertions-live.
 toolchain-floor
 # Runs on the ubuntu-26.04 preview runner label (GCC >= 15, C23; #514).
+# Still on pull requests (issue #658): it moves to the queue only once a
+# maintainer requires it, since a stalled preview runner would block it.
 toolchain-ceiling
 sanitizer-tests (BUILD=asan, asan)
 sanitizer-tests (BUILD=tsan, tsan)
+# A merge-queue leg (issue #658): whole-repo floors, checked once per merge.
 coverage
 lint
 codeql
@@ -43,17 +66,18 @@ pre-commit
 doc-validators
 version-agreement
 root-install
+# A merge-queue leg (issue #658), gated through `build` (see toolchain-floor).
 assertions-live
-enablesec
 secret-scan
 # Replays tools/ci/fuzz/regressions before fuzzing (issue #486).
 fuzz
-resource-budgets (ubuntu-24.04)
+# ABI gate against the last release tag (issue #536): fails on an
+# incompatible change whose SONAME did not move. Full tier only — a skipped
+# run reports success, and the merge queue always runs it.
+abi-diff
 resource-budgets (ubuntu-24.04-arm)
-site-onboarding
 
 # --- phase0-baseline.yml ---------------------------------------------------
-ASan/UBSan profile compiles
 Golden classification fingerprint unchanged
 # Fragile: `#74` in the unquoted YAML name is a comment, so the context is
 # truncated (rename: a follow-up that swaps the context at its merge, #490).
@@ -64,4 +88,6 @@ leak-gate
 # --- release-packages.yml --------------------------------------------------
 # Always reports: passes when a PR touches no packaging path (build and
 # reproducibility skipped), else requires every package leg to succeed.
+# Not required live yet, so every package leg still runs on pull requests
+# (issue #658): the matrix moves to the queue only once this is required.
 packages-gate

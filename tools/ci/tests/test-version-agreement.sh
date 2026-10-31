@@ -11,7 +11,8 @@
 # Scenario -> expected validator exit:
 #   pristine copy of this checkout                     -> 0
 #   mmt_core.h VERSION differs from rules/common.mk    -> non-zero
-#   ZIP mmt-install-common.sh fallback differs         -> non-zero
+#   mmt-dpi.spec Version: differs                      -> non-zero (#550)
+#   mmt-dpi.spec newest %changelog entry differs       -> non-zero (#550)
 #   CHANGELOG topmost Version heading differs          -> non-zero
 #   rules/common.mk has no VERSION line                -> non-zero
 #   debian/changelog present and matching (epoch/rev)  -> 0
@@ -20,6 +21,8 @@
 #   install.sh RELEASE_TAG names an unreleased entry   -> non-zero
 #   README 'Current release' differs from RELEASE_TAG  -> non-zero
 #   site hero version differs from RELEASE_TAG         -> non-zero
+#   abi-diff ABI_BASELINE differs from RELEASE_TAG     -> non-zero (#536)
+#   abi-diff.sh baseline_ref differs from RELEASE_TAG  -> non-zero (#536)
 #
 # Usage: bash tools/ci/tests/test-version-agreement.sh
 # Exit: 0 = all checks passed, 1 = at least one failed, 2 = self-test broke.
@@ -39,10 +42,10 @@ trap 'rm -rf "${WORK}"' EXIT
 
 # Every file validate-release-prep.sh reads or tests for existence.
 FILES="rules/common.mk src/mmt_core/public_include/mmt_core.h
-dist/ZIP/install.sh dist/ZIP/uninstall.sh dist/ZIP/mmt-install-common.sh
+mmt-dpi.spec
 install.sh README.md CHANGELOG.md docs/_includes/quick-start.md docs/index.html
 src/examples/google-fr.pcap .github/workflows/c-cpp.yml
-.github/workflows/release-packages.yml"
+.github/workflows/release-packages.yml tools/ci/abi-diff.sh"
 
 fresh() {
     rm -rf "${WORK}/tree"
@@ -79,10 +82,11 @@ expect pass "pristine checkout copy"
 fresh; edit src/mmt_core/public_include/mmt_core.h 's/^#define VERSION ".*"/#define VERSION "0.0.1"/'
 expect fail "mmt_core.h disagrees with rules/common.mk" "mmt_core.h"
 
-fresh
-# shellcheck disable=SC2016  # literal ${VERSION:-...} written into the fixture
-edit dist/ZIP/mmt-install-common.sh 's/^VERSION=.*/VERSION="${VERSION:-0.0.1}"/'
-expect fail "ZIP fallback disagrees" "mmt-install-common.sh"
+fresh; edit mmt-dpi.spec 's/^Version:.*/Version:        0.0.1/'
+expect fail "mmt-dpi.spec Version: disagrees" "mmt-dpi.spec"
+
+fresh; edit mmt-dpi.spec '0,/^\* .* - [0-9]/s/ - [0-9][^ ]*-\([^ ]*\)$/ - 0.0.1-\1/'
+expect fail "mmt-dpi.spec %changelog entry disagrees" "%changelog"
 
 fresh; edit CHANGELOG.md '0,/^Version [0-9]/s/^Version [0-9][^ ]*/Version 0.0.1/'
 expect fail "CHANGELOG topmost Version heading disagrees" "topmost"
@@ -115,6 +119,12 @@ expect fail "README 'Current release' disagrees with RELEASE_TAG" "Current relea
 
 fresh; edit docs/index.html 's/<\/span>v[0-9][^ ]* ·/<\/span>v0.0.1 ·/'
 expect fail "site hero version disagrees with RELEASE_TAG" "hero"
+
+fresh; edit .github/workflows/c-cpp.yml 's/^\([[:space:]]*ABI_BASELINE:\).*/\1 v0.0.1/'
+expect fail "abi-diff ABI_BASELINE disagrees with RELEASE_TAG" "ABI_BASELINE"
+
+fresh; edit tools/ci/abi-diff.sh 's/^baseline_ref=.*/baseline_ref=v0.0.1/'
+expect fail "abi-diff.sh baseline_ref disagrees with RELEASE_TAG" "baseline_ref"
 
 echo ""
 if [ "${FAILED}" -eq 0 ]; then

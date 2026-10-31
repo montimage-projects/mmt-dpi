@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/montimage-projects/mmt-dpi/main/ins
 This script (`install.sh`):
 1. Detects your distribution and installs the default-profile build set
    (compiler, `make`, `git`) plus libpcap for the example programs
-   (`install.sh:386-453`) — not libxml2, which only `ENABLESEC=1` needs. What
+   (`install.sh:356-423`) — not libxml2, which only `ENABLESEC=1` needs. What
    each package list holds is recorded in `tools/ci/build-deps.txt`; the
    developer toolchain line is in
    [Agent Environment Notes §1 Toolchain Requirements](./AGENT_ENVIRONMENT.md#1-toolchain-requirements).
@@ -112,31 +112,33 @@ callbacks, statistics), one `mmt_handler_t` per packet stream. The order is:
 
 1. Initialise the global state once with `init_extraction()`, **before any
    handler exists**, and check its return value — it returns `false` on
-   failure (`src/mmt_core/src/packet_registry.c:1255`). It builds the
+   failure (`src/mmt_core/src/packet_registry.c:616`). It builds the
    protocol registry, loads the plugins and creates the map that tracks live
-   handlers (`src/mmt_core/src/packet_registry.c:1303-1304`); nothing else
+   handlers (`src/mmt_core/src/packet_registry.c:658-659`,
+   `src/mmt_core/src/packet_registry_handler.c:408`); nothing else
    in the API works before it. If it fails, do not call anything else,
    including `close_extraction()`.
 2. Create a handler with `mmt_init_handler()` and check it for `NULL` — on
    failure it fills the `errbuf` you pass in (at least `MMT_ERRBUF_SIZE`
-   bytes) (`src/mmt_core/src/packet_registry.c:950`). Each new handler is
+   bytes) (`src/mmt_core/src/packet_registry_handler.c:116`). Each new handler is
    recorded in the global handler map
-   (`src/mmt_core/src/packet_registry.c:1097`).
+   (`src/mmt_core/src/packet_registry_handler.c:263`).
 3. Register the attributes you care about with
    `register_extraction_attribute()` (by protocol id and attribute id) or
    `register_extraction_attribute_by_name()`, and optionally packet-,
    attribute- or session-level callbacks. Each returns `false` on failure.
 4. Feed packets in with `packet_process()`
-   (`src/mmt_core/src/packet_pipeline.c:1505`); it returns `false` when a
+   (`src/mmt_core/src/packet_pipeline.c:1473`); it returns `false` when a
    packet could not be processed, and later packets can still be fed.
 5. Release every handler with `mmt_close_handler()`: it expires the
    handler's sessions, frees everything the handler owns and removes it from
-   the global handler map (`src/mmt_core/src/packet_registry.c:1130`,
-   `src/mmt_core/src/packet_registry.c:1180`).
+   the global handler map (`src/mmt_core/src/packet_registry_handler.c:296`,
+   `src/mmt_core/src/packet_registry_handler.c:346`).
 6. Tear down the global state last, once, with `close_extraction()`
-   (`src/mmt_core/src/packet_registry.c:1333`). It force-closes any handler
-   still registered (`src/mmt_core/src/packet_registry.c:1336`) and then
-   unloads the plugins (`src/mmt_core/src/packet_registry.c:1350`), so a
+   (`src/mmt_core/src/packet_registry.c:667`). It force-closes any handler
+   still registered (`src/mmt_core/src/packet_registry.c:670`,
+   `src/mmt_core/src/packet_registry_handler.c:414`) and then
+   unloads the plugins (`src/mmt_core/src/packet_registry.c:678`), so a
    handler pointer is dangling afterwards: never call `mmt_close_handler()`
    or `packet_process()` on it once `close_extraction()` has run.
 

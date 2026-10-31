@@ -4,6 +4,12 @@ name: Build & release packages
 # distribution families:
 #   - Debian / Ubuntu        -> .deb  (dpkg-deb, via `make deb`)
 #   - RedHat / Rocky / CentOS -> .rpm  (rpmbuild, via `make rpm`)
+# Every Debian/Ubuntu release distribution also builds the distribution
+# packaging in debian/ with dpkg-buildpackage and lints it with lintian
+# (`debian-package`, issue #538); those .debs are checked, not published.
+# Every EL release distribution likewise builds mmt-dpi.spec from the source
+# tarball with rpmbuild -ba and lints it with rpmlint (`rpm-package`, issue
+# #550); those .rpms are checked, not published.
 #
 # Each distribution is built inside its own container image (GitHub-hosted
 # runners only provide Ubuntu/macOS/Windows), for both amd64 and arm64.
@@ -58,9 +64,9 @@ on:
   # `packages-gate` aggregate can be a required check (issue #490, F-CI-004):
   # a workflow-level `paths:` filter left the context unreported on PRs that
   # touch no packaging path, so it could never be required. The path filter
-  # moved into the `changes` job; build and reproducibility run only when it
-  # matches.
+  # moved into the `changes` job; build and reproducibility run when it matches.
   pull_request:             # validate packaging changes without releasing
+  merge_group:              # the merge queue's run builds everything (#657)
 
 # Release builds must run to completion — a re-run of the same tag queues
 # behind the in-flight one instead of cancelling it (issue #188, F-CI-007:
@@ -79,7 +85,7 @@ jobs:
     # Packaging path filter (issue #490): on a pull request, does the change
     # touch anything the package build reads? The checkout is the PR merge
     # commit, so HEAD^1 is the base branch tip and HEAD^1..HEAD is exactly the
-    # PR's change. Tag pushes and manual dispatches always build.
+    # PR's change. Tags, dispatches and merge-queue runs (#657) always build.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -110,6 +116,8 @@ jobs:
             case "$f" in
               sdk/*|src/*|rules/*|tools/ci/tests/*|\
               tools/ci/build-package.sh|tools/ci/install-build-deps.sh|\
+              debian/*|tools/ci/build-debian-package.sh|\
+              tools/ci/build-source-tarball.sh|tools/ci/sign-source-tarball.sh|\
               tools/ci/check-reproducible-build.sh|tools/ci/check-release-tag.sh|\
               tools/ci/check-release-gates.sh|tools/ci/publish-release.sh|\
               tools/ci/check-hardening-flags.sh|\
@@ -117,7 +125,8 @@ jobs:
               tools/ci/vendored-components.*|tools/ci/check-package-split.sh|\
               tools/ci/check-package-deps.sh|tools/ci/shlib-deps.sh|\
               tools/ci/make-release-bootstrap.sh|tools/ci/bootstrap-install.sh|\
-              LICENSE|LICENSES/*|THIRD-PARTY-NOTICES|dist/ZIP/*|\
+              mmt-dpi.spec|tools/ci/build-rpm-package.sh|\
+              LICENSE|LICENSES/*|THIRD-PARTY-NOTICES|\
               .github/workflows/release-packages.yml)
                 echo "packaging path changed: $f"
                 packaging=true ;;
@@ -144,14 +153,14 @@ jobs:
       matrix:
         arch: [amd64, arm64]
         distro:
-          - { name: ubuntu-22.04,   image: "ubuntu:22.04@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b",                    pkg: deb }
-          - { name: ubuntu-24.04,   image: "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c",                    pkg: deb }
-          - { name: debian-12,      image: "debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61",                       pkg: deb }
+          - { name: ubuntu-22.04,   image: "ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11",                    pkg: deb }
+          - { name: ubuntu-24.04,   image: "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852",                    pkg: deb }
+          - { name: debian-12,      image: "debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880",                       pkg: deb }
           - { name: rocky-9,        image: "rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6",                    pkg: rpm }
           - { name: centos-stream9, image: "quay.io/centos/centos:stream9@sha256:6f8045fc4f552544d8a401d61848bafc8d06ca7c11897c5b54a2c37fc419a20a",   pkg: rpm }
           # Current generation (issue #515).
-          - { name: ubuntu-26.04,    image: "ubuntu:26.04@sha256:19fcd1bf268f02b60aca3bd30bd8a6d9a11759a430e32921833e65f16d87348a",                    pkg: deb }
-          - { name: debian-13,       image: "debian:13@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308",                       pkg: deb }
+          - { name: ubuntu-26.04,    image: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c",                    pkg: deb }
+          - { name: debian-13,       image: "debian:13@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1",                       pkg: deb }
           - { name: rocky-10,        image: "rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834",        pkg: rpm }
           - { name: centos-stream10, image: "quay.io/centos/centos:stream10@sha256:99b8fe27dd4958b5dc2630ce35f5f6a7ff7bf9b2b1a72078102fde50d3277550",  pkg: rpm }
     steps:
@@ -290,10 +299,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { distro: ubuntu-24.04, image: "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c",                    pkg: deb }
+          - { distro: ubuntu-24.04, image: "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852",                    pkg: deb }
           - { distro: rocky-9,      image: "rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6",                   pkg: rpm }
           # One current-generation leg (issue #515): GCC 15 and libxml2 2.15.
-          - { distro: ubuntu-26.04, image: "ubuntu:26.04@sha256:19fcd1bf268f02b60aca3bd30bd8a6d9a11759a430e32921833e65f16d87348a",                    pkg: deb }
+          - { distro: ubuntu-26.04, image: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c",                    pkg: deb }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -310,6 +319,110 @@ jobs:
             -v "$PWD":/work -w /work \
             "${{ matrix.image }}" \
             bash tools/ci/check-reproducible-build.sh --install-deps "${{ matrix.distro }}" "${{ matrix.pkg }}"
+
+  debian-package:
+    # Issue #475: the package a Debian archive would build itself — the
+    # source tree's debian/ (FHS layout through `make -C sdk install-fhs`,
+    # libmmt-dpi1 + libmmt-dpi-dev, no /opt/mmt), built, linted
+    # (`lintian --fail-on error`), installed and run through the autopkgtest
+    # payload debian/tests/installed-consumer. Issue #538: one leg per
+    # Debian/Ubuntu distribution of the build matrix above, same pinned
+    # images, both architectures — its own job, so a slow apt or lintian run
+    # never eats into the 60-minute cap of the `make deb` leg. Distinct from
+    # the upstream `make deb` packages, and not published: the release
+    # assets and the bootstrap stay on those (docs/DECISIONS.md, #538).
+    # The debian-13 amd64 leg also proves the reproducible upstream source
+    # tarball and hands it to the release job, which signs and publishes it
+    # with the other assets.
+    name: Debian source package (${{ matrix.distro.name }}, ${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        distro:
+          - { name: ubuntu-22.04,   image: "ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11" }
+          - { name: ubuntu-24.04,   image: "ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852" }
+          - { name: debian-12,      image: "debian:12@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880" }
+          - { name: ubuntu-26.04,   image: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c" }
+          - { name: debian-13,      image: "debian:13@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1" }
+    env:
+      IMAGE: ${{ matrix.distro.image }}
+      TARBALL_LEG: ${{ matrix.distro.name == 'debian-13' && matrix.arch == 'amd64' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the source tarball is `git archive` of HEAD
+          persist-credentials: false
+
+      - name: Verify pinned base image is recorded
+        run: sed 's/[[:space:]]*#.*$//' tools/ci/base-images.txt | grep -Fx -- "$IMAGE"
+
+      - name: Source tarball is reproducible
+        if: env.TARBALL_LEG == 'true'
+        run: bash tools/ci/build-source-tarball.sh --verify --out dist/source
+
+      - name: Upload the source tarball
+        if: env.TARBALL_LEG == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: source-tarball
+          path: dist/source/mmt-dpi-*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Build, lint and exercise the Debian packages
+        run: |
+          docker run --rm --platform "linux/${{ matrix.arch }}" \
+            -v "$PWD":/work -w /work \
+            "$IMAGE" \
+            bash tools/ci/build-debian-package.sh
+
+  rpm-package:
+    # Issue #550: the package an RPM distribution (COPR, OBS, Fedora/EPEL)
+    # would build itself — mmt-dpi.spec, from the reproducible source tarball
+    # (FHS layout through `make -C sdk install-fhs`, mmt-dpi + mmt-dpi-devel,
+    # no /opt/mmt), built with `rpmbuild -ba` (its %check included), linted
+    # (rpmlint: an error fails), installed, found by pkg-config and run
+    # through the installed consumer. One leg per EL distribution of the
+    # build matrix above, same pinned images, both architectures. Nothing is
+    # uploaded: the release and bootstrap-dry-run jobs collect every *.rpm
+    # among the artifacts, and the published .rpm assets stay the upstream
+    # `make rpm` packages (docs/DECISIONS.md, #550).
+    name: RPM spec package (${{ matrix.distro.name }}, ${{ matrix.arch }})
+    needs: changes
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        distro:
+          - { name: rocky-9,         image: "rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6" }
+          - { name: centos-stream9,  image: "quay.io/centos/centos:stream9@sha256:6f8045fc4f552544d8a401d61848bafc8d06ca7c11897c5b54a2c37fc419a20a" }
+          - { name: rocky-10,        image: "rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834" }
+          - { name: centos-stream10, image: "quay.io/centos/centos:stream10@sha256:99b8fe27dd4958b5dc2630ce35f5f6a7ff7bf9b2b1a72078102fde50d3277550" }
+    env:
+      IMAGE: ${{ matrix.distro.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the source tarball is `git archive` of HEAD
+          persist-credentials: false
+
+      - name: Verify pinned base image is recorded
+        run: sed 's/[[:space:]]*#.*$//' tools/ci/base-images.txt | grep -Fx -- "$IMAGE"
+
+      - name: Build, lint and exercise the RPM packages
+        run: |
+          docker run --rm --platform "linux/${{ matrix.arch }}" \
+            -v "$PWD":/work -w /work \
+            "$IMAGE" \
+            bash tools/ci/build-rpm-package.sh "${{ matrix.distro.name }}"
 
   bootstrap-dry-run:
     # The release job's bootstrap step (issue #498) on this run's packages:
@@ -354,10 +467,11 @@ jobs:
     # Required-check aggregate (issue #490, F-CI-004): one context that
     # reports on every pull request, whatever paths it touches. It passes
     # when the PR touches no packaging path and build + reproducibility (+
-    # the bootstrap dry-run, issue #498) were skipped, and otherwise requires
-    # every package leg to have succeeded —
+    # the bootstrap dry-run, issue #498, the Debian source package, issue
+    # #475, and the RPM spec package, issue #550) were skipped, and otherwise
+    # requires every package leg to have succeeded —
     # a failed, cancelled or unexpectedly skipped leg fails it.
-    needs: [changes, build, reproducibility, bootstrap-dry-run]
+    needs: [changes, build, reproducibility, bootstrap-dry-run, debian-package, rpm-package]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -369,9 +483,11 @@ jobs:
           BUILD: ${{ needs.build.result }}
           REPRO: ${{ needs.reproducibility.result }}
           BOOTSTRAP: ${{ needs.bootstrap-dry-run.result }}
+          DEBIAN: ${{ needs.debian-package.result }}
+          RPMSPEC: ${{ needs.rpm-package.result }}
         run: |
           set -euo pipefail
-          echo "changes=${CHANGES} packaging=${PACKAGING:-} build=${BUILD} reproducibility=${REPRO} bootstrap-dry-run=${BOOTSTRAP}"
+          echo "changes=${CHANGES} packaging=${PACKAGING:-} build=${BUILD} reproducibility=${REPRO} bootstrap-dry-run=${BOOTSTRAP} debian-package=${DEBIAN} rpm-package=${RPMSPEC}"
           if [ "$CHANGES" != "success" ]; then
             echo "::error::the packaging path filter did not succeed (${CHANGES})"
             exit 1
@@ -381,8 +497,8 @@ jobs:
           else
             want=skipped
           fi
-          if [ "$BUILD" != "$want" ] || [ "$REPRO" != "$want" ] || [ "$BOOTSTRAP" != "$want" ]; then
-            echo "::error::expected build, reproducibility and bootstrap-dry-run ${want}, got ${BUILD} / ${REPRO} / ${BOOTSTRAP}"
+          if [ "$BUILD" != "$want" ] || [ "$REPRO" != "$want" ] || [ "$BOOTSTRAP" != "$want" ] || [ "$DEBIAN" != "$want" ] || [ "$RPMSPEC" != "$want" ]; then
+            echo "::error::expected build, reproducibility, bootstrap-dry-run, debian-package and rpm-package ${want}, got ${BUILD} / ${REPRO} / ${BOOTSTRAP} / ${DEBIAN} / ${RPMSPEC}"
             exit 1
           fi
           echo "packages-gate: ok (packaging=${PACKAGING})"
@@ -465,7 +581,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build, reproducibility, verify-tag, release-gates]
+    needs: [build, reproducibility, debian-package, verify-tag, release-gates]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -483,6 +599,9 @@ jobs:
             tools/ci/publish-release.sh
             tools/ci/make-release-bootstrap.sh
             tools/ci/bootstrap-install.sh
+            tools/ci/sign-source-tarball.sh
+            debian/watch
+            debian/upstream/
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -497,8 +616,30 @@ jobs:
           find artifacts -type f \
             \( -name '*.deb' -o -name '*.rpm' -o -name '*.sbom.json' \) \
             -exec cp -v {} release/ \;
+          # The reproducible upstream source tarball (issue #475), the file a
+          # distribution packages: built and verified by the debian-package
+          # job, published here so SHA256SUMS and the attestation cover it.
+          cp -v artifacts/source-tarball/mmt-dpi-*.tar.gz release/
           echo "Assets to publish:"
           ls -l release
+
+      # Detached signature of the source tarball (issue #538, F-SEC-010), the
+      # file debian/watch verifies with pgpsigurlmangle against
+      # debian/upstream/signing-key.asc. Before SHA256SUMS and the
+      # attestation, so both cover the .asc. Until the maintainer commits the
+      # public key and provisions the MMT_RELEASE_SIGNING_KEY secret, the
+      # script warns and the tarball ships unsigned; once either exists, a
+      # missing or mismatched half fails the release. The secret reaches this
+      # step only.
+      - name: Sign the source tarball
+        env:
+          MMT_RELEASE_SIGNING_KEY: ${{ secrets.MMT_RELEASE_SIGNING_KEY }}
+          MMT_RELEASE_SIGNING_PASSPHRASE: ${{ secrets.MMT_RELEASE_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          for t in release/mmt-dpi-*.tar.gz; do
+            bash src/tools/ci/sign-source-tarball.sh --root src "$t"
+          done
 
       # Verified bootstrap (issue #498, F-CI-112): a copy of every package
       # under its stable alias name (<package>_<distro>_<amd64|arm64>.<ext>),
@@ -560,7 +701,7 @@ jobs:
     # issues: write token never reaches a job that builds or publishes; tag
     # pushes only — a pull request's failure is visible on the pull request.
     name: Alert on a failed tag run
-    needs: [build, reproducibility, verify-tag, release-gates, release]
+    needs: [build, reproducibility, debian-package, verify-tag, release-gates, release]
     if: (failure() || cancelled()) && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10

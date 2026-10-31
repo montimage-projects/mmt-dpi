@@ -58,6 +58,7 @@
 #include <arpa/inet.h>
 
 #include "mmt_core.h"
+#include "ipacket_internal.h" /* issue #535: ipacket_internal_t fixtures (private) */
 #include "mmt_tcpip_plugin_structs.h"
 #include "mmt_tcpip_internal_defs_macros.h"
 
@@ -131,7 +132,7 @@ static int run_classify_dtls(struct mmt_internal_tcpip_session_struct *flow,
                               uint16_t pre_detected_protocol,
                               const uint8_t *datagram, int len)
 {
-    ipacket_t pkt;
+    ipacket_internal_t pkt;
     struct mmt_tcpip_internal_packet_struct ip;
     proto_hierarchy_t headers_offset;
     pkthdr_t p_hdr;
@@ -157,7 +158,7 @@ static int run_classify_dtls(struct mmt_internal_tcpip_session_struct *flow,
 
     pkt.internal_packet = &ip;
 
-    return classify_dtls_from_udp(&pkt, 0);
+    return classify_dtls_from_udp(&pkt.pub, 0);
 }
 
 /* ---- an already-classified flow is not re-classified as DTLS (AC2) ---- */
@@ -244,7 +245,13 @@ int main(void)
      * folded the old init wrapper into it); init_extraction() allocates the
      * registry it registers into. */
     init_extraction();
-    init_proto_dtls_struct();
+    /* Issue #534: this test links libmmt_tcpip's static archive, a copy
+     * apart from the plugin init_extraction() loaded, which registered
+     * PROTO_DTLS already. Register it again through this copy, the one the
+     * direct calls below read, so its file-scope bitmasks are filled. */
+    unregister_protocol_by_id(PROTO_DTLS);
+    CHECK(init_proto_dtls_struct() == PROTO_REGISTERED,
+          "init_proto_dtls_struct() registers PROTO_DTLS through the static copy");
     test_already_classified_flow_not_reclassified();
     test_excluded_flow_not_reclassified();
     test_version_0x0100_rejected();

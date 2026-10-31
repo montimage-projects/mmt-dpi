@@ -32,30 +32,6 @@
 
 /////////////// PROTOCOL INTERNAL CODE GOES HERE ///////////////////
 
-bool ip_session_comp(void * key1, void * key2) {
-    mmt_session_key_t * l_session = (mmt_session_key_t *) key1;
-    mmt_session_key_t * r_session = (mmt_session_key_t *) key2;
-
-    if (l_session->ip_type != r_session->ip_type) return (l_session->ip_type < r_session->ip_type);
-
-    // both flows of the same type
-    int comp_val = mmt_memcmp(&l_session->next_proto, &r_session->next_proto, 5);
-    if (comp_val == 0) {
-        if (l_session->ip_type == 4) {
-            comp_val = mmt_memcmp(l_session->lower_ip, r_session->lower_ip, IPv4_ALEN);
-            if (comp_val == 0) {
-                comp_val = mmt_memcmp(l_session->higher_ip, r_session->higher_ip, IPv4_ALEN);
-            }
-        } else {
-            comp_val = mmt_memcmp(l_session->lower_ip, r_session->lower_ip, IPv6_ALEN);
-            if (comp_val == 0) {
-                comp_val = mmt_memcmp(l_session->higher_ip, r_session->higher_ip, IPv6_ALEN);
-            }
-        }
-    }
-    return comp_val < 0;
-}
-
 
 bool ipv4_session_comp(void * key1, void * key2) {
     mmt_session_key_t * l_session = (mmt_session_key_t *) key1;
@@ -119,12 +95,13 @@ bool ipv4_session_equal(void * key1, void * key2) {
  * next_proto, both ports and the 4 bytes of each interned IP address — so
  * that any two keys that compare equal hash to the same value.
  *
- * Dependent-multiply count (asserted by tools/phase0/tests/
- * session_lookup_perf_test.sh): FNV-1a over the 13 key bytes ran 13
+ * Dependent-multiply count (issue #253): FNV-1a over the 13 key bytes ran 13
  * serially-dependent multiplies; the three multiplies below are INDEPENDENT
  * (the CPU overlaps them in one multiply-latency window) and the finalizer
  * adds one dependent step — a chain 2 multiplies deep before the table's
- * inlined fmix64, versus ~16 before.
+ * inlined fmix64, versus ~16 before. tools/phase0/tests/
+ * session_lookup_perf_test.c pins this function's output for fixed keys
+ * (golden values, little-endian) and asserts it differs from FNV-1a.
  */
 uint64_t ipv4_session_hash(void * key) {
     mmt_session_key_t * s = (mmt_session_key_t *) key;
@@ -593,6 +570,9 @@ uint8_t build_ipv4_session_key(u_char * ip_packet, unsigned ip_packet_len, mmt_s
 int ip_classify_next_proto(ipacket_t * ipacket, unsigned index) {
     /* If we get here, then the packet is not fragmented. */
     int offset = get_packet_offset_at_index(ipacket, index);
+    /* Issue #530: protocol and ihl were read without checking caplen. */
+    if (offset < 0 || !mmt_have_bytes(ipacket, (size_t) offset, sizeof(struct iphdr)))
+        return 0;
     const mmt_una_iphdr_t * ip_hdr = (mmt_una_iphdr_t *) & ipacket->data[offset];
 
     classified_proto_t retval;
@@ -682,9 +662,8 @@ static inline int ip_process_fragment( ipacket_t *ipacket, unsigned index )
     if ( len < sizeof( struct iphdr )) {
         /* Issue #212 (F-BUG-042): this printf ran in the packet hot path, so a
          * remote sender could flood stdout with one malformed datagram each.
-         * Routed through the (default-off) MMT_LOG macro like every other
-         * diagnostic in this file's peers. */
-        MMT_LOG(PROTO_IP, MMT_LOG_DEBUG, "*** Warning: malformed packet (not enough data): %"PRIu64"\n", ipacket->packet_id );
+         * Issue #545 removed the compiled-out trace that replaced it: a
+         * short datagram is simply not classified. */
         return 0;
     }
 

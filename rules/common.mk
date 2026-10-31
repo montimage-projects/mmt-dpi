@@ -26,9 +26,9 @@ endif
 #  - - - - -
 # DEFINE FLAG FOR COMPILE COMMAND
 #  - - - - -
-
-CFLAGS   := -Wall -DVERSION=\"$(VERSION)\" -DGIT_VERSION=\"$(GIT_VERSION)\" -DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"
-CXXFLAGS := -Wall -DVERSION=\"$(VERSION)\" -DGIT_VERSION=\"$(GIT_VERSION)\" -DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"
+MMT_CFLAGS_GIT_VERSION := $(GIT_VERSION)
+CFLAGS   := -Wall -DVERSION=\"$(VERSION)\"
+CXXFLAGS := -Wall -DVERSION=\"$(VERSION)\"
 
 # NDEBUG = 1 to show all messages from debug(), ... (i.e. keep asserts/debug()
 # enabled by NOT defining the standard NDEBUG macro). The default build defines
@@ -156,10 +156,10 @@ CFLAGS   += $(SANITIZE_FLAGS)
 CXXFLAGS += $(SANITIZE_FLAGS)
 endif
 
-# SHOWLOG = 1 to show all the log from MMT_LOG() ...
+# SHOWLOG = 1 to compile in mmt_log_debug() lines; logger defaults to debug (#545)
 #
 #   ⚠ CAUTION (F-SEC-016, issue #214): a SHOWLOG=1 build prints decoded packet
-#   fields to stdout, and several of them are subscriber-identifying — IMSI,
+#   fields to stderr, and several of them are subscriber-identifying — IMSI,
 #   M-TMSI, UE/eNB IPs, eNB/MME names, URLs and hostnames lifted straight out
 #   of the traffic under inspection. Build with SHOWLOG=1 only on captures you
 #   are allowed to expose, and never ship or deploy a SHOWLOG build where the
@@ -246,7 +246,7 @@ $(LIBBAPP_OBJECTS): CFLAGS +=  -Wno-unused-variable -fPIC
 LIBDICOM_OBJECTS := \
  $(patsubst %.c,%.o,$(wildcard $(SRCDIR)/mmt_dicom/*.c))
 
-$(LIBDICOM_OBJECTS): CFLAGS +=  -Wno-unused-variable -fPIC
+$(LIBDICOM_OBJECTS): CFLAGS +=  -Wno-unused-variable -fPIC -I$(SRCDIR)/mmt_core/public_include
 
 # Extra diagnostic warnings (B5). These surface latent defects - format-string
 # bugs, NULL dereferences, variable-length arrays - for triage. They are
@@ -447,7 +447,7 @@ documentation: $(SDKDOC)
 #  E X A M P L E S
 #  - - - - - - - -
 
-MMT_EXAMPLES_SRC = attribute_handler_session_counter.c extract_all.c google-fr.pcap html_integration.c html_integration.h MAC_extraction.c packet_handler.c proto_attributes_iterator.c reconstruct_body.c simple_traffic_reporting.c
+MMT_EXAMPLES_SRC = attribute_handler_session_counter.c extract_all.c MAC_extraction.c mmt_export_info.c packet_handler.c proto_attributes_iterator.c simple_traffic_reporting.c
 SDK_EXAMPLES_SRC = $(addprefix $(SDKXAM)/,$(MMT_EXAMPLES_SRC))
 
 examples: $(SDK_EXAMPLES_SRC)
@@ -486,9 +486,9 @@ $(SDK_EXAMPLES_SRC): $(SDKXAM)
 # the oldest combination in the matrix (Ubuntu 22.04 has the same GCC on
 # glibc 2.35; Debian 12 GCC 12; Ubuntu 24.04 GCC 13). rules/arch-linux.mk
 # enforces the GCC floor at parse time and the generated .deb declares the
-# glibc and libstdc++ floors in its Depends: line (sdk/Makefile); the
-# toolchain-floor CI job exercises them on ubuntu-22.04. libstdc++6 package
-# versions track the GCC major, so its floor is pinned to MMT_GCC_MIN.
+# glibc floor in its Depends: line (sdk/Makefile; the libstdc++ one only for a
+# shipped .so that NEEDs it — none since #539); toolchain-floor exercises them
+# on ubuntu-22.04. libstdc++6 tracks the GCC major: pinned to MMT_GCC_MIN.
 MMT_GCC_MIN       := 11
 MMT_GLIBC_MIN     := 2.34
 MMT_LIBSTDCXX_MIN := $(MMT_GCC_MIN)
@@ -585,3 +585,65 @@ ifdef ENABLESEC
 MMT_SEC_REACTION_DIR_DEFAULT ?= $(MMT_BASE)/probe/conf
 $(SECURITY_OBJECTS): CFLAGS += -DMMT_SEC_REACTION_DIR_OPT=\"$(MMT_SEC_REACTION_DIR_DEFAULT)\"
 endif
+
+# Issue #533 (appended so no cited line range moves): libmmt_core exports only
+# what is declared MMTAPI. The core objects are compiled with hidden default
+# visibility, and MMTAPI carries visibility("default") inside the SDK build
+# (src/mmt_core/public_include/mmt_exports.h), so libmmt_core.so's dynamic
+# symbol table holds the MMTAPI declarations and nothing else; every other
+# core function stays linkable inside the library and libmmt_core.a. The
+# private internals libmmt_tcpip binds to stay MMTAPI while it needs them. Tests
+# that call hidden internals link the static archive
+# (tools/phase0/tests/static_core_link.sh). scripts/validate-exported-symbols.sh
+# enforces the export budget. The protocol libraries follow in the #534 block.
+$(CORE_OBJECTS): CFLAGS += -fvisibility=hidden
+$(CORE_OBJECTS): CXXFLAGS += -fvisibility=hidden
+
+# Issue #534 (appended so no cited line range moves): the protocol plugins
+# export only what is declared MMTAPI, as libmmt_core does since #533. Their
+# objects are compiled with hidden default visibility; the MMTAPI declarations
+# are the dlsym() entry points init_proto/cleanup_proto plus the functions
+# their installed headers declare (mmt_tcpip_plugin.h, proto_s1ap.h,
+# proto_ngap.h, dicom.h) and the #237 alias proto_irc.c keeps until 2.0.0.
+# MMTAPI only carries visibility("default") under _MMT_BUILD_SDK, which
+# business_app and dicom did not get. Tests that call plugin internals link
+# the static archive (tools/phase0/tests/static_core_link.sh,
+# mmt_static_plugin_link). scripts/validate-exported-symbols.sh compares each
+# plugin's exports with docs/Exported-Symbols.md.
+$(LIBBAPP_OBJECTS) $(LIBDICOM_OBJECTS): CFLAGS += -D_MMT_BUILD_SDK
+$(TCPIP_OBJECTS) $(LIBMOBILE_OBJECTS) $(LIBBAPP_OBJECTS) $(LIBDICOM_OBJECTS): CFLAGS += -fvisibility=hidden
+$(TCPIP_OBJECTS) $(LIBMOBILE_OBJECTS) $(LIBBAPP_OBJECTS) $(LIBDICOM_OBJECTS): CXXFLAGS += -fvisibility=hidden
+
+# Issue #553 (appended so no cited line range moves): the two volatile
+# defines go on the one object that reads each, not on every compile line.
+# The plugin directory (-DPLUGINS_REPOSITORY_OPT, a different MMT_PLUGINS per
+# install prefix) is read only by plugins_engine.c, whose object already
+# depends on the plugin-directory stamp in sdk/Makefile; the commit hash
+# (GIT_VERSION, through MMT_VERSION in mmt_core.h) only by mmt_version() in
+# packet_processing.c. Every other object's compile line is then identical
+# across install prefixes and commits, so an opt-in compiler cache
+# (MMT_CCACHE, rules/arch-linux-gcc.mk) hits in direct mode for the suites'
+# throwaway prefixes and across commits. No other object reads either macro,
+# so the built libraries are byte-identical to the global-define build.
+# MMT_CFLAGS_GIT_VERSION holds GIT_VERSION as it stood where CFLAGS is set,
+# before the `nogit` package-revision fallback above, as the global define did.
+$(TOPDIR)/src/mmt_core/src/plugins_engine.o: CFLAGS += -DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"
+$(TOPDIR)/src/mmt_core/src/packet_processing.o: CFLAGS += -DGIT_VERSION=\"$(MMT_CFLAGS_GIT_VERSION)\"
+
+# Issue #536 (appended so no cited line range moves): the SOVERSION policy.
+# Every shared library is linked with SONAME lib<name>.so.$(SOVERSION)
+# (rules/common-linux.mk), and every install route — make install, the
+# .deb/.rpm staging, make install-fhs — lays down the runtime link
+# lib<name>.so.$(SOVERSION) -> lib<name>.so.$(VERSION) beside the file; the
+# unversioned lib<name>.so is the development (link-time) link only. A
+# consumer records the SONAME at link time, so bump SOVERSION with any change
+# that breaks the binary interface of an installed library (a public struct
+# layout, a removed or re-typed export): the loader then refuses to pair a
+# consumer linked against an older SOVERSION with the new library instead of
+# corrupting memory (consumers linked before SOVERSION 1, against the
+# unversioned name, and dlopen'ed plugins are not refused — rebuild them). The
+# `abi-diff` job (tools/ci/abi-diff.sh --fail-on incompatible) fails on an
+# incompatible change against the last release tag unless the SONAME moved.
+# SOVERSION 1 is the first versioned SONAME (v1.9.1 and earlier linked the
+# unversioned lib<name>.so); it covers the v1.9.0 and #535 layout changes.
+SOVERSION := 1

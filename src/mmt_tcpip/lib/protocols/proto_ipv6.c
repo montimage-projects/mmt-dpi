@@ -54,11 +54,12 @@ bool ipv6_session_equal(void * key1, void * key2) {
  * next_proto, both ports and the 16 bytes of each interned IPv6 address — so
  * that any two keys that compare equal hash to the same value.
  *
- * Dependent-multiply count (asserted by tools/phase0/tests/
- * session_lookup_perf_test.sh): FNV-1a over the 37 key bytes ran 37
+ * Dependent-multiply count (issue #253): FNV-1a over the 37 key bytes ran 37
  * serially-dependent multiplies; the five multiplies below are INDEPENDENT
  * and the finalizer adds one dependent step — a chain 2 multiplies deep
- * before the table's inlined fmix64, versus ~40 before.
+ * before the table's inlined fmix64, versus ~40 before. tools/phase0/tests/
+ * session_lookup_perf_test.c pins this function's output for fixed keys
+ * (golden values, little-endian) and asserts it differs from FNV-1a.
  */
 uint64_t ipv6_session_hash(void * key) {
     mmt_session_key_t * s = (mmt_session_key_t *) key;
@@ -687,6 +688,9 @@ void *ip6_sessionizer(void *protocol_context, ipacket_t *ipacket, unsigned index
 int ip6_classify_next_proto(ipacket_t * ipacket, unsigned index) {
 
     int offset = get_packet_offset_at_index(ipacket, index);
+    /* Issue #530: nexthdr was read without checking caplen. */
+    if (offset < 0 || !mmt_have_bytes(ipacket, (size_t) offset, sizeof(struct ipv6hdr)))
+        return 0;
     mmt_una_ipv6hdr_t * ip6_hdr = (mmt_una_ipv6hdr_t *) & ipacket->data[offset];
 
     uint8_t next_hdr = ip6_hdr->nexthdr;

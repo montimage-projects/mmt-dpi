@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 #include "data_defs.h"
+#include "ipacket_internal.h" /* issue #535: the private extension of ipacket_t */
 #include "mmt_core.h"
 #include "extraction_lib.h"
 #include "hash_utils.h"
@@ -20,7 +21,7 @@ extern "C" {
 #include "memory.h"
 #include "plugin_defs.h"
 #include "cfg_defaults.h"
-
+#include "dbg.h" /* internal diagnostics + likely/unlikely (issue #537) */
 #include <string.h> /* memset in mmt_session_get_children_stats() */
 
 #define PROTO_CLASSIFICATION_DONE       0 /**< defines that processing is done with the classification process.
@@ -165,10 +166,11 @@ struct mmt_segblk_s; /* tcp_segment.h — plugin-owned bump block chain */
  * pending bytes (`pending_len`), so a drain never needs storage the budget
  * cannot give. This struct itself is per-flow metadata outside the budget.
  */
+struct tcp_seg_struct; /* tcp_seg_t, defined in src/mmt_tcpip/lib/tcp_segment.h */
 typedef struct mmt_tcp_reasm_s {
-    void *seg_head[2];            /* pending tcp_seg_t list head, seq-sorted */
-    void *seg_tail[2];            /* pending list tail — O(1) in-order append */
-    void *seg_root[2];            /* AVL index over the pending list (#382) */
+    struct tcp_seg_struct *seg_head[2]; /* pending tcp_seg_t list head, seq-sorted */
+    struct tcp_seg_struct *seg_tail[2]; /* pending list tail — O(1) in-order append */
+    struct tcp_seg_struct *seg_root[2]; /* AVL index over the pending list (#382) */
     uint8_t *image[2];            /* flattened stream image (was session_payload) */
     uint32_t image_len[2];        /* valid bytes in image (was session_payload_len) */
     uint32_t image_cap[2];        /* allocated capacity of image */
@@ -353,15 +355,25 @@ struct attribute_handler_struct {
 };
 
 struct attribute_internal_struct {
-    unsigned protocol_index; /**< index of the protocol */
-    int status;              /**< status of the attribute. Indicates if it is unset, set or consumed. */
-    int data_type;           /**< the data type of the attribute */
-    int data_len;            /**< the data length of the attribute */
-    int position_in_packet;  /**< the position in the packet of the attribute. */
-    int scope;               /**< the scope of the attribute (packet, session, ...). */
-    uint32_t proto_id;    /**< identifier of the protocol */
-    uint32_t field_id;       /**< identifier of the attribute */
-    void *data;              /**< pointer to the attribute data */
+    /* Issue #535 (F-CLEAN-002): the attribute_t handed to extraction
+     * functions, attribute handlers and get_extracted_attribute*() callers is
+     * the pub member — never a cast of this whole structure. The anonymous
+     * struct names the same storage field for field (identical types, pinned
+     * below), so the engine keeps reading and writing attr->data & co. */
+    union {
+        attribute_t pub; /**< the public view of this attribute */
+        struct {
+            unsigned protocol_index; /**< index of the protocol */
+            int status;              /**< status of the attribute. Indicates if it is unset, set or consumed. */
+            enum data_types data_type; /**< the data type of the attribute */
+            int data_len;            /**< the data length of the attribute */
+            int position_in_packet;  /**< the position in the packet of the attribute. */
+            int scope;               /**< the scope of the attribute (packet, session, ...). */
+            mmt_proto_id_t proto_id; /**< identifier of the protocol */
+            mmt_attribute_id_t field_id; /**< identifier of the attribute */
+            void *data;              /**< pointer to the attribute data */
+        };
+    };
 
     int memsize; /**< indicates the memory size of the attribute including the memory pointed to by data */
     int registration_count; /**< Number of times this attributes has been registered */
@@ -382,6 +394,22 @@ struct attribute_internal_struct {
     attribute_handler_function extraction_owner;
     attribute_internal_t * next; /**< Issue #501: links the attributes in mmt_handler_t.attr_free_pending */
 };
+
+/* Issue #535: the anonymous struct above must stay the exact image of
+ * attribute_t — same member, same type, same offset — or pub would no longer
+ * alias it (MMT_PIN_MIRROR: ipacket_internal.h). */
+_Static_assert(offsetof(attribute_internal_t, pub) == 0, "attribute_internal_t: pub must stay first");
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, protocol_index);
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, status);
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, data_type);
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, data_len);
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, position_in_packet);
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, scope);
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, proto_id);
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, field_id);
+MMT_PIN_MIRROR(attribute_internal_t, pub, attribute_t, data);
+_Static_assert(offsetof(attribute_internal_t, memsize) == sizeof(attribute_t),
+               "attribute_internal_t: the mirror outgrew attribute_t");
 
 /**
  * Defines the attribute handler element structure
@@ -407,16 +435,16 @@ struct session_timer_handler_struct{
 
 struct mmt_classify_proto_struct {
     uint32_t weight;
-    int (*classify_me) (ipacket_t * ipacket, unsigned index);
+    uint8_t legacy; /**< Issue #540: 1 = defunct-service checker, walked only when the handler's legacy_classify is set */
+    generic_classification_function classify_me; /**< Issue #546: typed verdict (was int) */
     mmt_classify_proto_t * next;
     mmt_classify_proto_t * previous;
 };
 
 struct mmt_classify_next_struct {
-    int status; /**< indicates if classification is enabled or disabled */
-    int (*pre_classify) (ipacket_t * ipacket, unsigned index);
+    generic_classification_function pre_classify;
     mmt_classify_proto_t * classify_protos;
-    int (*post_classify) (ipacket_t * ipacket, unsigned index);
+    generic_classification_function post_classify;
 };
 
 struct mmt_proto_data_analysis_proc_struct {
@@ -427,7 +455,6 @@ struct mmt_proto_data_analysis_proc_struct {
 };
 
 struct mmt_proto_data_analysis_struct {
-    int status; /**< indicates if analysis is enabled or disabled */
     int (*pre_analyse) (ipacket_t * ipacket, unsigned index);
     mmt_analyse_me_t * analyse;
     int (*post_analyse) (ipacket_t * ipacket, unsigned index);
@@ -501,24 +528,54 @@ struct protocol_struct {
     void * attributes_names_map; /**< For internal use. MUST not be changed. */
     //void * sessions_map; /**< For internal use. MUST not be changed. */
     //void * classify_next; /**< For internal use. MUST not be changed. */
-    void * sessionize; /**< For internal use. MUST not be changed. */
-    void * session_data_init; /**< For internal use. Must not be chagned.*/
-    void * session_data_cleanup; /**< For internal use. Must not be changed. */
+    generic_sessionizer_function sessionize; /**< For internal use. MUST not be changed. */
+    generic_session_data_initialization_function session_data_init; /**< For internal use. Must not be chagned.*/
+    generic_session_data_cleanup_function session_data_cleanup; /**< For internal use. Must not be changed. */
     //void * session_data_analysis; /**< For internal use. Must not be chagned.*/
-    void * session_context_cleanup; /**< For internal use. Must not be changed. */
-    void * protocol_context_init; /**< For internal use. Must not be changed. */
-    void * protocol_context_cleanup; /**< For internal use. Must not be changed. */
+    generic_session_context_cleanup_function session_context_cleanup; /**< For internal use. Must not be changed. */
+    generic_proto_context_init_function protocol_context_init; /**< For internal use. Must not be changed. */
+    generic_proto_context_cleanup_function protocol_context_cleanup; /**< For internal use. Must not be changed. */
     void * protocol_context_args; /**< For internal use. Must not be changed. Pointer to the protocol's context argument.
                                    * Will be passed when calling protocol_context_init and protocol_context_cleanup. */
     //void * args; /**< For internal use. MUST not be changed. */
     int (* update_protocol_fct) (int); // function to update protocol structure
 };
 
+/**
+ * Issue #540 (F-BUG-311): mark the chain node of `fn` registered on `proto`
+ * as a legacy checker, which proto_packet_classify_next() skips unless the
+ * handler runs the `legacy` DPI profile. Header-inline so the tcpip plugin
+ * (inter_proto_classif_list.def's MMT_INTER_PROTO_LEGACY rows) uses it with
+ * no new libmmt_core export. Marks the first unmarked node of `fn`.
+ * @return 1 when a node was marked, 0 when `fn` is not registered on `proto`
+ */
+static inline int mmt_classifier_mark_legacy(protocol_t *proto,
+        generic_classification_function fn) {
+    mmt_classify_proto_t *n;
+    if (proto == NULL || fn == NULL) {
+        return 0;
+    }
+    for (n = proto->classify_next.classify_protos; n != NULL; n = n->next) {
+        if (n->classify_me == fn && !n->legacy) {
+            n->legacy = 1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 struct protocol_instance_struct {
     protocol_t * protocol; /**< pointer to the protocol model */
     proto_statistics_internal_t * proto_stats; /**< pointer to the protocol stats (linked list) */
     void * sessions_map; /**< For internal use. MUST not be changed. */
     void * args; /**< For internal use. MUST not be changed. */
+    /* Issue #549 (F-BUG-012): the analysis/classification switches belong to
+     * this handler's snapshot, not to the shared global protocol_t, so
+     * enable_/disable_protocol_analysis() and _classification() on one
+     * handler leave every other handler untouched. Accessed only through
+     * proto_status_load()/proto_status_store() below. */
+    int analysis_enabled; /**< 1: proto_packet_analyze() runs the analysis chain */
+    int classify_enabled; /**< 1: proto_packet_classify_next() runs the classification chain */
 };
 
 /* Issue #245 (F-PERF-003): pooled reassembly ipacket — a slot owns the
@@ -530,7 +587,7 @@ struct protocol_instance_struct {
  * its slot until mmt_drop_packet()/clean-up, which bounds the pool by the
  * number of concurrently held packets. */
 typedef struct mmt_ipacket_slot_s {
-    ipacket_t ipacket;                    /* MUST stay the first member */
+    ipacket_internal_t ipacket;           /* MUST stay the first member */
     struct mmt_ipacket_slot_s *next_free;
     uint8_t *data;                        /* owned copy of the packet bytes */
     uint32_t data_cap;                    /* allocated size of data */
@@ -544,6 +601,7 @@ struct mmt_handler_struct {
     uint8_t port_classify; // 0 - no classification based on port number, 1 - classification based on port number
     uint8_t port_classify_payload_confirm; // M9 (issue #75): 0 - accept any port-based guess (default), 1 - only accept a port-based guess when a payload signature confirms it
     uint8_t classification_max_depth; // Issue #87: deepest protocol-path index the classifier may write (0..PROTO_PATH_SIZE-1; PROTO_PATH_SIZE-1 = unlimited). Layers already in the path stay; the classify walk and path appends stop below it.
+    uint8_t legacy_classify; // Issue #540: 0 - skip the defunct-service checkers (default), 1 - walk them too (the `legacy` DPI profile)
 
     uint32_t last_expiry_timeout;
     uint32_t attr_extraction_strategy;
@@ -561,7 +619,7 @@ struct mmt_handler_struct {
     session_timer_handler_t session_timer_handler;    // This is the function registered by user and will be call from function process_timer_handler()
 
     packet_info_t last_received_packet;
-    ipacket_t current_ipacket;
+    ipacket_internal_t current_ipacket;   /* Issue #535: &current_ipacket.pub is the ipacket_t handed out */
     generic_process_packet_fct process_packet;
     generic_clean_packet_fct clean_packet;
     // Evasion
@@ -724,42 +782,11 @@ void free_registered_protocols();
 void process_outofmemory_force_sessions_timeout(mmt_handler_t *mmt_handler, ipacket_t * ipacket);
 
 /**
- * Creates a protocol statistics instance for the given protocol and the given parent stats
- * @param proto pointer to the protocol instance
- * @param parent_proto_stats pointer to the parent protocol stats
- * @return pointer to the created protocol statistics on success, NULL on failure
- */
-proto_statistics_internal_t * create_protocol_stats_instance(protocol_instance_t * proto, proto_statistics_internal_t * parent_proto_stats);
-
-/**
- * Returns a pointer to the protocol statistics in the parent protocol encapsulated stats
- * @param proto pointer to the protocol instance
- * @param parent_proto_stats pointer to the parent protocol stats instance
- * @return pointer to the protocol statistics. If it does not exist, it will be created.
- */
-proto_statistics_internal_t * get_protocol_stats_from_parent(protocol_instance_t * proto, proto_statistics_internal_t * parent_proto_stats);
-
-/**
- * Returns a pointer to the protocol statistics of the child protocol identified by \child_proto_id
- * @param proto_stats pointer to the protocol stats instance
- * @param child_proto_id identifier of the child protocol
- * @return pointer to the child protocol statistics if it exists, NULL otherwise.
- */
-proto_statistics_internal_t * get_child_protocol_stats(proto_statistics_internal_t * proto_stats, uint32_t child_proto_id);
-
-/**
  * Prints the protocol stats tree rooted at the given protocol
  * @param f file descriptor
  * @param proto pointer to the root protocol
  */
 void print_protocol_stats_tree(FILE * f, protocol_instance_t * proto);
-
-/**
- * Prints the protocol stats for the given protocol
- * @param f file descriptor
- * @param proto pointer to the protocol
- */
-void print_protocol_stats(FILE * f, protocol_instance_t * proto);
 
 /**
  * Iterates through the registered protocol stacks and calls the given callback function for every registered protocol stack.
@@ -788,7 +815,8 @@ int mmt_match_prefix(const u_int8_t *payload, size_t payload_len, const char *st
    *         NULL if the substring is not found
    *
    */
-char* mmt_strnstr(const char *s, const char *find, size_t slen);
+/* Issue #533: MMTAPI = exported for libmmt_tcpip until #534. */
+MMTAPI char * MMTCALL mmt_strnstr(const char *s, const char *find, size_t slen);
 
 int process_packet(mmt_handler_t *mmt, struct pkthdr *header, const u_char * packet);
 int process_packet_with_reassembly(mmt_handler_t *mmt, struct pkthdr *header, const u_char * packet);
@@ -799,35 +827,41 @@ void clean_packet_with_reassembly(ipacket_t * ipacket);
  * The packet-processing module is split into five translation units:
  * packet_processing.c (the attribute accessors/formatting tail and misc
  * helpers), packet_pipeline.c (per-packet processing path and the
- * attribute-extraction machinery), packet_registry.c (protocol / handler /
- * attribute registration and handler lifecycle), packet_session.c (session
- * lifecycle and timeout — issue #240) and packet_stats.c (protocol
- * statistics — issue #240). The entry points below keep external linkage so
- * the units can call each other; they are not part of the public SDK ABI.
+ * attribute-extraction machinery), the packet_registry*.c units (issue #549:
+ * packet_registry.c — the protocol table, protocol stacks, name/id lookups
+ * and init_extraction()/close_extraction(); packet_registry_classify.c —
+ * per-protocol classification/analysis/session callback registration;
+ * packet_registry_handler.c — the handler lifecycle and bookkeeping
+ * map; packet_registry_attr.c — per-handler attribute and packet-handler
+ * registration), packet_session.c (session lifecycle and timeout — issue
+ * #240) and packet_stats.c (protocol statistics — issue #240). The entry
+ * points below keep external linkage so the units can call each other; they
+ * are not part of the public SDK ABI.
  * ======================================================================== */
 
+/* Protocol-id range check shared by the packet_registry*.c units. */
+#define _is_valid_protocol_id( proto_id ) ( proto_id < PROTO_MAX_IDENTIFIER )
+
 /*
- * Issue #69: the analysis/classification "status" flags live on the SHARED
- * global protocol descriptors (each handler's configured_protocols[i].protocol
- * aliases the same global protocol_t). The enable/disable helpers write
- * them from mmt_init_handler(), while proto_packet_analyze() and
- * proto_packet_classify_next() read them LOCK-FREE on the per-packet hot path.
- * Creating the very first
- * handlers concurrently from cold therefore races on these flags.
+ * Issue #69, reworked by issue #549: the analysis/classification switches are
+ * per-handler state (protocol_instance_t.analysis_enabled / classify_enabled
+ * in each handler's configured_protocols[] snapshot). mmt_init_handler() and
+ * the enable_/disable_protocol_analysis() and _classification() APIs write
+ * them; proto_packet_analyze() and proto_packet_classify_next() read them
+ * LOCK-FREE on the per-packet hot path. Before #549 they lived on the SHARED
+ * global protocol_t, so one handler's choice changed every other handler and
+ * concurrent cold handler creation raced on them.
  *
- * We make every access to these flags an atomic operation (relaxed ordering)
- * using the compiler __atomic_* builtins. This keeps the hot-path read
- * lock-free -- a relaxed atomic load of an int is a plain load on common
- * targets (no fence, no lock) -- while making the concurrent idempotent writes
- * plus reads race-free under the C memory model, which is exactly what TSan
- * checks. Relaxed ordering is sufficient because the flag only gates whether
+ * Every access stays an atomic operation (relaxed ordering) through the
+ * compiler __atomic_* builtins: a relaxed atomic load of an int is a plain
+ * load on common targets (no fence, no lock), so the hot path pays nothing,
+ * and a caller toggling a handler's switch from a thread other than the one
+ * feeding it packets stays race-free under the C memory model. Relaxed
+ * ordering is sufficient because the flag only gates whether
  * analysis/classification runs for a protocol: the function pointers and
  * analyse/classify lists it guards are populated during single-threaded
- * init_extraction()/registration and are stable before any worker thread can
- * observe the flag, so no other data is published through it.
- *
- * The flag remains a plain int in the struct (no ABI/layout change); only the
- * accesses are made atomic.
+ * init_extraction()/registration and are stable before any worker thread
+ * can observe the flag, so no other data is published through it.
  */
 static inline int proto_status_load(const int *status) {
     return __atomic_load_n(status, __ATOMIC_RELAXED);
@@ -848,8 +882,7 @@ int proto_session_management(ipacket_t * ipacket, protocol_instance_t * configur
 /* packet_stats.c — statistics, called by packet_registry.c,
  * packet_pipeline.c and packet_session.c. */
 void free_handler_protocols_statistics(mmt_handler_t *mmt_handler);
-proto_statistics_internal_t * update_proto_stats_on_packet(ipacket_t * ipacket, protocol_instance_t * configured_protocol, proto_statistics_internal_t * parent_stats, uint32_t proto_offset, unsigned index);
-proto_statistics_internal_t * update_proto_stats_on_new_session(ipacket_t * ipacket, protocol_instance_t * configured_protocol, proto_statistics_internal_t * parent_stats, int new_session, uint32_t proto_offset, unsigned index);
+proto_statistics_internal_t * update_proto_stats(ipacket_t * ipacket, protocol_instance_t * configured_protocol, proto_statistics_internal_t * parent_stats, int new_session, uint32_t proto_offset, unsigned index);
 void register_protocol_stats_attributes(protocol_t *proto);
 void register_protocol_session_attributes(protocol_t *proto);
 
@@ -866,7 +899,14 @@ void update_proto_stats_on_session_timeout(mmt_session_t * timed_out_session, pr
  * handler; called once by mmt_init_handler() (single-threaded init). */
 void mmt_dpi_profile_apply_env(mmt_handler_t *mmt_handler);
 
-/* packet_registry.c — registered-attribute bookkeeping, called by
+/* packet_registry*.c — cross-unit entry points (issue #549). */
+protocol_t *get_protocol_slot(uint32_t proto_id);
+protocol_t *get_protocol_struct_by_protocol_id(uint32_t proto_id);
+bool init_handlers_map(void);
+void close_handlers_map(void);
+int init_plugins(void);
+
+/* packet_registry_attr.c — registered-attribute bookkeeping, called by
  * packet_pipeline.c and packet_processing.c. */
 bool attribute_ids_comparison_fct(uint32_t l_id, uint32_t r_id);
 struct attribute_internal_struct * get_registered_attribute_internal_struct(const ipacket_t * ipacket, uint32_t proto_id, uint32_t attribute_id, unsigned index);
@@ -886,13 +926,15 @@ void flush_deferred_attribute_frees(mmt_handler_t *mmt_handler);
  *   - dropped: payload bytes refused by the per-flow ceiling / late-arrival
  *   - packet_allocs: allocations performed by process_packet_with_reassembly()
  *     (slot creation or copy-buffer growth — steady-state must be 0) */
-void mmt_tcp_reasm_stat_visit(void);
-void mmt_tcp_reasm_stat_move(uint32_t bytes);
-void mmt_tcp_reasm_stat_drop(uint32_t bytes);
+MMTAPI void MMTCALL mmt_tcp_reasm_stat_visit(void);
+MMTAPI void MMTCALL mmt_tcp_reasm_stat_move(uint32_t bytes);
+MMTAPI void MMTCALL mmt_tcp_reasm_stat_drop(uint32_t bytes);
 /* Signed delta on the resident reassembly bytes (pending carves + image
  * bytes across all sessions) — the quantity the per-flow ceiling bounds. */
-void mmt_tcp_reasm_stat_live(int64_t delta);
+MMTAPI void MMTCALL mmt_tcp_reasm_stat_live(int64_t delta);
 void mmt_reassembly_stat_packet_alloc(void);
+/* Test-only getters: hidden since #533 (not MMTAPI) — harnesses that read
+ * them link libmmt_core.a (tools/phase0/tests/static_core_link.sh). */
 uint64_t mmt_tcp_reasm_insert_visits(void);
 uint64_t mmt_tcp_reasm_bytes_moved(void);
 uint64_t mmt_tcp_reasm_bytes_dropped(void);

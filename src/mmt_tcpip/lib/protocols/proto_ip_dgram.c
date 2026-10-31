@@ -148,12 +148,10 @@ int ip_dgram_update( ip_dgram_t *dg, const mmt_una_iphdr_t *ip, unsigned len ,un
     *     ~4 GiB and the hole update memcpy's gigabytes past the buffer),
     *   - the captured datagram must actually contain ip_len bytes. */
    if(( ip_hl < sizeof( struct iphdr )) || ( ip_hl > len )) {
-      MMT_LOG( PROTO_IP, MMT_LOG_DEBUG, "*** Warning: malformed packet (header length mismatch)\n" );
       return 1;
    }
 
    if(( ip_len < ip_hl ) || ( ip_len > len )) {
-      MMT_LOG( PROTO_IP, MMT_LOG_DEBUG, "*** Warning: malformed packet (length mismatch)\n" );
       return 1;
    }
 
@@ -161,7 +159,6 @@ int ip_dgram_update( ip_dgram_t *dg, const mmt_una_iphdr_t *ip, unsigned len ,un
     * legally address at most a 65535-byte datagram, so off+len beyond that is
     * malformed and also keeps every reassembly buffer <= 64 KiB. */
    if( (uint64_t) ip_off + ( ip_len - ip_hl ) > MMT_IP_FRAG_MAX_DGRAM ) {
-      MMT_LOG( PROTO_IP, MMT_LOG_DEBUG, "*** Warning: malformed packet (fragment extent out of range)\n" );
       return 1;
    }
 
@@ -215,40 +212,11 @@ int ip_dgram_is_complete( ip_dgram_t *dg )
  * @param dg a pointer to a ip_dgram_t previously initialized with dgram_init()
  */
 
-void ip_dgram_dump( ip_dgram_t *dg )
-{
-   (void)mmt_stream_printf(stdout, "--- IP DATAGRAM ---\n" );
-   (void)mmt_stream_printf(stdout, "   id: %p\n", dg );
-   (void)mmt_stream_printf(stdout, "  len: %d\n", dg->len );
-
-   ip_dgram_dump_holes( dg );
-}
-
 /**
  * Dump a datagram as a list of holes
  *
  * @param dg a pointer to a ip_dgram_t previously initialized with dgram_init()
  */
-
-void ip_dgram_dump_holes( ip_dgram_t *dg )
-{
-   ip_frags_t *holes = &dg->holes;
-   ip_frag_t  *hole  = holes->lh_first;
-
-   (void)mmt_stream_printf(stdout, "holes:" );
-
-   if( hole == 0 ) {
-      (void)mmt_stream_printf(stdout, " none - datagram is complete\n" );
-      return;
-   }
-
-   while( hole ) {
-      ip_frag_dump( hole );
-      hole = hole->frags.le_next;
-   }
-
-   (void)mmt_stream_printf(stdout, "\n" );
-}
 
 /**
  * Update holes in a datagram
@@ -337,7 +305,6 @@ int ip_dgram_update_holes( ip_dgram_t *dg, const uint8_t *x, unsigned off, unsig
     * front — callers should have validated this already, but the check keeps
     * the hole math and the buffer growth below bounded no matter who calls. */
    if( (uint64_t) off + len > MMT_IP_FRAG_MAX_DGRAM ) {
-      MMT_LOG( PROTO_IP, MMT_LOG_DEBUG, "*** Warning: malformed packet (fragment extent out of range)\n" );
       return 1;
    }
 
@@ -424,7 +391,10 @@ int ip_dgram_update_holes( ip_dgram_t *dg, const uint8_t *x, unsigned off, unsig
          dg->x   = x0;
          dg->len = roff;
       }
-      (void)memcpy( dg->x + off, x, len );
+      /* Issue #530: an empty fragment reaches here with dg->x still NULL,
+       * and NULL + off is undefined even for a zero-length copy. */
+      if( len > 0 )
+         (void)memcpy( dg->x + off, x, len );
 
       //BW: delete the fragment if necessary
       if( do_delete ) {

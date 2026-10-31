@@ -28,7 +28,7 @@ link here instead of repeating it. Two kinds of apt line elsewhere in the
 repository are deliberately not copies of it — executable package lists, which
 have to be runnable (`install.sh`, `tools/ci/build-package.sh`, the CI
 workflows), and package sets for a different job (the CubieBoard/ARM notes,
-the QoE demo, the prebuilt ZIP, the Debian packaging checklist).
+the QoE demo, the Debian packaging checklist).
 
 ```bash
 sudo apt-get update
@@ -48,14 +48,24 @@ executable lists — `install.sh`, `tools/ci/install-build-deps.sh`, the rpm
 `BuildRequires:` in `sdk/Makefile` and `.github/actions/bootstrap-deps` — are
 each checked against `tools/ci/build-deps.txt`, which records what every list
 must hold, by `tools/ci/check-dependency-lists.sh`: change a package there
-first.
+first. `mmt-dpi.spec`'s `BuildRequires:` (`gcc`, `make`: what `rpmbuild`
+needs in a distribution buildroot, issue #550) is not one of them — the
+`rpm-package` job builds the spec in each EL release container, which also
+holds the job's own tools (rpmlint, git, pkgconf, libpcap-devel), so it shows
+the list suffices there, not that it is minimal.
 
 CI builds and tests on `ubuntu-24.04` (GCC 13) — see
 `.github/workflows/c-cpp.yml`. That is the reference toolchain. The full
 suite also runs on the native `ubuntu-24.04-arm` runner (`unit-tests-arm`)
 and with `-funsigned-char` on x86 (`unit-tests-unsigned-char`, through
 `EXTRA_CFLAGS` and `MMT_EXTRA_CFLAGS`), so ARM's unsigned plain `char` is
-exercised (issue #528).
+exercised (issue #528). The x86 mirror, like the `-fsigned-char` leg of
+`unit-tests`, runs in the merge queue (and on push and the schedule), not on
+pull requests (issue #658): both contexts are required, so the queue waits
+for them. So do the `toolchain-floor` and `assertions-live` jobs below,
+which gate through the required `build` context: `build` needs them and
+fails unless each succeeded. `toolchain-ceiling`, on a preview runner
+label, still runs on every pull request.
 
 **Supported floor (issue #218, F-DEP-207):** GCC ≥ 11 with glibc ≥ 2.34 and
 libstdc++6 ≥ 11 — the oldest toolchain the release matrix
@@ -63,8 +73,10 @@ libstdc++6 ≥ 11 — the oldest toolchain the release matrix
 Rocky 9 / CentOS Stream 9 and Ubuntu 22.04. The constants live in
 `rules/common.mk` (`MMT_GCC_MIN`, `MMT_GLIBC_MIN`, `MMT_LIBSTDCXX_MIN`):
 `rules/arch-linux.mk` fails the build below GCC 11 with a message naming
-the detected compiler, the generated `.deb` declares the same glibc and
-libstdc++ floors in its `Depends:` line (`sdk/Makefile` `deb` target), and
+the detected compiler, the generated `.deb` declares the same glibc floor
+in its `Depends:` line (`sdk/Makefile` `deb` target) — and the libstdc++
+one only for a shipped library that NEEDs libstdc++, which none does since
+issue #539 ported the SDK's last C++ source to C — and
 the `toolchain-floor` job in `c-cpp.yml` builds the SDK and runs the full
 suite, unprivileged, in a digest-pinned `ubuntu:22.04` container (GCC 11.4)
 on an `ubuntu-24.04` runner, so the floor is exercised, not just asserted.
@@ -85,8 +97,8 @@ Both apply to C only (C++ keeps `CXX`/`CXXFLAGS`) and to the GCC toolchain
 only (`ARCH=linux-clang`/`linux-icc` are unchanged). The `toolchain-ceiling`
 job in `c-cpp.yml` runs on `ubuntu-26.04` (GCC ≥ 15, a GitHub preview runner
 label) with `MMT_EXTRA_CFLAGS=-std=gnu23`: it builds the SDK with
-`ENABLESEC=1` and runs the full suite, whose SDK-building suites inherit the
-variable and build the SDK as C23; the suites' own test programs keep the
+`ENABLESEC=1` and runs the full suite, whose SDK builds (the runner's shared
+ones and the suites' own) inherit the variable and build the SDK as C23; the suites' own test programs keep the
 `-std` their `run_tests.sh` pins (GCC 15's C23 default where none is
 pinned). The floor job above is unchanged.
 
@@ -95,8 +107,10 @@ the `.rpm` `Requires:` are not hand-maintained lists (the `.rpm`
 `BuildRequires:` is a literal list, checked against `tools/ci/build-deps.txt`
 by `tools/ci/check-dependency-lists.sh` — issue #495) —
 `tools/ci/shlib-deps.sh` derives them at package-build time from the NEEDED
-entries `objdump -p` reports for the shipped `.so` files (the floors above
-survive as the `libc6`/`glibc` and `libstdc++6`/`libstdc++` entries).
+entries `objdump -p` reports for the shipped `.so` files (the glibc floor
+above survives as the `libc6`/`glibc` entry; a `libstdc++6`/`libstdc++`
+entry would carry the libstdc++ floor, but no shipped library NEEDs
+libstdc++ since issue #539).
 `tools/ci/build-package.sh` builds with `ENABLESEC=1` and verifies each
 artifact with `tools/ci/check-package-deps.sh --verify-package`, which
 compares `dpkg-deb -f` / `rpm -qp` output against the derived set and fails
@@ -132,8 +146,11 @@ Notes:
 
 - Clang is available via `make ARCH=linux-clang`; icc via `ARCH=linux-icc`
   (rule files in `rules/arch-*.mk`). GCC is the default and best-tested path.
-- A C++ compiler (`g++`, pulled in by `build-essential`) is required because
-  shared libraries are linked with `$(CXX)` (`rules/common-linux.mk:271`).
+- The SDK is plain C: the shared libraries are linked with `$(CC)`
+  (`rules/common-linux.mk:271`), so no library NEEDs libstdc++ (issue #539).
+  `g++` (pulled in by `build-essential`) stays in the toolchain line for
+  the tooling that still compiles C++ — the pinned cppcheck build and the
+  hardening self-test's `CXX` case.
 - `cppcheck` is not in the toolchain line: only the `lint` job needs it.
   `tools/ci/run-cppcheck.sh` pins the release its findings ratchet
   (`tools/ci/cppcheck-ratchet.txt`) was measured with —
@@ -146,12 +163,18 @@ Notes:
   ratchet as advisory while the error-severity gate stays enforced. For a
   CI-equivalent local verdict, build it the same way — in an `ubuntu:24.04`
   container with `g++ make python3 curl ca-certificates`, run
-  `bash tools/ci/install-cppcheck.sh` — then run the gate there.
+  `bash tools/ci/install-cppcheck.sh` — then run the gate there. The
+  script has two scan modes (`CPPCHECK_MODE`, issue #653), each with its
+  own line in the ratchet: `full`, the default, checks every `#ifdef`
+  configuration; `pr` checks only the one the SDK build compiles
+  (`--max-configs=1 -DNDEBUG -D_MMT_BUILD_SDK`). The `lint` job runs `pr`
+  on pull requests and `full` on pushes, tags, the merge queue and the
+  weekly schedule.
 
 ### Documentation-site toolchain
 
 The C SDK does not require Ruby. For the documentation site, use Ruby **3.4**
-as in CI (`.github/workflows/c-cpp.yml:389-394`), with Bundler to install
+as in CI (`.github/workflows/c-cpp.yml:517-522`), with Bundler to install
 the gems and run Jekyll; every workflow's `ruby-version:` is that same
 release (issue #517). CI enables `bundler-cache` through `ruby/setup-ruby`
 and verifies the committed `docs/Gemfile.lock` under `BUNDLE_FROZEN=true`
@@ -167,7 +190,7 @@ gem install bundler
 ```
 
 `docs/Gemfile:12-17` defines Jekyll and its plugins. CI builds the site with
-`tools/ci/build-docs-site.sh` (`.github/workflows/c-cpp.yml:407`): source and
+`tools/ci/build-docs-site.sh` (`.github/workflows/c-cpp.yml:535`): source and
 built-site link checks around a frozen Jekyll 4 build, the lock-unchanged
 check, and a `docs/_site/build-manifest.json` recording the renderer versions,
 the lock digest and a site digest. GitHub Pages publishes the artifact that
@@ -178,7 +201,7 @@ separate deployment-time renderer; `docs/_config.yml` declares the Pages
 No application `.env` file is required: this is a Make-built SDK, configured
 through make variables (`sdk/Makefile:8-12`, `rules/common.mk:3-8`), and the
 test runner takes shell variables such as `SANITIZE`
-(`tests/run_all_tests.sh:8-101`). No application service setup is needed for
+(`tests/run_all_tests.sh:8-118`). No application service setup is needed for
 the build/test commands below.
 
 ## 2. Building
@@ -197,7 +220,7 @@ The build produces versioned shared libraries and static archives under
 `sdk/lib/` (`libmmt_core.so.$(VERSION)`, `libmmt_tcpip.so.$(VERSION)`,
 `libmmt_tmobile.so.$(VERSION)`, `libmmt_business_app.so.$(VERSION)`,
 `libmmt_tdicom.so.$(VERSION)`, plus matching `.a` files; the unversioned
-`.so` symlinks are created by `make install`, `sdk/Makefile:88-94`), copies
+`.so` symlinks are created by `make install`, `sdk/Makefile:88`), copies
 public headers under `sdk/include/` and example sources under
 `sdk/examples/` (`sdk/bin/` stays empty in a plain build). It does **not**
 require root and does **not** install anything.
@@ -216,11 +239,13 @@ All flags are passed as make variables, e.g. `make -C sdk DEBUG=1`.
 |------|--------|--------|
 | `DEBUG=1` | `-g` instead of `-O3`; asserts/debug() stay active | `rules/common.mk:87-93` |
 | `NDEBUG=1` | Keep debug/assert active (suppress `-DNDEBUG`; default build defines `-DNDEBUG`) | `rules/common.mk:38-43` |
-| `SHOWLOG=1` | Show `MMT_LOG()` output (`-DDEBUG`). ⚠ Prints decoded, subscriber-identifying fields (IMSI, M-TMSI, UE/eNB IPs, URLs) — build only for captures you may expose, never ship where output is collected (F-SEC-016, #214) | `rules/common.mk:159-171` |
+| `SHOWLOG=1` | Compile in the debug-level log lines (`mmt_log_debug()`, `-DDEBUG`) and default the logger to `debug`; any build reads `MMT_DPI_LOG_LEVEL=off\|error\|warn\|info\|debug` at run time (default `off`, stderr only, issue #545). ⚠ Prints decoded, subscriber-identifying fields (IMSI, M-TMSI, UE/eNB IPs, URLs) — build only for captures you may expose, never ship where output is collected (F-SEC-016, #214) | `rules/common.mk:159-171` |
 | `VALGRIND=1` | Valgrind-friendly instrumentation | `rules/common.mk:94-98` |
 | `TUNE=native` | Opt-in `-march=native` (unsafe for redistributed binaries — off by default) | `rules/common-linux.mk:177-185` |
 | `VERBOSE=1` | Print full compile commands | `rules/common.mk:21-24` |
 | `MMT_EXTRA_CFLAGS=...` | Extra C flags appended after the gnu17 dialect pin (the last `-std` wins, e.g. `-std=gnu2x`); default GCC toolchain only | `rules/arch-linux.mk:20-21` |
+| `MMT_CCACHE=ccache` | Opt-in compiler cache (issue #553): the launcher goes in front of `$(CC)`/`$(CXX)`; unset changes nothing. Make reads it from the environment, so `MMT_CCACHE=ccache bash tests/run_all_tests.sh` caches every SDK the suites build. `CCACHE_BASEDIR` defaults to the checkout; `BUILD=coverage` stays uncached; a missing launcher stops the build. Default GCC toolchain only | `rules/arch-linux.mk:73-85` |
+| `make -C sdk install-fhs` | FHS install under `DESTDIR` for distribution packages (issue #475): versioned runtime links, relative plugin links, a pkg-config file, no loader drop-in, no manifest. Needs `MMT_LIB`, `MMT_INC`, `MMT_PLUGINS` and `MMT_EXAMS` on the build and the install; `install` and the `MMT_BASE` contract (§4) are unchanged | `sdk/Makefile` (`install-fhs` target) |
 
 ## 3. Testing
 
@@ -232,14 +257,14 @@ here for the expected result.
 bash tests/run_all_tests.sh
 ```
 
-Expected result: **30/30 suites pass**, total runtime roughly **90–360 s** on
-a typical development machine (measured: 135 s for the full run) — the wall
-clock is dominated by the suites
-that build+install the SDK internally (`rule_engine`, `installer`,
-`installed_consumer`, …), not by the assertions. Exit code `0` on
+Expected result: **30/30 suites pass**, total runtime roughly **60–240 s** on
+a typical development machine (measured: 103 s for the full run, against
+201 s on the same machine before the shared builds of issue #654) — the wall
+clock is dominated by SDK builds (the shared ones below, plus the own builds
+of `installer` and `sdk_coverage`), not by the assertions. Exit code `0` on
 success, `1` on any failure. The runner has no `-j` option: the 30 suites run
 sequentially. The suite list lives in `DEFAULT_SUITES`
-(`tests/run_all_tests.sh:190-221`)
+(`tests/run_all_tests.sh:245-276`)
 (`tests/run_all_tests.sh`):
 `hashmap`, `memory`, `fault_injection`, `core_engine`, `hexdump`, `mmt_utils`,
 `mmt_inet_ntop`,
@@ -251,8 +276,9 @@ sequentially. The suite list lives in `DEFAULT_SUITES`
 `tcp_pending_order`, `sdk_coverage`, `docs_lifecycle`, `docs_onboarding`.
 `fuzz_verdicts`, `precision_metrics`, `release_gates` and `sdk_coverage` are
 delegate suites for CI self-tests living under `tools/ci/tests/` — the fuzz
-gate's verdict handling and regression replay (`test-fuzz-verdicts.sh`,
-issues #370/#486) and its scheduled-failure alert (`test-fuzz-alert.sh`), the
+gate's verdict handling, regression replay and libFuzzer mode
+(`test-fuzz-verdicts.sh`, issues #370/#486/#530) and its scheduled-failure
+alert (`test-fuzz-alert.sh`), the
 precision-gate metric accounting (`test-precision-metrics.py`, issue #373,
 plus the accuracy-corpus oracle self-test `test-accuracy-corpus.py`, issues #389/#390),
 the exact-release-SHA publish gate (`test-release-gates.py`, issue
@@ -263,8 +289,19 @@ issue #483, the release-tag pin self-test `test-release-tag-pin.sh`, issue
 #489, the vendored-inventory self-test `test-vendored-components.py`,
 issue #496, the release-hardening self-test
 `test-hardening-identity.sh`, issue #508, which evaluates the makefiles
-without compiling, and the docs-only CI filter self-test
-`test-classify-changes.sh`, issues #528/#552) and the SDK integration coverage path (`test-sdk-coverage.sh`, issue
+without compiling, and the path-to-test selection self-test
+`test-classify-changes.sh`, issues #528/#552/#656, which also runs the
+test-map checker `tools/ci/check-test-map.sh`, the public-API contract
+checker self-test `test-api-contracts.sh` and the ABI-diff self-test
+`test-abi-diff.sh`, issue #525, and the plugin export-gate self-test
+`test-exported-symbols.sh`, issue #534, the phase0 harness-shard self-test
+`test-harness-shards.sh`, issue #655, the shared-build self-test
+`test-shared-sdk-build.sh`, issue #654, which drives a copy of the runner
+over fake suites with a stub `make`, and the weak-type ratchet self-test
+`test-weak-types.sh`, issue #539, which proves the `opaque` metric of
+`tools/ci/count-weak-types.sh` fails on fixture headers, and the
+source-signing self-test `test-source-signing.sh`, issue #538, which drives
+`tools/ci/sign-source-tarball.sh` on fixture `debian/` trees) and the SDK integration coverage path (`test-sdk-coverage.sh`, issue
 #387); the first three build nothing, `sdk_coverage` builds its own
 `BUILD=coverage` SDK whatever the mode and cleans `sdk/` afterwards. `installed_consumer` (issue #374) drives the
 other
@@ -282,18 +319,38 @@ one — and checks that the capture is regenerated byte-for-byte by
 `tests/docs_onboarding/make_traffic_pcap.py`. It fetches from the `docs/`
 source tree by default; `DOCS_SITE_DIR=docs/_site` (relative to the repository
 root) points it at a built site, whose rendered landing page it then checks —
-the `site-onboarding` CI job (issue #396) runs it that way after
+the `verify-helpers` CI job (issues #396, #659) runs it that way after
 `tools/ci/build-docs-site.sh`.
 
 Key property for agents: these suites are **standalone** — no prior build, no
 install, no `sudo` needed. Most suites' `run_tests.sh` compiles the test
 directly against sources under `src/` with plain `gcc`; suites that need the
 built SDK (`hashmap`, `citrix_ica_detection`, `http_header_case`,
-`s1ap_ngap_decode`, `rule_engine`, `nas_ies_tail`, `installer`,
+`s1ap_ngap_decode`, `rule_engine`, `radius_hardening`, `nas_ies_tail`, `installer`,
 `installed_consumer`, `parser_boundaries`, `sdk_coverage`, `docs_lifecycle`, `docs_onboarding`, and the engine
-leg of `fault_injection`, `tests/fault_injection/run_tests.sh:110-112`) run `make -C sdk clean` and build
-it themselves into a throwaway prefix, so running them discards an existing
-`sdk/` build. You
+leg of `fault_injection`, `tests/fault_injection/run_tests.sh:115-117`) run `make -C sdk clean` and build
+it themselves into a throwaway prefix when run on their own
+(`bash tests/<suite>/run_tests.sh`), so running them discards an existing
+`sdk/` build.
+
+**Shared SDK builds (issue #654).** Under the runner, the suites that only
+consume an installed SDK do not build it. Before the first suite, the runner
+builds each group the selected suites need once, into its own throwaway
+prefix (`tests/run_all_tests.sh:285-335`): `default` for `hashmap`,
+`fault_injection` (not under `SANITIZE`, which skips its engine leg),
+`citrix_ica_detection`, `http_header_case`, `s1ap_ngap_decode`,
+`radius_hardening`, `nas_ies_tail`, `parser_boundaries`, `docs_lifecycle` and
+`docs_onboarding`; `enablesec` (`ENABLESEC=1`) for `rule_engine` and
+`installed_consumer` — incremental on top of `default` when both are needed,
+since `ENABLESEC=1` only adds the engine objects (`tests/run_all_tests.sh:174-186`).
+Each build is logged as `sdk_build <n>: group=<g> profile=<p>`, followed by
+`sdk_builds=<n>` and a `Shared SDK builds:` line in the result table; a full
+run makes 2. A failed shared build fails the run before any suite. Each
+consumer runs with `MMT_SDK_PREBUILT=1` and `MMT_PREFIX` (`MMT_FI_PREFIX` for
+`fault_injection`) naming its group's prefix, and refuses to run when that
+prefix holds no installed SDK. `installer` and `sdk_coverage` test the build
+and install themselves and keep their own builds, so a run still discards an
+existing `sdk/` build. You
 can run one suite by passing its directory name:
 
 ```bash
@@ -303,48 +360,79 @@ bash tests/run_all_tests.sh hashmap memory   # subset
 A listed suite whose `run_tests.sh` is absent counts as **failed**, not
 skipped — the runner exits non-zero (issue #186).
 
+**Public-API contracts and the ABI diff (issue #525).** `core_engine` also
+builds `test_api_contracts`, one compiled `CONTRACT()` entry per `MMTAPI`
+function (`tests/core_engine/test_api_contracts.c`), then runs
+`tools/ci/check-api-contracts.sh`, which fails when a name printed by
+`tools/ci/check-public-decls.sh --list` (which itself exits 2 on an `MMTAPI`
+declaration without the `MMTCALL` marker) has no entry, an entry names no
+`MMTAPI` function, or the error-path waivers differ from
+`tests/core_engine/api-contract-waivers.txt`: a new export fails the suite
+until it has a contract. `tools/ci/abi-diff.sh` builds the v1.9.1 tag and
+`HEAD` in temporary git worktrees (release profile plus `-g`; the checkout's
+`sdk/` is untouched) and runs libabigail's `abidiff` per library; the
+`abi-diff` job in `c-cpp.yml` runs it, plus a symbol-level leg against the
+shipped v1.9.1 `.deb`, both with `--fail-on incompatible`, as a required
+context (issue #536): an incompatible change fails unless the library's
+SONAME moved — every library is linked as `lib<name>.so.$(SOVERSION)`
+(`SOVERSION` at the end of `rules/common.mk`), and `make install` and the
+packages add the `lib<name>.so.$(SOVERSION)` runtime link. Locally it needs
+`abigail-tools` (or `ABIDIFF=/path/to/abidiff`) and a fetched `v1.9.1` tag:
+`bash tools/ci/abi-diff.sh --fail-on incompatible --report abi.txt`.
+
 ### Suite modes: sanitizers and coverage
 
-`tests/run_all_tests.sh` has two opt-in modes (`tests/run_all_tests.sh:8-101`):
+`tests/run_all_tests.sh` has two opt-in modes (`tests/run_all_tests.sh:8-118`):
 
 - `SANITIZE=asan bash tests/run_all_tests.sh` — compiles every suite with
   ASan + UBSan (same flag set as the SDK's `BUILD=asan`,
   `rules/common.mk:120-127`) and sets `ASAN_OPTIONS=detect_leaks=0`
-  (leak detection stays with Valgrind). The SDK-building suites inherit `BUILD=asan` for their internal SDK
-  build, except `fault_injection`: its engine leg is skipped under sanitizers
+  (leak detection stays with Valgrind). The shared builds and the SDK-building suites inherit `BUILD=asan` for their
+  SDK build, except `fault_injection`: its engine leg is skipped under sanitizers
   while its unit leg still runs (`tests/fault_injection/run_tests.sh:97-102`).
 - `SANITIZE=tsan bash tests/run_all_tests.sh` — same with TSan
   (`rules/common.mk:150-157`). On kernels with high-entropy ASLR the runner
   re-execs itself once under `setarch -R`
-  (`tests/run_all_tests.sh:89-92`).
+  (`tests/run_all_tests.sh:106-109`).
 - `bash tests/run_all_tests.sh --coverage` — instruments the suites with gcov,
   aggregates all `.gcda`, and writes an lcov-format tracefile of **library
   (`src/`) sources only** to `tests/coverage/coverage.info` plus the library
   line percentage, instrumented-file count/list and
   `tests/coverage/summary.json` in stdout
-  (`tests/run_all_tests.sh:234-357`). Requires `gcov` (shipped with
+  (`tests/run_all_tests.sh:373-499`). Requires `gcov` (shipped with
   gcc) and `jq`; no lcov install needed. The coverage CI job enforces the
   committed floor `tests/coverage/floor.json` — both counters plus the
   required sources it names — via `tools/ci/check-coverage-floor.sh`.
   The mode also exports `SDK_BUILD_PROFILE=coverage`
-  (`tests/run_all_tests.sh:103-112`), so every SDK-building suite builds the
-  `BUILD=coverage` profile (§5). Their consumers write counters next to the
-  in-tree objects under `src/`, which survive the throwaway prefix's
-  deletion; the runner harvests them with `tools/ci/sdk-coverage.sh`
-  after each suite, before the next suite's SDK rebuild would delete them
-  (`tests/run_all_tests.sh:167-178`). `summary.json` then gains a `cohorts`
+  (`tests/run_all_tests.sh:120-129`), so the shared builds and every
+  SDK-building suite build the `BUILD=coverage` profile (§5). Their consumers
+  write counters next to the in-tree objects under `src/`, which survive the
+  throwaway prefix's deletion; the runner harvests them with
+  `tools/ci/sdk-coverage.sh` after each suite, before the next suite's SDK
+  rebuild would delete them (`tests/run_all_tests.sh:213-232`). Right after
+  each shared build the runner copies the `.gcno` notes it left under `src/`,
+  then deletes them from `src/`; a consumer's counters are harvested against a
+  fresh copy of its group's notes, so its per-suite record is the one its own
+  build gave before issue #654. `summary.json` then gains a `cohorts`
   object and `tests/coverage/coverage-combined.info` is written; the
   top-level keys and `coverage.info` stay unit-only. The harvest also reads
   the `.gcno` of every object that wrote no `.gcda` (compiled, never loaded)
   at count 0, so zero-hit sources stay in the denominator (issue #388), and a
   run that built a `BUILD=coverage` SDK ends with `make -C sdk clean` so no
-  coverage objects are left for a later plain build. `--coverage` cannot be
+  coverage objects are left for a later plain build. A full `--coverage`
+  run (no suite named) then replays the phase0 harnesses against one
+  `BUILD=coverage` SDK — `tools/phase0/run_all_harnesses.sh --profile
+  coverage`, which skips the four harnesses of its `COVERAGE_SKIP` list
+  (reasons in `tools/phase0/README.md`) — and harvests that build once into
+  the `harness` cohort (`tests/run_all_tests.sh:341-371`, issue #524). The
+  arm counts as one extra entry in the result table (31 under `--coverage`)
+  and its failure fails the run. `--coverage` cannot be
   combined with `SANITIZE` (exit 2): both select the SDK profile.
 - `bash tests/run_all_tests.sh --with-harnesses` — after the suites, runs
   every phase0 harness (`tools/phase0/tests/run_*.sh`) via the aggregate
   runner `tools/phase0/run_all_harnesses.sh`, which builds the SDK once per
   required profile (asan / tsan / default) into a shared prefix and replays
-  all harnesses against it (`tests/run_all_tests.sh:359-375`). The arm counts
+  all harnesses against it (`tests/run_all_tests.sh:501-517`). The arm counts
   as one extra entry in the result table; any harness failure fails the
   invocation. Runtime is minutes, not seconds — the suites build nothing for
   it, the runner's shared builds dominate.
@@ -355,23 +443,25 @@ The 2026-09-22 audit at commit `2ab7b73516113009622cb3d32194d20121457010`
 reported 82.9% (5,660/6,831 lines) over those 30 files; this is historical
 evidence, not a new measurement (provenance recorded in [DECISIONS.md](https://github.com/montimage-projects/mmt-dpi/blob/main/docs/DECISIONS.md)).
 Coverage includes only the `src/` files represented in emitted gcov data
-(`tests/run_all_tests.sh:258-262`); its percentage uses the lines in that
+(`tests/run_all_tests.sh:397-401`); its percentage uses the lines in that
 subset, so it must not be reported as whole-library coverage. The current
 run's exact scope is `instrumented_sources` and `instrumented_files` in
-`summary.json` (`tests/run_all_tests.sh:319-333`). The committed minimum is
-**29 instrumented files**, alongside an **80.0%** line floor and required
-source names (`tests/coverage/floor.json:2-10`); a 30-file measurement does
-not change that floor. Consult a fresh summary for the current count.
+`summary.json` (`tests/run_all_tests.sh:458-472`). The committed minimum is
+**47 instrumented files**, alongside an **83.1%** line floor and required
+source names (`tests/coverage/floor.json:2-10`); the 30-file audit cohort
+does not change that floor. Consult a fresh summary for the current count.
 
-The `cohorts` object (issue #387) names four denominators, each stated in
-its `denominator` field; whole-SDK coverage is reported separately below:
+The `cohorts` object (issue #387) names five denominators, each stated in
+its `denominator` field (`harness` only in a full run, issue #524);
+whole-SDK coverage is reported separately below:
 
 | Cohort | Denominator |
 |--------|-------------|
 | `unit` | `src/` lines recorded by the unit-suite binaries — the records the top-level keys and the floor measure |
-| `sdk_integration` | `src/` lines of the `BUILD=coverage` SDK builds the SDK-building suites made — lines their consumers ran plus zero-hit objects at count 0 — with a per-suite breakdown in `suites` |
-| `combined` | the union of both, one record per repo-relative path and line (logical and physical checkout paths are merged), counts summed |
-| `generated_asn1c` | lines under `src/mmt_mobile/asn1c/` from any cohort, excluded from the three above |
+| `sdk_integration` | `src/` lines of the `BUILD=coverage` SDK builds the SDK-building suites used (shared or their own) — lines their consumers ran plus zero-hit objects at count 0 — with a per-suite breakdown in `suites` |
+| `harness` | `src/` lines of the one `BUILD=coverage` SDK build the phase0 harnesses ran against (`run_all_harnesses.sh --profile coverage`), harvested once after the arm — lines they ran plus zero-hit objects at count 0 |
+| `combined` | the union of the three above, one record per repo-relative path and line (logical and physical checkout paths are merged), counts summed |
+| `generated_asn1c` | lines under `src/mmt_mobile/asn1c/` from any cohort, excluded from the four above |
 
 **Whole-SDK accounting (issue #388).** `bash tools/ci/check-sdk-coverage.sh`
 (after a full `--coverage` run) reconciles `coverage-combined.info` with the
@@ -385,12 +475,18 @@ of the audit, and the recorded exclusions: generated asn1c, vendored llhttp
 `tests/coverage/floor.json` (`sdk.excluded_sources`). Branch coverage is Not
 Assessed. The coverage CI job fails when a built handwritten source is
 missing from the records, a tracked one is neither built nor justified, a
-family measures nothing, the original cohort drops below 82.9% or the whole
-SDK drops below `sdk.whole_sdk_line_pct` (first measurement 46.03%, floor
-45.0%).
+family measures nothing or drops below its `sdk.family_floors` entry
+(core 92.4, tcpip 65.1, dicom 88.7, security_fuzz 74.1 since issue #554;
+mobile 74.3 since issue #532; business_app 88.8 since issue #524), the original cohort drops below 82.9% or the
+whole SDK drops below `sdk.whole_sdk_line_pct` (measured 71.66% at issue
+#554 with the harness cohort, floor 70.6%). The same job runs
+`tools/ci/report-uncovered-runs.sh` as a gate: a contiguous run of more than
+10 uncovered lines in `coverage.info` fails it (issue #524).
 
-CI runs both modes on every push/PR to main (`.github/workflows/c-cpp.yml`,
-jobs `sanitizer-tests` and `coverage`); the coverage job uploads
+CI runs both modes on every push to main (`.github/workflows/c-cpp.yml`,
+jobs `sanitizer-tests` and `coverage`); `sanitizer-tests` also runs on every
+pull request, `coverage` in the merge queue instead (issue #658: the floors
+are whole-repo metrics, checked once per merge). The coverage job uploads
 `tests/coverage/` as a workflow artifact.
 
 ## 4. `MMT_BASE` Install-Prefix Behavior
@@ -419,7 +515,7 @@ documents link here.
   root install out; `LDCONF=1` forces registration; `LDCONF_DIR` and
   `LDCONFIG` relocate the drop-in and the command (the installer suite uses
   a staged directory and a fake `ldconfig`).
-- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:168-209`)
+- **`make -C sdk MMT_BASE=<prefix> uninstall`** (`sdk/Makefile:173-214`)
   removes exactly the entries `install` recorded in
   `<prefix>/.mmt-dpi-manifest` (one path per line, relative to the prefix,
   merged across reinstalls), then the SDK directories left empty (`rmdir`,
@@ -454,7 +550,7 @@ documents link here.
 
 ### The `make test` trap
 
-`sdk/Makefile`'s `test` target (`sdk/Makefile:597-602`) compiles the
+`sdk/Makefile`'s `test` target (`sdk/Makefile:618-623`) compiles the
 `proto_attributes_iterator` example **from the installed prefix**:
 
 ```
@@ -490,9 +586,9 @@ and restores a clean default build on exit:
 )
 ```
 
-The plugin repository path is baked into compiled code as
+The plugin repository path is baked into `plugins_engine.o` as
 `PLUGINS_REPOSITORY_OPT` (`-DPLUGINS_REPOSITORY_OPT=\"$(MMT_PLUGINS)\"`,
-`rules/common.mk:30`). `plugins_engine.o` depends on a stamp file holding
+`rules/common.mk:630`; only that object carries it, issue #553). `plugins_engine.o` depends on a stamp file holding
 the plugin directory it was compiled with (`sdk/Makefile:25-29`): a build
 with a different `MMT_BASE` recompiles exactly that object, a rebuild with
 the same one compiles nothing, and `make install` — which never builds —
@@ -565,8 +661,10 @@ symbols are intentionally left undefined (`rules/common-linux.mk:236-248`).
 In a release build the block is keyed on the compiler's identity, read from
 its preprocessor macros, so `CC=/usr/bin/gcc` or `CC=gcc-13` is hardened like
 `CC=gcc`; a `$(CC)` identified as neither GCC nor Clang skips it with a build
-`$(warning)`, and LTO needs `$(CC)` and `$(CXX)` to be the same GCC release
-(issue #508). `bash tools/ci/check-hardening-flags.sh --built [DIR...]`
+`$(warning)`, and LTO needs only `$(CC)` to be GCC: the libraries are
+compiled and linked by `$(CC)` since issue #539 (issue #508 had required
+`$(CC)` and `$(CXX)` to be the same GCC release while the link ran through
+`$(CXX)`). `bash tools/ci/check-hardening-flags.sh --built [DIR...]`
 checks built libraries (default `sdk/lib/`); the release workflow runs it
 on the installed packages.
 
@@ -588,7 +686,7 @@ next build of any profile deletes them, so harvest them first with
 
 - Object/header selection: `rules/common.mk:201-203, 225-228, 310-313`
 - Link rules and libxml2 wiring: `rules/common-linux.mk:6-12, 249-252, 260-264, 297-313`
-- Install symlinks for both engines: `sdk/Makefile:89-90, 324-325`
+- Install symlinks for both engines: `sdk/Makefile:251` (the install layout list, issue #538), laid down by `sdk/Makefile:88, 364-366`
 
 Usage (requires `libxml2-dev`):
 
@@ -612,7 +710,7 @@ Run this after setting up a fresh environment; all four commands must succeed:
 
 ```bash
 make -C sdk -j$(nproc)          # exit 0, green build (seconds to ~2 min depending on machine)
-bash tests/run_all_tests.sh     # 30/30 suites PASSED, exit 0 (90–360 s)
+bash tests/run_all_tests.sh     # 30/30 suites PASSED, exit 0 (60–240 s)
 make -C sdk ENABLESEC=1 -j$(nproc)   # exit 0 (optional engines build)
 make -C sdk clean && make -C sdk BUILD=asan -j$(nproc)   # exit 0 (sanitizer profile)
 ```
@@ -626,17 +724,17 @@ make -C sdk -j$(nproc)`.
 
 Facts a later agent cannot infer from the build system alone (issue #480).
 
-- **The maintainer's #475 Debian work is not on `main`.** It lives on the
-  open PR #476 (branch `feat/475-publish-mmt-dpi-through-official-ubuntu`)
-  and, while it is in progress, in the maintainer's local checkout as
-  uncommitted changes: about a dozen modified tracked files plus the untracked
-  `debian/`, `tools/ci/build-debian-package.sh` and
-  `tools/ci/build-source-tarball.sh`. Run `git status --short` before
-  starting any modernization task; if that work is in the tree, land it on its
-  own branch (`git switch -c <branch> && git add -A && git commit`) or stash
-  it (`git stash push -u -m "#475 Debian work"`) before P0 starts. Never
-  overwrite, reset, `git clean`, pop or drop it — and never pop, apply or drop
-  a stash entry you did not create.
+- **The #475 Debian source package is in the tree.** `debian/` (binary
+  packages `libmmt-dpi1` and `libmmt-dpi-dev`, built through
+  `make -C sdk install-fhs`), `tools/ci/build-debian-package.sh` and
+  `tools/ci/build-source-tarball.sh` came from the maintainer's #475 Debian
+  work, which sat uncommitted in a local checkout (the docs half went through
+  the closed PR #476); the layout and how it coexists with `make deb` are in
+  [DECISIONS.md](https://github.com/montimage-projects/mmt-dpi/blob/main/docs/DECISIONS.md)
+  (2026-10-29). Issue #475 stays open for the official-channel submission.
+  Run `git status --short` before starting any task: never overwrite, reset,
+  `git clean`, pop or drop work you did not create — and never pop, apply or
+  drop a stash entry you did not create.
 - **Phase0 gate commands.** Both gates build and install the SDK themselves;
   give each a scratch prefix (`MMT_PREFIX`; unset, each gate installs into a
   fresh `mktemp -d /tmp/mmt-phase0.XXXXXX` it removes on exit — issue #508):
@@ -658,6 +756,23 @@ Facts a later agent cannot infer from the build system alone (issue #480).
   suites plus every phase0 harness (§3). Run it before pushing a change to
   core sources, `rules/*.mk` or anything a harness exercises; it takes
   minutes.
+- **Local gate runner (issue #553).** `bash tools/ci/local-gates.sh --fast`
+  runs the `run:` steps of the required `lint`, `verify-helpers` and
+  `doc-validators` jobs, read from `.github/workflows/c-cpp.yml` itself, so
+  it cannot drift from them; `--full` adds `bash tests/run_all_tests.sh` and
+  the two phase0 gates. By default it runs them in a container built once
+  from the `lint` job's digest-pinned `ubuntu:24.04` with the pinned cppcheck
+  (needs docker or podman, else exit 2); `--host` runs them on this machine,
+  `--list` prints them. The image's Ruby is Ubuntu 24.04's 3.2, not CI's 3.4.
+- **Pull-request test selection (issue #656).** On a pull request CI runs
+  only the tests the changed paths select: `tools/ci/classify-changes.sh`
+  reads `tools/ci/test-map.txt` (the five tiers are in `CONTRIBUTING.md`,
+  *Required checks and review*); pushes and the merge queue run everything.
+  A new suite in `DEFAULT_SUITES` or a new `tools/phase0/tests/run_<stem>.sh`
+  needs a map entry — `bash tools/ci/check-test-map.sh` exits 1 naming what
+  is missing or mis-tagged — and
+  `bash tools/phase0/run_all_harnesses.sh --only <stem>[,<stem>...]` runs
+  chosen harnesses locally.
 - **`gh` CLI with admin access.** The release and branch-protection tasks
   (plan phases 0.x/1.x) call `gh release …` and
   `gh api repos/montimage-projects/mmt-dpi/branches/main/protection`, which
