@@ -877,8 +877,8 @@ static inline _hn_node_t * _ensure_tree(void){
 
 __attribute__((constructor)) void _constructor () {
 	/* Issue #253 (F-PERF-007): the hostname trie no longer builds here — it
-	 * materialises on first use in _ensure_tree(). The IP-range AVL trees
-	 * stay eager: they are consulted on every IPv4 packet. */
+	 * materialises on first use in _ensure_tree(). This only resets the
+	 * external IP-range rule trees: the built-in table is const (#557). */
     _init_proto_avltrees();
 }
 
