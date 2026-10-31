@@ -38,7 +38,7 @@ statuses were last re-verified against the sources for issue #559.
 ### H1 — No graded classification confidence — *highest impact*
 - **Where:** `classified_proto_t`'s binary `status` field
   ([`plugin_defs.h:129`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_core/public_include/plugin_defs.h#L129)); the address/port fallbacks of
-  [`proto_tcp.c:1141`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1141) and [`proto_udp.c:152`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L152).
+  [`proto_tcp.c:1202`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1202) and [`proto_udp.c:152`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L152).
 - **Why weak:** the verdict is Classified / NonClassified with no confidence
   score, so the engine cannot distinguish a payload-proven verdict from a
   port-only guess.
@@ -54,7 +54,7 @@ statuses were last re-verified against the sources for issue #559.
 
 ### H2 — Port-only attribution accepted without payload evidence — *mitigated by #75*
 - **Where:** `mmt_guess_protocol_by_port_number` in the fallbacks
-  ([`proto_tcp.c:1149`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1149), [`proto_udp.c:162`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L162)); the demotion gate
+  ([`proto_tcp.c:1210`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1210), [`proto_udp.c:162`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L162)); the demotion gate
   [`mmt_tcpip_plugin_internal.c:529`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.c#L529).
 - **Why weak:** a port number alone is the weakest signal; services move ports
   and ports get squatted.
@@ -68,7 +68,7 @@ statuses were last re-verified against the sources for issue #559.
 - **Where:** `proto_ip_address[]`
   ([`mmt_tcpip_classif_proto_ip_address.inc:1`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_classif_proto_ip_address.inc#L1), ~10k ranges, included by
   `mmt_tcpip_classif_utils.c`), consulted via `get_proto_id_from_address`
-  ([`proto_tcp.c:1146`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1146), [`proto_udp.c:158`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L158)).
+  ([`proto_tcp.c:1207`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1207), [`proto_udp.c:158`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L158)).
 - **Why weak:** CDN/cloud allocations drift; compiled-in ranges go stale and
   misattribute.
 - **Status:** external `MMT_DPI_IP_RANGES_FILE` (extend/override, IPv4+IPv6,
@@ -80,7 +80,7 @@ statuses were last re-verified against the sources for issue #559.
 - **Where:** UDP stops classifying past `CFG_CLASSIFICATION_THRESHOLD * 2`
   packets ([`proto_udp.c:126`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L126)) and attempts the address/port fallback only
   within that window ([`proto_udp.c:147`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L147)); TCP gives up on a still-unknown
-  flow past the same window ([`proto_tcp.c:982`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L982), [`proto_tcp.c:1113`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1113)).
+  flow past the same window ([`proto_tcp.c:1043`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1043), [`proto_tcp.c:1174`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1174)).
 - **Why weak:** `CFG_CLASSIFICATION_THRESHOLD` is `20`
   ([`cfg_defaults.h:24`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_core/private_include/cfg_defaults.h#L24)) and the `* 2` factor is an unexplained constant.
   Long flows that only become classifiable after 40 packets are silently
@@ -103,7 +103,7 @@ statuses were last re-verified against the sources for issue #559.
   UDP; drop the `if` (behaviour-neutral) or rename the bit if it is vestigial.
 
 ### H6 — GTP forced re-classification special-case
-- **Where:** [`proto_tcp.c:1136`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1136)
+- **Where:** [`proto_tcp.c:1197`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1197)
   — `if (retval.proto_id == PROTO_UNKNOWN || retval.proto_id == PROTO_GTP)`
 - **Why weak:** GTP is singled out by id to re-enter the address/port fallback
   path; the reason is undocumented and the pattern does not generalise to other
@@ -122,7 +122,7 @@ statuses were last re-verified against the sources for issue #559.
   and whether stateless attribution is still possible.
 
 ### H8 — Speculative `memset` of the flow on SYN — *resolved by #330*
-- **Where:** [`proto_tcp.c:945`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L945), [`proto_tcp.c:1063`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1063).
+- **Where:** [`proto_tcp.c:1006`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1006), [`proto_tcp.c:1124`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1124).
 - **Why it was flagged:** the author asked whether the `memset` was needed; not
   strictly a *classification* heuristic but surfaced in the same audit.
 - **Status:** the marker audit (issue #330) found it redundant on a flow fresh

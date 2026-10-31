@@ -43,7 +43,7 @@ one of those declarations, or misses one of them.
 > (`nm -D local_install/dpi/lib/libmmt_core.so | grep ' T '` confirms) but have **0 callers**
 > outside their definition/headers (`grep -r <symbol> src sdk/tests sdk/examples tests examples`
 > shows only declaration+definition). They are now marked
-> `__attribute__((deprecated))` in `src/mmt_core/public_include/mmt_core.h:1103,958,676`
+> `__attribute__((deprecated))` in `src/mmt_core/public_include/mmt_core.h:1134,989,707`
 > (and mirrored in `sdk/include/mmt_core.h`) and are scheduled for removal in
 > release 2.0.0 — recorded in `CHANGELOG.md` (issue #232):
 > `setDataLinkType` (obsolete, @obsolete since long), `get_attribute_extracted_data_encap_index`
@@ -344,34 +344,35 @@ Symbol table
 |252|`set_proto_session_data`|**Y**|
 |253|`set_session_timeout_delay`|**Y**|
 |254|`set_short_session_timed_out`|**Y**|
-|255|`set_tcp_reassembly_limit`|**Y**|
-|256|`set_user_session_context`|**Y**|
-|257|`set_user_session_context_for_packet`|**Y**|
-|258|`short_time_diff`|**Y**|
-|259|`silent_extraction`|**Y**|
-|260|`str_combine`|**Y**|
-|261|`str_compare`|**Y**|
-|262|`str_copy`|**Y**|
-|263|`str_get_indexes`|**Y**|
-|264|`str_get_indexes_n`|**Y**|
-|265|`str_hex2int`|**Y**|
-|266|`str_hex2int_n`|**Y**|
-|267|`str_hex2str`|**Y**|
-|268|`str_index`|**Y**|
-|269|`str_print_array`|**Y**|
-|270|`str_replace`|**Y**|
-|271|`str_sub`|**Y**|
-|272|`str_sub_n`|**Y**|
-|273|`str_subvalue`|**Y**|
-|274|`unregister_attribute_handler`|**Y**|
-|275|`unregister_attribute_handler_by_name`|**Y**|
-|276|`unregister_extraction_attribute`|**Y**|
-|277|`unregister_extraction_attribute_by_name`|**Y**|
-|278|`unregister_packet_handler`|**Y**|
-|279|`unregister_protocol_by_id`|**Y**|
-|280|`unregister_protocol_by_name`|**Y**|
-|281|`unregister_protocol_stack`|**Y**|
-|282|`update_protocol`|**Y**|
+|255|`set_tcp_reassembly_budget`|**Y**|
+|256|`set_tcp_reassembly_limit`|**Y**|
+|257|`set_user_session_context`|**Y**|
+|258|`set_user_session_context_for_packet`|**Y**|
+|259|`short_time_diff`|**Y**|
+|260|`silent_extraction`|**Y**|
+|261|`str_combine`|**Y**|
+|262|`str_compare`|**Y**|
+|263|`str_copy`|**Y**|
+|264|`str_get_indexes`|**Y**|
+|265|`str_get_indexes_n`|**Y**|
+|266|`str_hex2int`|**Y**|
+|267|`str_hex2int_n`|**Y**|
+|268|`str_hex2str`|**Y**|
+|269|`str_index`|**Y**|
+|270|`str_print_array`|**Y**|
+|271|`str_replace`|**Y**|
+|272|`str_sub`|**Y**|
+|273|`str_sub_n`|**Y**|
+|274|`str_subvalue`|**Y**|
+|275|`unregister_attribute_handler`|**Y**|
+|276|`unregister_attribute_handler_by_name`|**Y**|
+|277|`unregister_extraction_attribute`|**Y**|
+|278|`unregister_extraction_attribute_by_name`|**Y**|
+|279|`unregister_packet_handler`|**Y**|
+|280|`unregister_protocol_by_id`|**Y**|
+|281|`unregister_protocol_by_name`|**Y**|
+|282|`unregister_protocol_stack`|**Y**|
+|283|`update_protocol`|**Y**|
 
 ## Protocol plugins
 
