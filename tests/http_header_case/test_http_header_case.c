@@ -19,8 +19,10 @@
  * builds+installs the SDK to an isolated prefix and sets up a CWD-relative
  * "plugins/" dir so the freshly built protocol plugins are loaded.
  *
- * Issue #558 adds two checks of the line splitter (now memchr-driven): a
- * stray CR or a bare LF splits no line — only CRLF does.
+ * Issue #558 adds two checks of the line splitter (now memchr-driven) and of
+ * the stream parser (now allocated on the session's first payload packet):
+ * a stray CR or a bare LF splits no line — only CRLF does — and the parser
+ * still reports every header of the request as an HTTP_HEADER event.
  *
  * Exit status: 0 = all cases classified as expected, non-zero = regression.
  */
@@ -34,6 +36,22 @@
 static int  g_saw_facebook;
 static int  g_saw_http;
 static char g_path[512];
+
+/* HTTP_HEADER events of the last packet (issue #558), as "field: value". */
+static int  g_nb_headers;
+static char g_headers[512];
+
+static void header_handler(const ipacket_t *ipacket, attribute_t *attribute,
+                           void *user) {
+    const mmt_generic_header_line_t *hdr =
+        (const mmt_generic_header_line_t *) attribute->data;
+    size_t len = strlen(g_headers);
+    (void) ipacket; (void) user;
+    if (hdr == NULL || hdr->hfield == NULL || hdr->hvalue == NULL) return;
+    g_nb_headers++;
+    snprintf(g_headers + len, sizeof(g_headers) - len, "%s%s: %s",
+             len ? "|" : "", hdr->hfield, hdr->hvalue);
+}
 
 static int classification_handler(const ipacket_t *ipacket, void *user) {
     (void) user;
@@ -83,6 +101,8 @@ static int classify_request(mmt_handler_t *h, const char *payload, int src_port)
     g_saw_facebook = 0;
     g_saw_http     = 0;
     g_path[0]      = '\0';
+    g_nb_headers   = 0;
+    g_headers[0]   = '\0';
     memset(&hdr, 0, sizeof(hdr));
     n = build_frame(buf, payload, (int) strlen(payload), src_port);
     hdr.len = n;
@@ -124,6 +144,11 @@ int main(void) {
         return 2;
     }
     register_packet_handler(h, 1, classification_handler, NULL);
+    if (!register_attribute_handler(h, PROTO_HTTP, HTTP_HEADER, header_handler,
+                                    NULL, NULL)) {
+        fprintf(stderr, "FAIL: register_attribute_handler(HTTP_HEADER)\n");
+        failures++;
+    }
 
     printf("== HTTP case-insensitive header matching (issue #24 / M8) ==\n");
     for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -140,13 +165,30 @@ int main(void) {
         }
     }
 
+    /* Issue #558: the stream parser is created on the session's first
+     * payload packet and still reports each header of that packet. */
+    {
+        static const char *want =
+            "Host: www.facebook.com|User-Agent: t|Accept: */*";
+        classify_request(h, "GET /a HTTP/1.1\r\nHost: www.facebook.com\r\n"
+                            "User-Agent: t\r\nAccept: */*\r\n\r\n", 1006);
+        int ok = g_nb_headers == 3 && strcmp(g_headers, want) == 0;
+        printf("  %-16s -> %-40s [%s]\n", "HTTP_HEADER", g_headers,
+               ok ? "PASS" : "FAIL");
+        if (!ok) {
+            failures++;
+            fprintf(stderr, "  ✗ HTTP_HEADER events: got %d '%s', expected 3 '%s'\n",
+                    g_nb_headers, g_headers, want);
+        }
+    }
+
     mmt_close_handler(h);
     close_extraction();
 
     if (failures) {
         printf("\n✗ %d/%zu case(s) failed: HTTP header matching is not "
                "case-insensitive, or a line break other than CRLF split a "
-               "line\n", failures, sizeof(cases) / sizeof(cases[0]));
+               "line\n", failures, sizeof(cases) / sizeof(cases[0]) + 1);
         return 1;
     }
     printf("\n✓ all cases classified as expected — HTTP header matching is "
