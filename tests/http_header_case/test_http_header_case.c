@@ -19,6 +19,9 @@
  * builds+installs the SDK to an isolated prefix and sets up a CWD-relative
  * "plugins/" dir so the freshly built protocol plugins are loaded.
  *
+ * Issue #558 adds two checks of the line splitter (now memchr-driven): a
+ * stray CR or a bare LF splits no line — only CRLF does.
+ *
  * Exit status: 0 = all cases classified as expected, non-zero = regression.
  */
 #include <stdio.h>
@@ -92,6 +95,7 @@ struct testcase {
     const char *label;
     const char *payload;
     int         src_port;
+    int         facebook; /* expected: the Host header was parsed */
 };
 
 int main(void) {
@@ -102,9 +106,14 @@ int main(void) {
 
     /* Only the Host header case differs across the three cases. */
     static const struct testcase cases[] = {
-        { "canonical Host:", "GET / HTTP/1.1\r\nHost: www.facebook.com\r\n\r\n", 1001 },
-        { "lower   host:",   "GET / HTTP/1.1\r\nhost: www.facebook.com\r\n\r\n", 1002 },
-        { "mixed   HoSt:",   "GET / HTTP/1.1\r\nHoSt: www.facebook.com\r\n\r\n", 1003 },
+        { "canonical Host:", "GET / HTTP/1.1\r\nHost: www.facebook.com\r\n\r\n", 1001, 1 },
+        { "lower   host:",   "GET / HTTP/1.1\r\nhost: www.facebook.com\r\n\r\n", 1002, 1 },
+        { "mixed   HoSt:",   "GET / HTTP/1.1\r\nHoSt: www.facebook.com\r\n\r\n", 1003, 1 },
+        /* Issue #558: a CR without its LF ends no line, so the next CRLF
+         * still starts the Host line ... */
+        { "stray CR",        "GET / HTTP/1.1\r\nX-N: a\rb\r\r\nHost: www.facebook.com\r\n\r\n", 1004, 1 },
+        /* ... and a bare LF is not a line break: Host stays inside X-N. */
+        { "bare LF",         "GET / HTTP/1.1\r\nX-N: a\nHost: www.facebook.com\r\n\r\n", 1005, 0 },
     };
 
     init_extraction();
@@ -118,14 +127,16 @@ int main(void) {
 
     printf("== HTTP case-insensitive header matching (issue #24 / M8) ==\n");
     for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        int ok = classify_request(h, cases[i].payload, cases[i].src_port);
+        int ok = classify_request(h, cases[i].payload, cases[i].src_port)
+                 == cases[i].facebook;
         printf("  %-16s -> %-40s [%s]\n",
                cases[i].label, g_path, ok ? "PASS" : "FAIL");
         if (!ok) {
             failures++;
             fprintf(stderr,
-                "  ✗ %s: Host header not recognised — expected FACEBOOK "
-                "classification, got '%s'\n", cases[i].label, g_path);
+                "  ✗ %s: expected %s, got '%s'\n", cases[i].label,
+                cases[i].facebook ? "FACEBOOK classification"
+                                  : "no Host-based classification", g_path);
         }
     }
 
@@ -134,11 +145,11 @@ int main(void) {
 
     if (failures) {
         printf("\n✗ %d/%zu case(s) failed: HTTP header matching is not "
-               "case-insensitive\n", failures,
-               sizeof(cases) / sizeof(cases[0]));
+               "case-insensitive, or a line break other than CRLF split a "
+               "line\n", failures, sizeof(cases) / sizeof(cases[0]));
         return 1;
     }
-    printf("\n✓ all cases classified as FACEBOOK — HTTP header matching is "
-           "case-insensitive\n");
+    printf("\n✓ all cases classified as expected — HTTP header matching is "
+           "case-insensitive and only CRLF ends a line\n");
     return 0;
 }
