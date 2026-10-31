@@ -55,7 +55,8 @@
 # architecture mismatch.
 set -euo pipefail
 export LC_ALL=C
-# Issue #551: fixed hash seeds, so a pass executes the same instructions.
+# Issue #551: fixed hash seeds, so a pass's count repeats within a few tens
+# of instructions (see the header).
 export MMT_DETERMINISTIC_SEED=1
 
 CI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
