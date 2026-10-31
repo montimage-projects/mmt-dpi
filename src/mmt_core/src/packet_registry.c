@@ -408,7 +408,10 @@ void init_protocol_struct(protocol_t * proto) {
     proto->classify_next.pre_classify = NULL;
     proto->classify_next.classify_protos = NULL;
     proto->classify_next.post_classify = NULL;
-    mmt_classify_chain_release(&proto->classify_next); /* issue #560: frozen = retired = NULL */
+    /* Issue #560: a re-initialised slot retires its frozen chain (freed at
+     * teardown by free_registered_protocols(): a worker may still walk it).
+     * Like the reads above, this assumes the struct was zeroed at allocation. */
+    mmt_classify_chain_invalidate(&proto->classify_next);
     proto->data_analyser.pre_analyse = NULL;
     proto->data_analyser.analyse = NULL;
     proto->data_analyser.post_analyse = NULL;

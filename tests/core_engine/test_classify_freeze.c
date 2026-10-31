@@ -284,14 +284,18 @@ static void *worker(void *arg) {
  * mmt_init_handler() freezes the chain under it: the walker switches from the
  * list to the published array mid-run, with no lock between them, so only the
  * release store / acquire load orders the array's contents (TSan). */
-typedef struct { mmt_handler_t *h; int ok; } walker_arg_t;
+typedef struct { mmt_handler_t *h; int ok; int started; } walker_arg_t;
 
+/* Walks until the chain has been frozen and then 50 rounds more; the main
+ * thread freezes only after the first walk (on the list) has run. */
 static void *walker(void *arg) {
     walker_arg_t *w = (walker_arg_t *) arg;
-    int round;
+    int after = 0;
     w->ok = 1;
-    for (round = 0; round < 200; round++) {
+    while (after < 50) {
         if (strcmp(walk(w->h), "bacz") != 0) w->ok = 0;
+        __atomic_store_n(&w->started, 1, __ATOMIC_RELEASE);
+        if (__atomic_load_n(&g_parent->classify_next.frozen, __ATOMIC_ACQUIRE) != NULL) after++;
     }
     return NULL;
 }
@@ -299,12 +303,16 @@ static void *walker(void *arg) {
 static void test_publication(mmt_handler_t *h) {
     char errbuf[256];
     pthread_t t;
-    walker_arg_t w = { h, 0 };
+    walker_arg_t w = { h, 0, 0 };
     fprintf(stderr, "  test: a walk running while another thread freezes\n");
     mmt_classify_chain_invalidate(&g_parent->classify_next);
     CHECK(pthread_create(&t, NULL, walker, &w) == 0, "walker started");
+    while (!__atomic_load_n(&w.started, __ATOMIC_ACQUIRE)) {
+        /* the walker's first walk runs on the list */
+    }
     mmt_handler_t *h2 = mmt_init_handler(TEST_STACK_ID, 0, errbuf);
     CHECK(h2 != NULL, "the freezing handler");
+    if (h2 == NULL) mmt_classify_chains_freeze(); /* the walker waits for a freeze */
     pthread_join(t, NULL);
     CHECK(w.ok, "the walker saw the list order before and after the publication");
     CHECK(frozen_matches_list(g_parent), "frozen by the other thread");
