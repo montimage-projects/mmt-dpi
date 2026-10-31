@@ -96,8 +96,10 @@ if [ -z "$PREFIX" ]; then
         exit 2
     fi
 fi
-[ -e "$PREFIX/dpi/lib/libmmt_core.so" ] && [ -f "$PREFIX/dpi/include/mmt_core.h" ] \
-    || { echo "✗ $PREFIX holds no installed SDK (dpi/lib/libmmt_core.so, dpi/include/mmt_core.h)" >&2; exit 2; }
+if ! { [ -e "$PREFIX/dpi/lib/libmmt_core.so" ] && [ -f "$PREFIX/dpi/include/mmt_core.h" ]; }; then
+    echo "✗ $PREFIX holds no installed SDK (dpi/lib/libmmt_core.so, dpi/include/mmt_core.h)" >&2
+    exit 2
+fi
 
 # The strict set: what GCC 14 rejects by default, made fatal on older GCC.
 STRICT=(-Wall -Werror=return-type -Werror=implicit-function-declaration
