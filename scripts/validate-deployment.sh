@@ -130,32 +130,35 @@ if [ "$env_count" -lt 2 ]; then
 fi
 
 # Check 9: every `path:line`, `path:a-b` or `path:a,b` cite in DEPLOYMENT.md
-# names a tracked file that has at least that many lines.
-cite_count=0
-while IFS= read -r cite; do
-    [ -n "$cite" ] || continue
-    cite_count=$((cite_count + 1))
-    path=${cite%%:*}
-    max=$(printf '%s\n' "${cite#*:}" | sed 's/[,-]/\n/g' | sort -n | tail -n 1)
-    if ! git -C "$ROOT" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-        echo "  ✗ DEPLOYMENT.md cites $cite, but $path is not a tracked file"
-        ERRORS=$((ERRORS + 1))
-        continue
-    fi
-    lines=$(awk 'END { print NR }' "$ROOT/$path")
-    if [ "$max" -gt "$lines" ]; then
-        echo "  ✗ DEPLOYMENT.md cites $cite, but $path has $lines lines"
-        ERRORS=$((ERRORS + 1))
-    fi
-done <<EOF
-$(grep -oE "\`[A-Za-z0-9_./-]+:[0-9]+([,-][0-9]+)*\`" "$DEPLOY_DOC" | tr -d "\`" || true)
+# and ARCHITECTURE.md names a tracked file that has at least that many lines.
+for doc in docs/DEPLOYMENT.md docs/ARCHITECTURE.md; do
+    name=${doc##*/}
+    cite_count=0
+    while IFS= read -r cite; do
+        [ -n "$cite" ] || continue
+        cite_count=$((cite_count + 1))
+        path=${cite%%:*}
+        max=$(printf '%s\n' "${cite#*:}" | sed 's/[,-]/\n/g' | sort -n | tail -n 1)
+        if ! git -C "$ROOT" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+            echo "  ✗ $name cites $cite, but $path is not a tracked file"
+            ERRORS=$((ERRORS + 1))
+            continue
+        fi
+        lines=$(awk 'END { print NR }' "$ROOT/$path")
+        if [ "$max" -gt "$lines" ]; then
+            echo "  ✗ $name cites $cite, but $path has $lines lines"
+            ERRORS=$((ERRORS + 1))
+        fi
+    done <<EOF
+$(grep -oE "\`[A-Za-z0-9_./-]+:[0-9]+([,-][0-9]+)*\`" "$ROOT/$doc" | tr -d "\`" || true)
 EOF
-if [ "$cite_count" -gt 0 ]; then
-    echo "  ✓ checked $cite_count path:line cite(s) in DEPLOYMENT.md"
-else
-    echo "  ✗ no path:line cite found in DEPLOYMENT.md — the cite scan is broken"
-    ERRORS=$((ERRORS + 1))
-fi
+    if [ "$cite_count" -gt 0 ]; then
+        echo "  ✓ checked $cite_count path:line cite(s) in $name"
+    else
+        echo "  ✗ no path:line cite found in $name — the cite scan is broken"
+        ERRORS=$((ERRORS + 1))
+    fi
+done
 
 # Check 10: no claim that the library reads no environment variables.
 if grep -qiE 'no (run[- ]?time )?environment variables?' "$DEPLOY_DOC"; then

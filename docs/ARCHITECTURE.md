@@ -24,7 +24,7 @@ The central component responsible for:
 
 Protocol implementations are organized into shared libraries loaded at runtime
 from `plugins/` (the plugin list `make install` links there is
-`MMT_LAYOUT_PLUGINS`, `sdk/Makefile:249`; library names in `rules/common.mk:216-222`):
+`MMT_LAYOUT_PLUGINS`, `sdk/Makefile:249`; library names in `rules/common.mk:216-223`):
 
 | Plugin | Library | Description |
 |--------|---------|-------------|
@@ -34,7 +34,7 @@ from `plugins/` (the plugin list `make install` links there is
 | **mmt_dicom** | `libmmt_tdicom.so` | DICOM medical-imaging protocol |
 
 `libmmt_security.so` (the rule-based security engine) and `libmmt_fuzz.so` are
-not plugins: they are built only with `ENABLESEC=1` (`rules/common.mk:224-227`)
+not plugins: they are built only with `ENABLESEC=1` (`rules/common.mk:225-228`)
 and linked by the application.
 
 The LTE NAS decoder does not decrypt ciphered NAS messages (EEA1/EEA2/EEA3):
