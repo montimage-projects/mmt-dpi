@@ -2036,6 +2036,64 @@ static void test_offset_memoization(void) {
     CHECK(get_packet_offset_at_index(&pkt.pub, PROTO_PATH_SIZE + 7) ==
           get_packet_offset_at_index(&pkt.pub, PROTO_PATH_SIZE - 1),
           "index is clamped to PROTO_PATH_SIZE-1");
+
+}
+
+/* packet_stats.c; no header declares it (mmt_close_handler()'s helper). */
+void free_handler_protocol_statistics(mmt_handler_t *mmt_handler, protocol_instance_t *protocol);
+
+/* Issue #558: _get_protocol_stats_from_parent() caches, per protocol, the
+ * stats instance it resolved last and the parent it hangs under. The cache
+ * must follow the parent: a protocol under two parents keeps two instances. */
+static void test_stats_child_cache(void) {
+    fprintf(stderr, "  test: per-protocol stats-node cache (issue #558)\n");
+    char errbuf[256];
+    mmt_handler_t *h = mmt_init_handler(TEST_STACK_ID, 0, errbuf);
+    CHECK(h != NULL, "handler for the stats cache");
+    if (h == NULL) return;
+    enable_protocol_statistics(h);
+
+    ipacket_internal_t pkt;
+    pkthdr_t hdr;
+    memset(&pkt, 0, sizeof(pkt));
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.len = hdr.caplen = hdr.original_len = hdr.original_caplen = 100;
+    pkt.p_hdr = &hdr;
+    pkt.mmt_handler = h;
+    ipacket_t *ip = &pkt.pub;
+
+    protocol_instance_t *meta = &h->configured_protocols[PROTO_META];
+    protocol_instance_t *pa = &h->configured_protocols[TEST_PROTO_A];
+    protocol_instance_t *pb = &h->configured_protocols[TEST_PROTO_B];
+    proto_statistics_internal_t *root = update_proto_stats(ip, meta, NULL, 0, 0, 0);
+    proto_statistics_internal_t *a = update_proto_stats(ip, pa, root, 0, 0, 1);
+    proto_statistics_internal_t *b_root = update_proto_stats(ip, pb, root, 0, 0, 1);
+    proto_statistics_internal_t *b_a = update_proto_stats(ip, pb, a, 0, 0, 2);
+    CHECK(root != NULL && a != NULL && b_root != NULL && b_a != NULL,
+          "stats instances created");
+    if (root == NULL || a == NULL || b_root == NULL || b_a == NULL) {
+        mmt_close_handler(h);
+        return;
+    }
+    CHECK(b_root != b_a, "one instance per parent");
+    CHECK(pb->stats_cache_parent == a && pb->stats_cache == b_a,
+          "the cache holds the last (parent, instance) pair");
+    /* alternate the parents: each hit returns that parent's instance */
+    CHECK(update_proto_stats(ip, pb, root, 0, 0, 1) == b_root, "cache miss resolves the root's B");
+    CHECK(update_proto_stats(ip, pb, root, 0, 0, 1) == b_root, "cache hit returns the root's B");
+    CHECK(update_proto_stats(ip, pb, a, 0, 0, 2) == b_a, "cache miss resolves A's B");
+    CHECK(b_root->packets_count == 3 && b_a->packets_count == 2,
+          "every packet counted on its own path");
+    CHECK(find_int_key_value(root->encap_proto_stats, TEST_PROTO_B) == b_root &&
+          find_int_key_value(a->encap_proto_stats, TEST_PROTO_B) == b_a,
+          "the cached instances are the ones the parents' maps hold");
+
+    /* B's instances are freed (the parents' maps keep stale entries, never
+     * read again here): the cache must not keep returning one of them. */
+    free_handler_protocol_statistics(h, pb);
+    CHECK(pb->proto_stats == NULL && pb->stats_cache_parent == NULL &&
+          pb->stats_cache == NULL, "freeing the stats clears the cache");
+    mmt_close_handler(h);
 }
 
 /* Issue #243 / F-TEST-018: the TCP-reassembly instrumentation counters in
@@ -2545,6 +2603,7 @@ int main(void) {
     test_hostname_matching();
     test_ip_attribution();
     test_offset_memoization();
+    test_stats_child_cache();
     test_reasm_stats();
 
     /* Full teardown, then a second init/close cycle — F-BUG-005 regression:
