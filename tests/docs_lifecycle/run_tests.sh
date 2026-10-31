@@ -291,6 +291,26 @@ for disarm in '-Wno-error=return-type -o bad bad.c' '-I -I -w -o bad bad.c' \
         tail -10 "${WORK}/disarm.txt" >&2 || true
     fi
 done
+# A C listing tagged any other way must not leave the gate silently, while
+# an unrelated tag starting with c (```console) is not a C fence.
+# shellcheck disable=SC2016  # backticks are Markdown fences, not a subshell
+sed 's/^```c$/```C/' "${WORK}/bad/Bad.md" >"${WORK}/bad/Retag.md"
+rc=0
+bash "${GATE}" --prefix "${PREFIX}" "${WORK}/bad/Retag.md" >"${WORK}/retag.txt" 2>&1 || rc=$?
+if [ "$rc" -eq 2 ] && grep -q "tag C listings exactly" "${WORK}/retag.txt"; then
+    ok "a listing fenced as \`\`\`C is refused (exit 2)"
+else
+    fail "a listing fenced as \`\`\`C was not refused (exit ${rc})"
+fi
+{ printf '%s\n' '```console' '$ ./packet_handler x.pcap' '```'; sed -n '/^```c$/,$p' "${REPO_ROOT}/docs/Examples.md" | sed -n '1,/^```$/p'; } >"${WORK}/bad/Console.md"
+rc=0
+bash "${GATE}" --prefix "${PREFIX}" "${WORK}/bad/Console.md" >"${WORK}/console.txt" 2>&1 || rc=$?
+if [ "$rc" -eq 0 ]; then
+    ok "a \`\`\`console block is not mistaken for a C fence"
+else
+    fail "a \`\`\`console block broke the gate (exit ${rc})"
+    tail -5 "${WORK}/console.txt" >&2 || true
+fi
 
 if [ "$ERRORS" -ne 0 ]; then
     echo "✗ docs_lifecycle: ${ERRORS} check(s) failed" >&2

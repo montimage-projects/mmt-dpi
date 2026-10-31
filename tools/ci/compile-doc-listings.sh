@@ -146,7 +146,7 @@ def listings(doc):
     while i < len(lines):
         # A C fence spelled any other way (```C, ```cpp, ```c title=…) would
         # silently leave the gate: refuse it instead.
-        if (re.match(r"^\s*```\s*[cC]", lines[i])
+        if (re.match(r"^\s*```\s*(?:c|C|cpp|c\+\+|h)(?:[\s{]|$)", lines[i])
                 and not re.match(r"^\s*```\s*c\s*$", lines[i])):
             print(f"✗ {doc}:{i + 1}: C fence {lines[i].strip()!r} — tag C listings "
                   "exactly ```c so this gate compiles them", file=sys.stderr)
