@@ -2037,6 +2037,28 @@ static void test_offset_memoization(void) {
           get_packet_offset_at_index(&pkt.pub, PROTO_PATH_SIZE - 1),
           "index is clamped to PROTO_PATH_SIZE-1");
 
+    /* Issue #558: the inline twin the SDK objects call returns what the
+     * export returns, from a cold cache and from a warm one. */
+    ipacket_internal_t tmpl, p_twin, p_export;
+    memset(&tmpl, 0, sizeof(tmpl));
+    for (unsigned i = 0; i < PROTO_PATH_SIZE; i++)
+        tmpl.internal_proto_headers_offset.proto_path[i] = (int) (3 * i + 1);
+    int same = 1;
+    for (unsigned i = 0; i < PROTO_PATH_SIZE + 2; i++) {
+        p_twin = tmpl;   /* cold caches */
+        p_export = tmpl;
+        p_twin.proto_headers_offset = &p_twin.internal_proto_headers_offset;
+        p_export.proto_headers_offset = &p_export.internal_proto_headers_offset;
+        if (mmt_packet_offset_at_index(&p_twin.pub, i) !=
+            get_packet_offset_at_index(&p_export.pub, i)) same = 0;
+        /* warm caches: below and above the high-water mark */
+        if (mmt_packet_offset_at_index(&p_twin.pub, i / 2) !=
+            get_packet_offset_at_index(&p_export.pub, i / 2)) same = 0;
+        if (mmt_packet_offset_at_index(&p_twin.pub, i + 1) !=
+            get_packet_offset_at_index(&p_export.pub, i + 1)) same = 0;
+    }
+    CHECK(same, "inline twin matches the exported get_packet_offset_at_index()");
+    CHECK(mmt_packet_offset_at_index(&p_twin.pub, 2) == 1 + 4 + 7, "twin prefix sum");
 }
 
 /* packet_stats.c; no header declares it (mmt_close_handler()'s helper). */
