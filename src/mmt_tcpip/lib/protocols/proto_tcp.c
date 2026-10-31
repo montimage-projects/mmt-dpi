@@ -1143,7 +1143,7 @@ int tcp_post_classification_function(ipacket_t * ipacket, unsigned index) {
         // then port) is gated by its own profile toggle on the handler.
         /* The protocol is unkown and we reached the classification threshold! Try with IP addresses and port numbers before setting it as unkown */
         /* Issue #567: the verdict is a guess — record which one (a GTP
-         * verdict reaching this branch keeps the method it already has). */
+         * verdict the fallback leaves standing keeps its method). */
         uint8_t method = (retval.proto_id == PROTO_UNKNOWN)
                 ? MMT_CLASSIFICATION_METHOD_NONE : ipacket->session->classification_method;
         if (ipacket->mmt_handler->ip_address_classify == 1){
