@@ -14,7 +14,10 @@
 #     the first `gcc …` command of the ```sh fence that follows it, before the
 #     next listing — so the command the reader copies is checked too. /opt/mmt
 #     in that command is the install prefix, and only `-I`/`-L`/`-l`/`-o`/`-g`/
-#     `-O`/`-W`/`-D`/`-std` arguments and the source file are accepted from it.
+#     `-O`/`-W<warning>`/`-D`/`-std` arguments and the source file are
+#     accepted from it (no `-Wno-*`, `-w`, `-Wl,`/`-Wp,`/`-Wa,`); <STRICT>
+#     below is appended after them, so a documented flag cannot disarm it.
+#     A fence tagged ```C, ```cpp or ```c <anything> is refused (exit 2).
 #     A listing with no such command is compiled with the default command
 #     below; a listing without a `main(` is compiled with `-c` only.
 #   * every src/examples/*.c, with the default command:
@@ -43,8 +46,9 @@
 # Env: CC (default gcc), EXTRA_CFLAGS, JOBS, SDK_BUILD_PROFILE (BUILD=).
 #
 # Exit codes: 0 = everything compiles, 1 = a listing or example does not,
-#             2 = helper broken (bad arguments, no listing found, SDK build
-#             or install failed, missing tool).
+#             2 = helper broken (bad arguments, no listing found, a C fence
+#             not tagged exactly ```c, SDK build or install failed, missing
+#             tool).
 
 set -euo pipefail
 
@@ -122,7 +126,10 @@ extra = shlex.split(os.environ.get("EXTRA_CFLAGS", ""))
 inc, lib = os.path.join(prefix, "dpi", "include"), os.path.join(prefix, "dpi", "lib")
 LIBS = ["-lmmt_core", "-ldl", "-lpcap"]
 # Arguments a documented command may carry; anything else is refused.
-ALLOWED = re.compile(r"^(-[IL].*|-l[A-Za-z0-9_]+|-o|-g\d?|-O[0-3sg]?|-W[A-Za-z0-9=,_-]*|"
+# -W is limited to warning switches that cannot disarm the strict set:
+# -Wno-*, -w and the -Wl,/-Wp,/-Wa, passthroughs are refused (and the strict
+# set is appended after the documented arguments, so it wins regardless).
+ALLOWED = re.compile(r"^(-[IL].*|-l[A-Za-z0-9_]+|-o|-g\d?|-O[0-3sg]?|-W(?!no-)[a-z][a-z0-9-]*(=[A-Za-z0-9_-]+)?|"
                      r"-D[A-Za-z_][A-Za-z0-9_=]*|-std=[a-z0-9+]+|-pthread)$")
 
 
@@ -137,6 +144,13 @@ def listings(doc):
     lines = open(doc, encoding="utf-8").read().split("\n")
     found, i = [], 0
     while i < len(lines):
+        # A C fence spelled any other way (```C, ```cpp, ```c title=…) would
+        # silently leave the gate: refuse it instead.
+        if (re.match(r"^\s*```\s*[cC]", lines[i])
+                and not re.match(r"^\s*```\s*c\s*$", lines[i])):
+            print(f"✗ {doc}:{i + 1}: C fence {lines[i].strip()!r} — tag C listings "
+                  "exactly ```c so this gate compiles them", file=sys.stderr)
+            sys.exit(2)
         if not re.match(r"^\s*```\s*c\s*$", lines[i]):
             i += 1
             continue
@@ -173,7 +187,7 @@ def documented_cmd(cmd, where):
         return None, f"argument(s) not accepted from a documented command: {bad}"
     if "-o" not in argv or argv.index("-o") + 1 >= len(argv):
         return None, f"no -o in {cmd!r}"
-    return [cc, *strict, *extra, *argv[1:]], srcs[0]
+    return [cc, *argv[1:], *strict, *extra], srcs[0]
 
 
 def run(argv, cwd, label):

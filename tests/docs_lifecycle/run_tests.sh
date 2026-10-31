@@ -16,7 +16,8 @@
 #   [5/5] every docs/Examples.md listing (with the command shown under it)
 #         and every src/examples/*.c compiles against that prefix under
 #         tools/ci/compile-doc-listings.sh, and the gate rejects a listing
-#         with `return;` in `int main` (issue #581).
+#         with `return;` in `int main` and a documented command that tries
+#         to disarm its strict flags (issue #581).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -271,6 +272,19 @@ if [ "$rc" -eq 1 ] && grep -q "return-type\|return-mismatch" "${WORK}/bad.txt"; 
 else
     fail "the gate accepted 'return;' in int main (exit ${rc})"
     tail -10 "${WORK}/bad.txt" >&2 || true
+fi
+# A documented command cannot disarm the strict flags.
+{ cat "${WORK}/bad/Bad.md"
+  printf '%s\n' '```sh' \
+      'gcc -Wno-error=return-type -o bad bad.c -I /opt/mmt/dpi/include -L /opt/mmt/dpi/lib -lmmt_core' \
+      '```'; } >"${WORK}/bad/Disarm.md"
+rc=0
+bash "${GATE}" --prefix "${PREFIX}" "${WORK}/bad/Disarm.md" >"${WORK}/disarm.txt" 2>&1 || rc=$?
+if [ "$rc" -eq 1 ] && grep -q "not accepted from a documented command" "${WORK}/disarm.txt"; then
+    ok "a documented -Wno-error=return-type is refused (exit 1)"
+else
+    fail "the gate let a documented command disarm its strict flags (exit ${rc})"
+    tail -10 "${WORK}/disarm.txt" >&2 || true
 fi
 
 if [ "$ERRORS" -ne 0 ]; then

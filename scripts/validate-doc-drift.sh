@@ -209,6 +209,7 @@ def example_body(path):
     return "\n".join(l.rstrip() for l in lines[i:]).rstrip()
 
 synced = 0
+listed = set()
 for m in re.finditer(r"^```c\n(.*?)^```\n", doc, re.S | re.M):
     rest = doc[m.end():]
     nxt = re.search(r"^```c\s*$", rest, re.M)
@@ -217,6 +218,7 @@ for m in re.finditer(r"^```c\n(.*?)^```\n", doc, re.S | re.M):
     line = doc.count("\n", 0, m.start()) + 2
     if not g or not os.path.isfile(f"src/examples/{g.group(1)}.c"):
         continue
+    listed.add(g.group(1))
     listing = "\n".join(l.rstrip() for l in m.group(1).split("\n")).rstrip()
     if listing != example_body(f"src/examples/{g.group(1)}.c"):
         errors += 1
@@ -224,6 +226,13 @@ for m in re.finditer(r"^```c\n(.*?)^```\n", doc, re.S | re.M):
               "(copy the file's code after its header comment)")
     else:
         synced += 1
+# Every compile step that names an example must follow its listing: a
+# listing retagged or dropped would otherwise leave both gates unnoticed.
+stepped = set(e[:-2] for e in examples) & compiled_set
+for name in sorted(stepped - listed):
+    errors += 1
+    print(f"  ✗ the page compiles {name} but shows no ```c listing of "
+          f"src/examples/{name}.c before that step")
 if synced and errors == 0:
     print(f"  ✓ all {synced} listing(s) are the code of the example they compile")
 
