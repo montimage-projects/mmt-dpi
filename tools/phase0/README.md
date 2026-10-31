@@ -256,8 +256,10 @@ driver under `valgrind --tool=callgrind --collect-atstart=no`, one iteration
 per vendored CI pcap and mode. The driver brackets each replay pass with
 `CALLGRIND_TOGGLE_COLLECT` (compiled in when `<valgrind/callgrind.h>` is
 present), so the count is the replay alone, without `init_extraction()`,
-handler setup or teardown; `MMT_DETERMINISTIC_SEED=1` makes it repeatable to
-the instruction. The per-mode total over the pcap set, in instructions per
+handler setup or teardown; `MMT_DETERMINISTIC_SEED=1` pins the hash seeds,
+so a pcap's count repeats within a few tens of instructions (the residue
+moves with the environment and paths, through stack alignment) — the gate
+relies on its tolerance, never on exact equality. The per-mode total over the pcap set, in instructions per
 packet, is compared with `ci/baseline/instructions.txt`:
 `INSTR_TOLERANCE_PCT` (default 2) above it fails, more than that below it
 passes with a request to ratchet the baseline. Counts depend on the

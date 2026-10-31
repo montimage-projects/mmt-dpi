@@ -20,9 +20,11 @@
 #   - a mode or the packet count differing from the baseline       -> FAIL
 #   - a baseline recorded on another architecture                  -> exit 2
 #
-# Counts are deterministic for one binary and input (MMT_DETERMINISTIC_SEED=1
-# pins the hash seeds, issue #551) but depend on the architecture and the
-# toolchain: the baseline is measured on aarch64 / Ubuntu 24.04 / GCC 13, the
+# Counts repeat within a few tens of instructions per pcap for one binary and
+# input (MMT_DETERMINISTIC_SEED=1 pins the hash seeds, issue #551; the residue
+# moves with the environment and paths, through stack alignment), so the gate
+# relies on its tolerance, never on exact equality. They depend on the
+# architecture and the toolchain: the baseline is measured on aarch64 / Ubuntu 24.04 / GCC 13, the
 # toolchain of the `instruction-gate` job's ubuntu-24.04-arm runner
 # (.github/workflows/phase0-baseline.yml). A GCC or Valgrind other than the
 # baseline's is reported as a warning; the tolerance absorbs patch-level drift.
