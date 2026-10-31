@@ -14,6 +14,8 @@
 #   a guide with a literal [TOC] line                               -> 1
 #   a guide without `layout: default`                               -> 1
 #   a guide without a `title:`                                      -> 1
+#   a guide without front matter                                    -> 1
+#   no docs index (no page with `permalink: /docs/`)                -> 1
 #   a docs-index label naming another title                         -> 1
 #   a docs-index label that is a whole-word part of the title       -> 0
 #   a docs-index label matching only part of a title word           -> 1
@@ -121,6 +123,14 @@ expect "a guide without layout: default fails" 1 "${WORK}/src" "lacks \`layout: 
 fresh_src
 sed -i '/^title:/d' "${WORK}/src/Guide-Two.md"
 expect "a guide without a title fails" 1 "${WORK}/src" "lacks a \`title:\`"
+
+fresh_src
+sed -i '1,/^---$/{/^---$/!d}; 1,2{/^---$/d}' "${WORK}/src/Guide-Two.md"
+expect "a guide without front matter fails" 1 "${WORK}/src" "Guide-Two.md: no front matter"
+
+fresh_src
+sed -i '/^permalink: \/docs\/$/d' "${WORK}/src/README.md"
+expect "a tree without a docs index fails" 1 "${WORK}/src" "expected one docs index (permalink: /docs/), found 0"
 
 fresh_src
 sed -i 's/\[Guide One\]/[Getting Started]/' "${WORK}/src/README.md"
