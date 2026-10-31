@@ -300,8 +300,7 @@ static void test_publication(mmt_handler_t *h) {
     char errbuf[256];
     pthread_t t;
     walker_arg_t w = { h, 0 };
-    fprintf(stderr, "  test: a walk running while another thread freezes
-");
+    fprintf(stderr, "  test: a walk running while another thread freezes\n");
     mmt_classify_chain_invalidate(&g_parent->classify_next);
     CHECK(pthread_create(&t, NULL, walker, &w) == 0, "walker started");
     mmt_handler_t *h2 = mmt_init_handler(TEST_STACK_ID, 0, errbuf);
