@@ -32,7 +32,9 @@
  * eNodeBs reusing an eNB-UE-S1AP-ID keep two UEs, and a
  * UEContextReleaseComplete removes the UE it names; the Rel-16 IEs mapped
  * into s1ap.nr_encryption_algorithms and ngap.srvcc_operation_possible are
- * extracted from whole frames.
+ * extracted from whole frames, and from the accuracy-corpus captures
+ * acc_s1ap_rel16_positive.pcap / acc_ngap_rel16_positive.pcap
+ * (tools/phase0/ci/accuracy/, the directory given as argv[1]).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -338,13 +340,17 @@ static uint32_t g_ue_id;      /* s1ap.ue_id, 0 when not extracted */
 static int      g_nr_enc;     /* s1ap.nr_encryption_algorithms, -1 when not */
 static int      g_nr_int;     /* s1ap.nr_integrity_algorithms, -1 when not */
 static int      g_srvcc;      /* ngap.srvcc_operation_possible, -1 when not */
+static int      g_proc;       /* s1ap/ngap.procedure_code, -1 when not */
 
 static int mobile_attr_handler(const ipacket_t *ipacket, void *user_args) {
 	const uint32_t *ue  = get_attribute_extracted_data(ipacket, PROTO_S1AP, S1AP_ATT_UE_ID);
 	const uint16_t *enc = get_attribute_extracted_data(ipacket, PROTO_S1AP, S1AP_ATT_NR_ENCRYPTION_ALGORITHMS);
 	const uint16_t *itg = get_attribute_extracted_data(ipacket, PROTO_S1AP, S1AP_ATT_NR_INTEGRITY_ALGORITHMS);
 	const uint8_t *srvcc = get_attribute_extracted_data(ipacket, PROTO_NGAP, NGAP_ATT_SRVCC_OPERATION_POSSIBLE);
+	const uint16_t *s1proc = get_attribute_extracted_data(ipacket, PROTO_S1AP, S1AP_ATT_PROCEDURE_CODE);
+	const uint16_t *ngproc = get_attribute_extracted_data(ipacket, PROTO_NGAP, NGAP_ATT_PROCEDURE_CODE);
 	(void)user_args;
+	g_proc   = s1proc ? *s1proc : ngproc ? *ngproc : -1;
 	g_ue_id  = ue  ? *ue  : 0;
 	g_nr_enc = enc ? *enc : -1;
 	g_nr_int = itg ? *itg : -1;
@@ -420,6 +426,83 @@ static void test_mobile_ue_keying_and_rel16(void) {
 	mmt_close_handler(h);
 }
 
+/* Issue #574: replay an accuracy-corpus capture (classic little-endian
+ * pcap, LINKTYPE_ETHERNET, as tools/phase0/gen_mobile_pcap.py writes it)
+ * through h; the attributes of its last packet stay in g_*. Returns the
+ * packet count, -1 when the file cannot be read. */
+static int replay_corpus_pcap(mmt_handler_t *h, const char *dir, const char *name,
+		uint16_t *proc) {
+	static const uint8_t PCAP_MAGIC_LE[4] = { 0xd4, 0xc3, 0xb2, 0xa1 };
+	static uint8_t frame[65535];
+	char path[1024];
+	uint8_t ghdr[24], rhdr[16];
+	uint32_t caplen;
+	int n = 0;
+	FILE *fp;
+
+	snprintf(path, sizeof(path), "%s/%s", dir, name);
+	fp = fopen(path, "rb");
+	if (fp == NULL)
+		return -1;
+	if (fread(ghdr, 1, sizeof(ghdr), fp) != sizeof(ghdr)
+			|| memcmp(ghdr, PCAP_MAGIC_LE, 4) != 0
+			|| ghdr[20] != 1 || ghdr[21] || ghdr[22] || ghdr[23]) {
+		fclose(fp);
+		return -1;
+	}
+	while (fread(rhdr, 1, sizeof(rhdr), fp) == sizeof(rhdr)) {
+		caplen = (uint32_t)rhdr[8] | (uint32_t)rhdr[9] << 8
+			| (uint32_t)rhdr[10] << 16 | (uint32_t)rhdr[11] << 24;
+		if (caplen > sizeof(frame) || fread(frame, 1, caplen, fp) != caplen) {
+			fclose(fp);
+			return -1;
+		}
+		g_ue_id = 0;
+		g_nr_enc = g_nr_int = g_srvcc = -1;
+		g_proc = -1;
+		drive(h, frame, caplen);
+		n++;
+	}
+	fclose(fp);
+	*proc = (uint16_t)g_proc;
+	return n;
+}
+
+static void test_mobile_rel16_corpus(const char *dir) {
+	char errbuf[1024];
+	uint16_t proc = 0;
+	int n;
+	mmt_handler_t *h = mmt_init_handler(1 /*DLT_EN10MB*/, 0, errbuf);
+
+	if (h == NULL) {
+		fprintf(stderr, "mmt_init_handler: %s\n", errbuf);
+		exit(1);
+	}
+	register_extraction_attribute(h, PROTO_S1AP, S1AP_ATT_PROCEDURE_CODE);
+	register_extraction_attribute(h, PROTO_S1AP, S1AP_ATT_NR_ENCRYPTION_ALGORITHMS);
+	register_extraction_attribute(h, PROTO_S1AP, S1AP_ATT_NR_INTEGRITY_ALGORITHMS);
+	register_extraction_attribute(h, PROTO_NGAP, NGAP_ATT_PROCEDURE_CODE);
+	register_extraction_attribute(h, PROTO_NGAP, NGAP_ATT_SRVCC_OPERATION_POSSIBLE);
+	register_packet_handler(h, 1, mobile_attr_handler, NULL);
+	register_packet_handler(h, 2, packet_handler, NULL);
+
+	n = replay_corpus_pcap(h, dir, "acc_s1ap_rel16_positive.pcap", &proc);
+	CHECK("corpus acc_s1ap_rel16_positive.pcap: one S1AP packet read", n == 1);
+	CHECK("corpus acc_s1ap_rel16_positive.pcap: S1AP InitialContextSetupRequest (procedure 9)",
+			n == 1 && strstr(g_path, ".s1ap") != NULL && proc == 9);
+	CHECK("corpus acc_s1ap_rel16_positive.pcap: Rel-16 NRUESecurityCapabilities extracted (NEA1-3, NIA1-3)",
+			n == 1 && g_nr_enc == 0xE000 && g_nr_int == 0xE000);
+
+	n = replay_corpus_pcap(h, dir, "acc_ngap_rel16_positive.pcap", &proc);
+	CHECK("corpus acc_ngap_rel16_positive.pcap: one NGAP packet read", n == 1);
+	CHECK("corpus acc_ngap_rel16_positive.pcap: NGAP DownlinkNASTransport (procedure 4)",
+			n == 1 && strstr(g_path, ".ngap") != NULL && proc == 4);
+	CHECK("corpus acc_ngap_rel16_positive.pcap: Rel-16 SRVCCOperationPossible extracted (notPossible)",
+			n == 1 && g_srvcc == 1);
+
+	mmt_close_handler(h);
+}
+
 /* feed a frame, then assert the classified path does/doesn't contain a
  * protocol name */
 static void expect_path(mmt_handler_t *h, const char *label,
@@ -434,7 +517,7 @@ static void expect_path(mmt_handler_t *h, const char *label,
 			(notwant == NULL || strstr(g_path, notwant) == NULL));
 }
 
-int main(void) {
+int main(int argc, char **argv) {
 	mmt_handler_t *h;
 	char errbuf[1024];
 	size_t flen;
@@ -554,6 +637,10 @@ int main(void) {
 
 	/* ---------------- #574: UE keying, release, Rel-16 IEs ---------- */
 	test_mobile_ue_keying_and_rel16();
+	if (argc > 1)
+		test_mobile_rel16_corpus(argv[1]);
+	else
+		CHECK("accuracy-corpus directory given (argv[1])", 0);
 
 	close_extraction();
 
