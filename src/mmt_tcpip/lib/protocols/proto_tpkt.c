@@ -82,6 +82,9 @@ int init_proto_tpkt_struct() {
         mmt_init_classify_bitmasks(&selection_bitmask, &detection_bitmask,
                 &excluded_protocol_bitmask, MMT_SELECTION_BITMASK_PROTOCOL_V4_V6_TCP_OR_UDP_WITH_PAYLOAD_WITHOUT_RETRANSMISSION,
                 PROTO_TPKT, PROTO_TPKT);
+        /* issue #561: a closed guard excludes the protocol on the flow, which
+         * the walk's skip would lose — the checker keeps its own guard */
+        mmt_checker_keeps_local_guard(PROTO_TPKT);
         return register_protocol(protocol_struct, PROTO_TPKT);
     } else {
         return -1;

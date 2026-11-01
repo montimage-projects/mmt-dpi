@@ -339,8 +339,25 @@ typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
      * (configured_protocols.c), which stores them in the frozen classifier
      * chain. Weak, so a test that compiles a protocol unit without
      * configured_protocols.c still links (the call is then skipped). */
+    /* Issue #561: the hook also records the unit's detection set, which the
+     * walk tests the packet's detected protocol against (the central guard).
+     * mmt_tcpip_record_local_guard() marks a unit whose checker keeps its own
+     * guard (mmt_checker_keeps_local_guard()): its chain entry gets no
+     * central guard. */
     void mmt_tcpip_record_checker_guard(uint32_t excluded_proto,
-        MMT_SELECTION_BITMASK_PROTOCOL_SIZE selection_mask) __attribute__((weak));
+        MMT_SELECTION_BITMASK_PROTOCOL_SIZE selection_mask,
+        const MMT_PROTOCOL_BITMASK *detection) __attribute__((weak));
+    void mmt_tcpip_record_local_guard(uint32_t excluded_proto) __attribute__((weak));
+
+    /* Issue #561: called by a protocol unit's init, after its
+     * mmt_init_classify_bitmasks*() call, when its checker evaluates its own
+     * guard — because a closed guard has a side effect (the checker excludes
+     * itself), which the walk's skip would lose. */
+    static inline void mmt_checker_keeps_local_guard(uint32_t excluded_proto) {
+        if (mmt_tcpip_record_local_guard != NULL) {
+            mmt_tcpip_record_local_guard(excluded_proto);
+        }
+    }
 
     static inline void mmt_init_classify_bitmasks(
         MMT_SELECTION_BITMASK_PROTOCOL_SIZE *selection_bitmask,
@@ -355,7 +372,7 @@ typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
         }
         MMT_SAVE_AS_BITMASK(*excluded_protocol_bitmask, excluded_proto);
         if (mmt_tcpip_record_checker_guard != NULL) {
-            mmt_tcpip_record_checker_guard(excluded_proto, selection_value);
+            mmt_tcpip_record_checker_guard(excluded_proto, selection_value, detection_bitmask);
         }
     }
 
@@ -381,7 +398,7 @@ typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
         }
         MMT_SAVE_AS_BITMASK(*excluded_protocol_bitmask, excluded_proto);
         if (mmt_tcpip_record_checker_guard != NULL) {
-            mmt_tcpip_record_checker_guard(excluded_proto, selection_value);
+            mmt_tcpip_record_checker_guard(excluded_proto, selection_value, detection_bitmask);
         }
     }
 
