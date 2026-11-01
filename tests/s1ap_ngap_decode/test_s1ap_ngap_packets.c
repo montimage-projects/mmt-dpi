@@ -427,7 +427,7 @@ static void test_mobile_ue_keying_and_rel16(void) {
 }
 
 /* Issue #574: replay an accuracy-corpus capture (classic little-endian
- * pcap, LINKTYPE_ETHERNET, as tools/phase0/gen_mobile_pcap.py writes it)
+ * pcap, LINKTYPE_ETHERNET, as the corpus generator writes it)
  * through h; the attributes of its last packet stay in g_*. Returns the
  * packet count, -1 when the file cannot be read. */
 static int replay_corpus_pcap(mmt_handler_t *h, const char *dir, const char *name,
