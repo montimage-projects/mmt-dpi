@@ -87,7 +87,7 @@ int mmt_check_gtp(ipacket_t * ipacket, unsigned index) {
 			}
 		}
 	}
-	MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_GTP);
+	MMT_EXCLUDE_PROTOCOL(flow, PROTO_GTP);
 	return 0;
 }
 

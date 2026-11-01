@@ -14,7 +14,7 @@ static MMT_SELECTION_BITMASK_PROTOCOL_SIZE selection_bitmask;
 int mmt_check_spotify(ipacket_t * ipacket, unsigned index) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
+            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_SPOTIFY)
             && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
 
         struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
@@ -55,7 +55,7 @@ int mmt_check_spotify(ipacket_t * ipacket, unsigned index) {
                 }
             }
         }
-        MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_SPOTIFY);
+        MMT_EXCLUDE_PROTOCOL(flow, PROTO_SPOTIFY);
 
     }
     return 0;

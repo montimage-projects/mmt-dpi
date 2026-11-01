@@ -61,14 +61,14 @@ void mmt_classify_pando(ipacket_t * ipacket, unsigned index) {
 	if (search_pando(ipacket) != 0)
 		return;
 
-	MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_PANDO);
+	MMT_EXCLUDE_PROTOCOL(flow, PROTO_PANDO);
 
 }
 
 int mmt_check_pando(ipacket_t * ipacket, unsigned index) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
     if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
+            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_PANDO)
             && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
 
         /* search_pando() already branches on packet->tcp/udp. */

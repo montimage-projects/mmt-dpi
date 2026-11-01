@@ -24,7 +24,7 @@ int mmt_check_oracle(ipacket_t * ipacket, unsigned index)
 	struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 
     if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
+            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_ORACLE)
             && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
     	
         if(packet->tcp != NULL){
@@ -46,7 +46,7 @@ int mmt_check_oracle(ipacket_t * ipacket, unsigned index)
               return 1;
             }
         }
-        MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_ORACLE);
+        MMT_EXCLUDE_PROTOCOL(flow, PROTO_ORACLE);
         return 0;
 
     }

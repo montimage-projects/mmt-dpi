@@ -55,7 +55,7 @@ int mmt_check_redis(ipacket_t * ipacket, unsigned index)
 	struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 
     if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
+            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_REDIS)
             && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
     	 
         /* skip marked packets */
@@ -74,7 +74,7 @@ int mmt_check_redis(ipacket_t * ipacket, unsigned index)
             if(payload_len == 0) return 0; /* Shouldn't happen */
             /* Break after 20 packets. */
             if(ipacket->session->packet_count > 20) {
-              MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_REDIS);
+              MMT_EXCLUDE_PROTOCOL(flow, PROTO_REDIS);
               return 0;
             }
 
@@ -101,7 +101,7 @@ int mmt_check_redis(ipacket_t * ipacket, unsigned index)
                     mmt_int_redis_add_connection(ipacket);
                     return 1;
               } else {
-                MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_REDIS);
+                MMT_EXCLUDE_PROTOCOL(flow, PROTO_REDIS);
               }
             } else
               return 0; /* Too early */

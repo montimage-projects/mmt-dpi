@@ -915,7 +915,7 @@ static int classify(const char *payload, uint16_t sport, uint16_t dport, unsigne
 }
 
 static int excluded(void) {
-	return MMT_COMPARE_PROTOCOL_TO_BITMASK(g_flow.excluded_protocol_bitmask, PROTO_FTP) != 0;
+	return MMT_FLOW_EXCLUDES(&g_flow, PROTO_FTP) != 0;
 }
 
 static void test_classification(void) {
