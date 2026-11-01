@@ -483,9 +483,9 @@ uint16_t mmt_classifier_id_assign(mmt_classify_proto_t * node);
 void mmt_classifier_id_release(mmt_classify_proto_t * node);
 /**
  * Issue #560 (F-PERF-005, checker walk part 1): one checker of a frozen
- * chain. The registration node stays the checker's identity — what
- * mmt_session_t.proto_checkers[] and the classifier claim store — so a chain
- * re-frozen after a late registration never invalidates a stored pointer;
+ * chain. The registration node stays the checker's identity — the claim
+ * stores it, mmt_session_t.proto_checkers[] its id (#562) — so a chain
+ * re-frozen after a late registration never invalidates either;
  * the walk itself reads only these contiguous entries. selection_mask and
  * excluded_proto are copied from the node for the central guard of #561.
  */
