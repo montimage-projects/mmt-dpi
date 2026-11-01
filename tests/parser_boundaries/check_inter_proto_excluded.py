@@ -17,7 +17,8 @@ Issue #561: the walk evaluates each guarded checker's guard (selection mask,
 detection set, exclusion), so a checker no longer opens with it. A checker
 whose unit calls mmt_checker_keeps_local_guard() on its id keeps its own
 guard instead (its closed guard has a side effect) and must still test the
-packet's selection word; every other checker of a row with an excluded
+packet's selection word — except a checker that never had a guard
+(UNGUARDED); every other checker of a row with an excluded
 protocol must not, and must test each EXTRA_EXCLUSIONS id itself
 (MMT_FLOW_EXCLUDES(packet->flow, PROTO_X)).
 
@@ -27,6 +28,12 @@ import glob
 import os
 import re
 import sys
+
+# Issue #561: checkers that never opened with the guard although their unit
+# records one (selection mask, excluded id). Their unit calls
+# mmt_checker_keeps_local_guard() so the walk evaluates none, and they test no
+# selection word.
+UNGUARDED = {"mmt_check_gtp"}
 
 # Units whose static excluded bitmask holds more than the helper's id.
 EXTRA_EXCLUSIONS = {
@@ -120,6 +127,12 @@ def main():
             continue
         code = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", body, flags=re.S))
         local = excluded in LOCAL.findall(text)
+        if fn in UNGUARDED:
+            if not local or SELECTION_GUARD.search(code):
+                print("✗ %s: listed in UNGUARDED but its unit does not opt out of the walk's "
+                      "guard, or it tests a selection word" % fn)
+                failures += 1
+            continue
         if local and not SELECTION_GUARD.search(code):
             print("✗ %s: its unit keeps a local guard but the checker tests no selection word" % fn)
             failures += 1

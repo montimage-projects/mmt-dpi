@@ -456,6 +456,9 @@ int init_proto_gtp_struct() {
 		mmt_init_classify_bitmasks(&selection_bitmask, &detection_bitmask,
 		        &excluded_protocol_bitmask, MMT_SELECTION_BITMASK_PROTOCOL_V4_V6_UDP_WITH_PAYLOAD,
 		        PROTO_UNKNOWN, PROTO_GTP);
+		/* issue #561: mmt_check_gtp never opened with the selection /
+		 * detection / exclusion guard, so the walk must not evaluate one */
+		mmt_checker_keeps_local_guard(PROTO_GTP);
 		register_classification_function(protocol_struct, gtp_classify_next_proto);
 		return register_protocol(protocol_struct, PROTO_GTP);
 	} else {

@@ -62,8 +62,9 @@ static const chain_row_t rows[] = {
 };
 #define N_ROWS (sizeof(rows) / sizeof(rows[0]))
 
-/* Issue #561: the checkers whose unit calls mmt_checker_keeps_local_guard(). */
-static const char *const local_guard[] = { "mmt_check_ndn_http", "mmt_check_tpkt", "mmt_check_vnc" };
+/* Issue #561: the checkers whose unit calls mmt_checker_keeps_local_guard():
+ * three keep their own guard, mmt_check_gtp never had one. */
+static const char *const local_guard[] = { "mmt_check_gtp", "mmt_check_ndn_http", "mmt_check_tpkt", "mmt_check_vnc" };
 
 static int keeps_local_guard(const char *fn) {
     size_t i;

@@ -350,9 +350,10 @@ typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
     void mmt_tcpip_record_local_guard(uint32_t excluded_proto) __attribute__((weak));
 
     /* Issue #561: called by a protocol unit's init, after its
-     * mmt_init_classify_bitmasks*() call, when its checker evaluates its own
-     * guard — because a closed guard has a side effect (the checker excludes
-     * itself), which the walk's skip would lose. */
+     * mmt_init_classify_bitmasks*() call, when the walk must not evaluate its
+     * checker's guard: the checker evaluates its own, because a closed guard
+     * has a side effect (the checker excludes itself) the walk's skip would
+     * lose, or it never had one (mmt_check_gtp). */
     static inline void mmt_checker_keeps_local_guard(uint32_t excluded_proto) {
         if (mmt_tcpip_record_local_guard != NULL) {
             mmt_tcpip_record_local_guard(excluded_proto);
