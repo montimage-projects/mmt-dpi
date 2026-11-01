@@ -22,9 +22,7 @@ int mmt_check_vmware(ipacket_t * ipacket, unsigned index)
 	struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
 	struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_VMWARE)
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
     	
         if((packet->payload_packet_len == 66)
            && (ntohs(packet->udp->dest) == 902)

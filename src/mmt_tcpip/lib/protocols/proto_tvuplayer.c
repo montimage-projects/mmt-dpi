@@ -14,9 +14,7 @@ static void mmt_int_tvuplayer_add_connection(ipacket_t * ipacket, mmt_protocol_t
 
 int mmt_check_tvuplayer_tcp(ipacket_t * ipacket, unsigned index) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_TVUPLAYER)
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 
@@ -48,9 +46,7 @@ int mmt_check_tvuplayer_tcp(ipacket_t * ipacket, unsigned index) {
 
 int mmt_check_tvuplayer_udp(ipacket_t * ipacket, unsigned index) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_TVUPLAYER)
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 

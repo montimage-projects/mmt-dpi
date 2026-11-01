@@ -861,10 +861,7 @@ void mmt_classify_irc_tcp(ipacket_t * ipacket, unsigned index) {
 }
 
 int mmt_check_irc(ipacket_t * ipacket, unsigned index) {
-    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_IRC)
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         mmt_classify_irc_tcp(ipacket, index);
     }

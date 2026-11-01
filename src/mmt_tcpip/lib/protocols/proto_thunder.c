@@ -137,10 +137,7 @@ int mmt_int_search_thunder_http(ipacket_t * ipacket)
 }
 
 int mmt_check_thunder_tcp(ipacket_t * ipacket, unsigned index) {
-    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_THUNDER)
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
         int over_http = mmt_int_search_thunder_http(ipacket);
         /* A Thunder-over-HTTP match returns here, so the TCP search never
          * runs on the same packet (a later packet of the flow that reaches
@@ -154,10 +151,7 @@ int mmt_check_thunder_tcp(ipacket_t * ipacket, unsigned index) {
 }
 
 int mmt_check_thunder_udp(ipacket_t * ipacket, unsigned index) {
-    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_THUNDER)
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         return mmt_int_search_thunder_udp(ipacket);
 

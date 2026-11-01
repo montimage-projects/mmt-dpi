@@ -66,10 +66,7 @@ void mmt_classify_pando(ipacket_t * ipacket, unsigned index) {
 }
 
 int mmt_check_pando(ipacket_t * ipacket, unsigned index) {
-    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && !MMT_FLOW_EXCLUDES(packet->flow, PROTO_PANDO)
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         /* search_pando() already branches on packet->tcp/udp. */
         mmt_classify_pando(ipacket, index);
