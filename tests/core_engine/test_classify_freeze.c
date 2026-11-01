@@ -333,7 +333,8 @@ static uint64_t g_det_c[16];               /* c's detection set */
 
 static void test_guard_view(const ipacket_t *ipacket, mmt_classify_guard_view_t *view) {
     (void) ipacket;
-    g_view_calls++;
+    /* atomic: the hook stays installed for the concurrent tests that follow */
+    __atomic_add_fetch(&g_view_calls, 1, __ATOMIC_RELAXED);
     *view = g_view;
 }
 
@@ -368,9 +369,9 @@ static void test_central_guard(mmt_handler_t *h) {
             CHECK(g_parent->classify_next.frozen == NULL, "set_guard dropped the frozen copy");
         }
         view_open();
-        calls = g_view_calls;
+        calls = __atomic_load_n(&g_view_calls, __ATOMIC_RELAXED);
         CHECK(strcmp(walk(h), "bacz") == 0, what);
-        CHECK(g_view_calls == calls + 1, "the view is read once per walk");
+        CHECK(__atomic_load_n(&g_view_calls, __ATOMIC_RELAXED) == calls + 1, "the view is read once per walk");
         g_view.selection = 0x2u;
         CHECK(strcmp(walk(h), "acz") == 0, "a selection bit missing closes b's guard");
         view_open();
