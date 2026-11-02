@@ -68,6 +68,8 @@
  * mmt_tcpip_internal_packet_struct layout (iph/iphv6). */
 #include "mmt_tcpip_internal_defs_macros.h"
 #include "mmt_tcpip_plugin_structs.h"
+#include "mmt_tcpip_plugin_internal.h" /* issue #562: the host-extension helpers */
+#include "protocols/ip_session_id_management.h" /* issue #562: host-record size asserts */
 #include <arpa/inet.h>
 
 static int g_failures = 0;
@@ -90,6 +92,12 @@ static int g_failures = 0;
 #define CE_SESSION_SIZE_PRE_255 1032u
 _Static_assert(sizeof(mmt_session_t) <= CE_SESSION_SIZE_PRE_255 - 190 + 16u * sizeof(void *),
                "issue #255 + #252: session record within the #255 budget plus the #252 checker-dispatch table");
+/* Issue #562 (F-PERF-012): 856 B before — the byte fields moved out of the
+ * padding holes and proto_checkers[] holds 2 B checker ids instead of 8 B
+ * node pointers (744 B measured on this LP64 target). */
+_Static_assert(sizeof(mmt_session_t) <= 800, "issue #562: session record within 800 B");
+_Static_assert(sizeof(((mmt_session_t *) 0)->proto_checkers[0]) == sizeof(uint16_t),
+               "issue #562: proto_checkers[] stores checker ids");
 
 /* ---------------- libc allocation failure injection ---------------------- */
 extern void *__real_malloc(size_t size);
@@ -620,7 +628,12 @@ static void test_handler_bootstrap_oom(void) {
      *   #7 A's session table (malloc)  + A's slots (calloc)
      *   #8 B's session table (malloc)  + B's slots (calloc)
      * Budgets 0..7 all fail; 8 lets the whole call through.
+     * Issue #560: mmt_init_handler() also freezes each classification chain
+     * not frozen yet (one malloc per chain, once); freeze them here so the
+     * sweep counts only the handler's own allocations — a failed freeze is
+     * tests/core_engine/test_classify_freeze.c's.
      */
+    mmt_classify_chains_freeze();
     for (long b = 0; b <= 8; b++) {
         g_malloc_budget = b;
         mmt_handler_t *h = mmt_init_handler(TEST_STACK_ID, 0, errbuf);
@@ -2039,6 +2052,86 @@ static void test_offset_memoization(void) {
     CHECK(get_packet_offset_at_index(&pkt.pub, PROTO_PATH_SIZE + 7) ==
           get_packet_offset_at_index(&pkt.pub, PROTO_PATH_SIZE - 1),
           "index is clamped to PROTO_PATH_SIZE-1");
+
+    /* Issue #558: the inline twin the SDK objects call returns what the
+     * export returns, from a cold cache and from a warm one. */
+    ipacket_internal_t tmpl, p_twin, p_export;
+    memset(&tmpl, 0, sizeof(tmpl));
+    for (unsigned i = 0; i < PROTO_PATH_SIZE; i++)
+        tmpl.internal_proto_headers_offset.proto_path[i] = (int) (3 * i + 1);
+    int same = 1;
+    for (unsigned i = 0; i < PROTO_PATH_SIZE + 2; i++) {
+        p_twin = tmpl;   /* cold caches */
+        p_export = tmpl;
+        p_twin.proto_headers_offset = &p_twin.internal_proto_headers_offset;
+        p_export.proto_headers_offset = &p_export.internal_proto_headers_offset;
+        if (mmt_packet_offset_at_index(&p_twin.pub, i) !=
+            get_packet_offset_at_index(&p_export.pub, i)) same = 0;
+        /* warm caches: below and above the high-water mark */
+        if (mmt_packet_offset_at_index(&p_twin.pub, i / 2) !=
+            get_packet_offset_at_index(&p_export.pub, i / 2)) same = 0;
+        if (mmt_packet_offset_at_index(&p_twin.pub, i + 1) !=
+            get_packet_offset_at_index(&p_export.pub, i + 1)) same = 0;
+    }
+    CHECK(same, "inline twin matches the exported get_packet_offset_at_index()");
+    CHECK(mmt_packet_offset_at_index(&p_twin.pub, 2) == 1 + 4 + 7, "twin prefix sum");
+}
+
+/* packet_stats.c; no header declares it (mmt_close_handler()'s helper). */
+void free_handler_protocol_statistics(mmt_handler_t *mmt_handler, protocol_instance_t *protocol);
+
+/* Issue #558: _get_protocol_stats_from_parent() caches, per protocol, the
+ * stats instance it resolved last and the parent it hangs under. The cache
+ * must follow the parent: a protocol under two parents keeps two instances. */
+static void test_stats_child_cache(void) {
+    fprintf(stderr, "  test: per-protocol stats-node cache (issue #558)\n");
+    char errbuf[256];
+    mmt_handler_t *h = mmt_init_handler(TEST_STACK_ID, 0, errbuf);
+    CHECK(h != NULL, "handler for the stats cache");
+    if (h == NULL) return;
+    enable_protocol_statistics(h);
+
+    ipacket_internal_t pkt;
+    pkthdr_t hdr;
+    memset(&pkt, 0, sizeof(pkt));
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.len = hdr.caplen = hdr.original_len = hdr.original_caplen = 100;
+    pkt.p_hdr = &hdr;
+    pkt.mmt_handler = h;
+    ipacket_t *ip = &pkt.pub;
+
+    protocol_instance_t *meta = &h->configured_protocols[PROTO_META];
+    protocol_instance_t *pa = &h->configured_protocols[TEST_PROTO_A];
+    protocol_instance_t *pb = &h->configured_protocols[TEST_PROTO_B];
+    proto_statistics_internal_t *root = update_proto_stats(ip, meta, NULL, 0, 0, 0);
+    proto_statistics_internal_t *a = update_proto_stats(ip, pa, root, 0, 0, 1);
+    proto_statistics_internal_t *b_root = update_proto_stats(ip, pb, root, 0, 0, 1);
+    proto_statistics_internal_t *b_a = update_proto_stats(ip, pb, a, 0, 0, 2);
+    CHECK(root != NULL && a != NULL && b_root != NULL && b_a != NULL,
+          "stats instances created");
+    if (root == NULL || a == NULL || b_root == NULL || b_a == NULL) {
+        mmt_close_handler(h);
+        return;
+    }
+    CHECK(b_root != b_a, "one instance per parent");
+    CHECK(pb->stats_cache_parent == a && pb->stats_cache == b_a,
+          "the cache holds the last (parent, instance) pair");
+    /* alternate the parents: each hit returns that parent's instance */
+    CHECK(update_proto_stats(ip, pb, root, 0, 0, 1) == b_root, "cache miss resolves the root's B");
+    CHECK(update_proto_stats(ip, pb, root, 0, 0, 1) == b_root, "cache hit returns the root's B");
+    CHECK(update_proto_stats(ip, pb, a, 0, 0, 2) == b_a, "cache miss resolves A's B");
+    CHECK(b_root->packets_count == 3 && b_a->packets_count == 2,
+          "every packet counted on its own path");
+    CHECK(find_int_key_value(root->encap_proto_stats, TEST_PROTO_B) == b_root &&
+          find_int_key_value(a->encap_proto_stats, TEST_PROTO_B) == b_a,
+          "the cached instances are the ones the parents' maps hold");
+
+    /* B's instances are freed (the parents' maps keep stale entries, never
+     * read again here): the cache must not keep returning one of them. */
+    free_handler_protocol_statistics(h, pb);
+    CHECK(pb->proto_stats == NULL && pb->stats_cache_parent == NULL &&
+          pb->stats_cache == NULL, "freeing the stats clears the cache");
+    mmt_close_handler(h);
 }
 
 /* Issue #243 / F-TEST-018: the TCP-reassembly instrumentation counters in
@@ -2676,6 +2769,108 @@ static void test_null_slot_lookups(void) {
     CHECK(unregister_protocol_by_name((char *) "ce_null_slot") == 0, "unregister by name with every slot NULL -> 0");
 }
 
+/* ---- issue #562 (F-PERF-012): checker ids instead of node pointers ------ */
+static void test_checker_ids(void) {
+    fprintf(stderr, "  test: checker ids map back to their nodes (issue #562)\n");
+    static mmt_classify_proto_t nodes[MMT_CLASSIFIER_ID_SLOTS];
+    memset(nodes, 0, sizeof(nodes));
+    CHECK(mmt_classifier_by_id(0) == NULL, "id 0 names no checker");
+    CHECK(mmt_classifier_by_id(MMT_CLASSIFIER_ID_SLOTS) == NULL, "an id past the table names no checker");
+
+    uint16_t a = mmt_classifier_id_assign(&nodes[0]);
+    uint16_t b = mmt_classifier_id_assign(&nodes[1]);
+    CHECK(a != 0 && b != 0 && a != b, "two nodes get distinct non-zero ids");
+    CHECK(nodes[0].id == a && nodes[1].id == b, "the node records its id");
+    CHECK(mmt_classifier_by_id(a) == &nodes[0] && mmt_classifier_by_id(b) == &nodes[1],
+          "an id maps back to its node");
+    mmt_classifier_id_release(&nodes[0]);
+    CHECK(nodes[0].id == 0, "a released node has no id");
+    CHECK(mmt_classifier_by_id(a) == NULL, "a released id names no checker (the full walk)");
+    uint16_t c = mmt_classifier_id_assign(&nodes[2]);
+    CHECK(c == a, "the first free slot is reused");
+    mmt_classifier_id_release(&nodes[1]);
+    mmt_classifier_id_release(&nodes[2]);
+
+    /* A full table hands out id 0: the node is walked, never dispatched. */
+    size_t taken = 0, zero = 0;
+    for (size_t i = 0; i < MMT_CLASSIFIER_ID_SLOTS; i++) {
+        if (mmt_classifier_id_assign(&nodes[i]) != 0) taken++; else zero++;
+    }
+    CHECK(taken < MMT_CLASSIFIER_ID_SLOTS && zero > 0, "a full table hands out id 0");
+    CHECK(mmt_classifier_by_id(nodes[MMT_CLASSIFIER_ID_SLOTS - 1].id) == NULL,
+          "the node that got id 0 maps to no checker");
+    for (size_t i = 0; i < MMT_CLASSIFIER_ID_SLOTS; i++) {
+        mmt_classifier_id_release(&nodes[i]);
+    }
+    mmt_classifier_id_release(NULL); /* a NULL node is a no-op */
+    CHECK(mmt_classifier_id_assign(&nodes[0]) != 0, "released slots are free again");
+    mmt_classifier_id_release(&nodes[0]);
+}
+
+/* ---- issue #562 (F-PERF-104): the slim host record ----------------------- */
+static void test_host_record(void) {
+    fprintf(stderr, "  test: host record tracked protocols and lazy extension (issue #562)\n");
+    const uint32_t tracked[MMT_HOST_PROTO_TRACKED] = {
+        PROTO_FTP, PROTO_SPOTIFY, PROTO_PPLIVE, PROTO_DIRECTCONNECT, PROTO_IRC,
+        PROTO_YAHOO, PROTO_GADUGADU, PROTO_MSN, PROTO_GNUTELLA, PROTO_BATTLEFIELD,
+        PROTO_POPO, PROTO_THUNDER, PROTO_OSCAR, PROTO_WORLDOFWARCRAFT };
+    uint32_t seen = 0;
+    for (int i = 0; i < MMT_HOST_PROTO_TRACKED; i++) {
+        uint16_t bit = mmt_host_proto_bit(tracked[i]);
+        CHECK(bit != 0 && (bit & (bit - 1)) == 0, "a tracked protocol has one bit");
+        CHECK((seen & bit) == 0, "tracked protocols have distinct bits");
+        seen |= bit;
+    }
+    CHECK(seen == (1u << MMT_HOST_PROTO_TRACKED) - 1, "the tracked bits are dense");
+    CHECK(mmt_host_proto_bit(PROTO_HTTP) == 0 && mmt_host_proto_bit(PROTO_UNKNOWN) == 0
+          && mmt_host_proto_bit(PROTO_TCP) == 0, "an untracked protocol has no bit");
+
+    struct mmt_internal_tcpip_id_struct host, peer;
+    memset(&host, 0, sizeof(host));
+    memset(&peer, 0, sizeof(peer));
+    struct mmt_internal_tcpip_id_struct *src = &host, *dst = &peer, *none = NULL;
+    CHECK(!MMT_HOST_HAS_PROTOCOL(src, PROTO_FTP), "a fresh host has no protocol");
+    host.detected_host_protos |= mmt_host_proto_bit(PROTO_FTP);
+    CHECK(MMT_HOST_HAS_PROTOCOL(src, PROTO_FTP) && !MMT_HOST_HAS_PROTOCOL(src, PROTO_IRC),
+          "the host has exactly the protocol detected on it");
+    CHECK(MMT_SRC_HAS_PROTOCOL(src, PROTO_FTP) && !MMT_DST_HAS_PROTOCOL(dst, PROTO_FTP)
+          && !MMT_SRC_HAS_PROTOCOL(none, PROTO_FTP), "src/dst macros read the tracked bit");
+    CHECK(MMT_SRC_OR_DST_HAS_PROTOCOL(none, src, PROTO_FTP)
+          && !MMT_SRC_OR_DST_HAS_PROTOCOL(dst, none, PROTO_FTP), "either-side macro reads both hosts");
+
+    /* Reads never allocate the extension; the first write does. */
+    CHECK(check_local_proto_by_port_nb(htons(3478), &host) == 0 && host.ext == NULL,
+          "a lookup on a fresh host finds nothing and allocates nothing");
+    CHECK(check_local_proto_by_port_nb(0, &host) == 0, "port 0 finds nothing on a fresh host");
+    CHECK(check_local_proto_by_port_nb(htons(3478), NULL) == 0, "a NULL host finds nothing");
+    insert_to_local_protos(htons(3478), PROTO_STUN, 17, NULL); /* no-op */
+    g_malloc_budget = 0;
+    insert_to_local_protos(htons(3478), PROTO_STUN, 17, &host);
+    g_malloc_budget = -1;
+    CHECK(host.ext == NULL && check_local_proto_by_port_nb(htons(3478), &host) == 0,
+          "an insert under OOM caches nothing");
+    insert_to_local_protos(htons(3478), PROTO_STUN, 17, &host);
+    CHECK(host.ext != NULL, "the first insert allocates the extension");
+    CHECK(check_local_proto_by_port_nb(htons(3478), &host) == PROTO_STUN, "the cached port is found");
+    CHECK(check_local_proto_by_port_nb(htons(3479), &host) == 0, "another port is not");
+    mmt_internal_tcpip_id_ext_t *ext = host.ext;
+    insert_to_local_protos(htons(3478), PROTO_FACETIME, 17, &host);
+    CHECK(host.ext == ext && check_local_proto_by_port_nb(htons(3478), &host) == PROTO_STUN
+          && ext->local_protos.index.index == 1, "a cached port is not inserted twice");
+    for (uint16_t p = 1; p <= 64; p++) {
+        insert_to_local_protos(htons((uint16_t) (40000 + p)), PROTO_BITTORRENT, 6, &host);
+    }
+    CHECK(check_local_proto_by_port_nb(htons(3478), &host) == 0
+          && check_local_proto_by_port_nb(htons(40064), &host) == PROTO_BITTORRENT,
+          "the 64-entry cache wraps, evicting the oldest port");
+    CHECK(mmt_host_ext_get(&host) == ext && mmt_host_ext_get(NULL) == NULL,
+          "the extension is allocated once");
+    mmt_host_ext_release(&host);
+    CHECK(host.ext == NULL, "release frees the extension");
+    mmt_host_ext_release(&host); /* already released: no-op */
+    mmt_host_ext_release(NULL);
+}
+
 int main(void) {
     fprintf(stderr, "Core-engine test suite (session lifecycle + arena allocator)\n");
     g_null_fp = fopen("/dev/null", "w"); /* sink for the fprintf/format helpers */
@@ -2691,6 +2886,8 @@ int main(void) {
     test_analyse_verdict();
     test_per_handler_protocol_switches();
     test_children_stats_extension();
+    test_checker_ids();
+    test_host_record();
     test_timeout_span_overflow();
     test_tunnel_parent_lifetime();
     test_oom_sweep_revisits_skipped_parent();
@@ -2708,6 +2905,7 @@ int main(void) {
     test_hostname_matching();
     test_ip_attribution();
     test_offset_memoization();
+    test_stats_child_cache();
     test_reasm_stats();
 
     /* Full teardown, then a second init/close cycle — F-BUG-005 regression:

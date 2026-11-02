@@ -37,7 +37,7 @@ statuses were last re-verified against the sources for issue #559.
 
 ### H1 — No graded classification confidence — *highest impact*
 - **Where:** `classified_proto_t`'s binary `status` field
-  ([`plugin_defs.h:129`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_core/public_include/plugin_defs.h#L129)); the address/port fallbacks of
+  ([`plugin_defs.h:133`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_core/public_include/plugin_defs.h#L133)); the address/port fallbacks of
   [`proto_tcp.c:1217`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1217) and [`proto_udp.c:152`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L152).
 - **Why weak:** the verdict is Classified / NonClassified with no confidence
   score, so the engine cannot distinguish a payload-proven verdict from a
@@ -49,13 +49,13 @@ statuses were last re-verified against the sources for issue #559.
 - **Next step:** introduce a confidence/score concept. This is an ABI change to a
   public struct used across many plugins — large, must be staged. #75's
   payload-confirm predicate (`mmt_payload_confirms_proto`,
-  [`mmt_tcpip_plugin_internal.c:485`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.c#L485)) is a side-effect-free building block
+  [`mmt_tcpip_plugin_internal.c:488`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.c#L488)) is a side-effect-free building block
   toward this.
 
 ### H2 — Port-only attribution accepted without payload evidence — *mitigated by #75*
 - **Where:** `mmt_guess_protocol_by_port_number` in the fallbacks
   ([`proto_tcp.c:1230`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1230), [`proto_udp.c:165`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L165)); the demotion gate
-  [`mmt_tcpip_plugin_internal.c:562`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.c#L562).
+  [`mmt_tcpip_plugin_internal.c:565`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.c#L565).
 - **Why weak:** a port number alone is the weakest signal; services move ports
   and ports get squatted.
 - **Status:** addressed by the default-off `enable_port_classify_payload_confirm()`
@@ -65,14 +65,15 @@ statuses were last re-verified against the sources for issue #559.
   precision/recall on port-only captures proves the gain.
 
 ### H3 — Stale compiled-in IP ranges — *mitigated by #26 / #74 / #75*
-- **Where:** `proto_ip_address[]`
-  ([`mmt_tcpip_classif_proto_ip_address.inc:1`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_classif_proto_ip_address.inc#L1), ~10k ranges, included by
+- **Where:** `ip_range_intervals[]`
+  ([`mmt_tcpip_classif_proto_ip_address.inc:11`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_classif_proto_ip_address.inc#L11), ~10k ranges generated from
+  `data/ip_ranges.txt` since #557, included by
   `mmt_tcpip_classif_utils.c`), consulted via `get_proto_id_from_address`
   ([`proto_tcp.c:1226`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_tcp.c#L1226), [`proto_udp.c:160`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/protocols/proto_udp.c#L160)).
 - **Why weak:** CDN/cloud allocations drift; compiled-in ranges go stale and
   misattribute.
 - **Status:** external `MMT_DPI_IP_RANGES_FILE` (extend/override, IPv4+IPv6,
-  read at [`mmt_tcpip_classif_utils.c:562`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_classif_utils.c#L562)) plus the refreshable
+  read at [`mmt_tcpip_classif_utils.c:570`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_classif_utils.c#L570)) plus the refreshable
   [`data/ip_ranges.cdn.txt`](https://github.com/montimage-projects/mmt-dpi/blob/main/data/ip_ranges.cdn.txt) and
   [`tools/refresh_cdn_ranges.sh`](https://github.com/montimage-projects/mmt-dpi/blob/main/tools/refresh_cdn_ranges.sh) (issue #75).
 
@@ -96,8 +97,8 @@ statuses were last re-verified against the sources for issue #559.
 - **Why weak:** a TCP-named field is consulted in the UDP path to set
   `MMT_SELECTION_BITMASK_PROTOCOL_NO_TCP_RETRANSMISSION`. On UDP the gate is
   always taken: `mmt_connection_tracking` clears the field on every packet
-  ([`mmt_tcpip_plugin_internal.h:340`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.h#L340)) and only the TCP sequence check sets
-  it ([`mmt_tcpip_plugin_internal.h:462`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.h#L462)). The author's "do we need to keep
+  ([`mmt_tcpip_plugin_internal.h:380`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.h#L380)) and only the TCP sequence check sets
+  it ([`mmt_tcpip_plugin_internal.h:502`](https://github.com/montimage-projects/mmt-dpi/blob/main/src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.h#L502)). The author's "do we need to keep
   this???" TODO was removed by the marker triage (issue #232) without an answer.
 - **Next step:** trace which selection-bitmask consumers depend on this bit for
   UDP; drop the `if` (behaviour-neutral) or rename the bit if it is vestigial.

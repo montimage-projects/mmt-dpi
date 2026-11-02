@@ -408,6 +408,11 @@ void init_protocol_struct(protocol_t * proto) {
     proto->classify_next.pre_classify = NULL;
     proto->classify_next.classify_protos = NULL;
     proto->classify_next.post_classify = NULL;
+    proto->classify_next.guard_view = NULL;
+    /* Issue #560: a re-initialised slot retires its frozen chain (freed at
+     * teardown by free_registered_protocols(): a worker may still walk it).
+     * Like the reads above, this assumes the struct was zeroed at allocation. */
+    mmt_classify_chain_invalidate(&proto->classify_next);
     proto->data_analyser.pre_analyse = NULL;
     proto->data_analyser.analyse = NULL;
     proto->data_analyser.post_analyse = NULL;
@@ -488,11 +493,13 @@ void free_registered_protocol(protocol_t * protocol) {
     }
 
     //Clear the classification function if it exists
+    mmt_classify_chain_release(&protocol->classify_next); /* issue #560: its frozen copies first */
     mmt_classify_proto_t * temp_class = protocol->classify_next.classify_protos;
     mmt_classify_proto_t * safe_to_delete_c = NULL;
     while (temp_class != NULL) {
         safe_to_delete_c = temp_class;
         temp_class = temp_class->next;
+        mmt_classifier_id_release(safe_to_delete_c); /* issue #562 */
         mmt_free(safe_to_delete_c);
     }
     //Clear the classification function if it exists
@@ -511,6 +518,9 @@ void free_registered_protocols() {
         if (configured_protocols[i]) {
             if (configured_protocols[i]->is_registered) {
                 free_registered_protocol(configured_protocols[i]);
+            } else {
+                /* Issue #560: an unregistered slot still owns its frozen chains. */
+                mmt_classify_chain_release(&configured_protocols[i]->classify_next);
             }
             mmt_free(configured_protocols[i]); // Then we free the protocol element structure
             configured_protocols[i] = NULL;

@@ -48,6 +48,9 @@ typedef struct session_timer_handler_struct        session_timer_handler_t;
 
 typedef struct mmt_classify_proto_struct           mmt_classify_proto_t;
 typedef struct mmt_classify_next_struct            mmt_classify_next_t;
+typedef struct mmt_classify_entry_struct           mmt_classify_entry_t;
+typedef struct mmt_classify_chain_struct           mmt_classify_chain_t;
+typedef struct mmt_classify_guard_view_struct      mmt_classify_guard_view_t;
 typedef struct mmt_proto_data_analysis_proc_struct mmt_analyse_me_t;
 typedef struct mmt_proto_data_analysis_struct      mmt_analyser_t;
 
@@ -187,8 +190,9 @@ typedef struct mmt_tcp_reasm_s {
  * Defines the structure of a session.
  */
 struct mmt_session_struct {
-    uint8_t family;                          /**< identifier of the application family to which this session belongs. */
-
+    /* Issue #562 (F-PERF-012): the byte-wide fields (family, is_fragmenting)
+     * sit in the tail byte group with the status bits, so the record has no
+     * padding hole before an 8-byte field. */
     uint32_t session_protocol_index;         /**< index of the protocol to which the session belongs */
     uint32_t session_timeout_delay;          /**< The inactivity delay after which the session can be considered as expired */
     uint32_t session_timeout_milestone;      /**< The time expressed as seconds since Epoch (1st Jan 1970) when the session will be considered as expired */
@@ -206,7 +210,6 @@ struct mmt_session_struct {
     uint64_t session_id;                     /**< session identifier */
     uint64_t fragmented_packet_count;        /**< number of fragmented packets which are in this session*/
     uint64_t fragment_count;                 /**< number of fragments which are in this session*/
-    uint8_t is_fragmenting;                  /** 1 - session is processing a fragmented packet, 0 - session is not processing any fragmented packet*/
     /* Total statistics */
     uint64_t packet_count;                   /**< tracks the number of packets */
     uint64_t packet_cap_count;               /**< number of packets which are captured as in this session - include fragmented packets*/
@@ -243,10 +246,13 @@ struct mmt_session_struct {
      * instead of re-walking the whole chain. The winning checker keeps its
      * per-packet role on the flow (stage machines, SNI/hostname service
      * detection); the ~98 non-owning checkers are no-ops on a committed flow.
-     * NULL when the layer converged without a winning checker (port/IP
+     * 0 when the layer converged without a winning checker (port/IP
      * fallback, plugin-side set_classified_proto) — such layers keep the
-     * full walk so late reclassification stays possible. */
-    mmt_classify_proto_t *proto_checkers[PROTO_PATH_SIZE];
+     * full walk so late reclassification stays possible.
+     * Issue #562 (F-PERF-012): a slot holds the checker's id
+     * (mmt_classify_proto_t.id, mmt_classifier_by_id()), 2 B instead of an
+     * 8 B node pointer. */
+    uint16_t proto_checkers[PROTO_PATH_SIZE];
 
     /* BW: MMT content type */
     struct {
@@ -289,6 +295,8 @@ struct mmt_session_struct {
      * fallbacks, classifier claims in set_classified_proto). It sits in the
      * padding before tcp_reasm, so the session does not grow. */
     uint8_t classification_method;
+    uint8_t family;                          /**< identifier of the application family to which this session belongs. */
+    uint8_t is_fragmenting;                  /** 1 - session is processing a fragmented packet, 0 - session is not processing any fragmented packet*/
     /* Issue #245: the TCP reassembly fields (segment lists, payload image
      * buffers, block chain) moved into the lazily-allocated mmt_tcp_reasm_t
      * extension above — a session that never reassembles TCP payload pays
@@ -442,15 +450,122 @@ struct session_timer_handler_struct{
 struct mmt_classify_proto_struct {
     uint32_t weight;
     uint8_t legacy; /**< Issue #540: 1 = defunct-service checker, walked only when the handler's legacy_classify is set */
+    uint16_t id;    /**< Issue #562: slot in mmt_classifier_slots (mmt_classifier_by_id()), 0 = none (table full) */
     generic_classification_function classify_me; /**< Issue #546: typed verdict (was int) */
+    uint32_t selection_mask; /**< Issue #560: the checker's packet-selection guard (0 = none recorded), set by mmt_classifier_set_guard() */
+    uint32_t excluded_proto; /**< Issue #560: the protocol id the checker's excluded bitmask holds (PROTO_UNKNOWN = none) */
+    const uint64_t *detection; /**< Issue #561: the checker's detection set (1,024-bit words), NULL = no central guard */
+    uint16_t excluded_slot;    /**< Issue #561: excluded_proto's slot in the flow's dense exclusion set */
     mmt_classify_proto_t * next;
     mmt_classify_proto_t * previous;
+};
+
+/*
+ * Issue #562 (F-PERF-012): every registered checker node gets a small id —
+ * its slot in this process-wide table — so mmt_session_t.proto_checkers[]
+ * records a 2 B id per layer instead of an 8 B node pointer. Slot 0 is never
+ * used: id 0 means "no recorded checker" (the full walk). A node takes the
+ * first free slot when registered (register_classification_function_internal)
+ * and frees it before the node is freed (free_registered_protocols()), so a
+ * session id naming a freed node reads NULL. With every slot taken a node
+ * gets id 0 and is never dispatched directly — it is still walked, so
+ * verdicts are unchanged.
+ */
+#define MMT_CLASSIFIER_ID_SLOTS 1024
+extern mmt_classify_proto_t * mmt_classifier_slots[MMT_CLASSIFIER_ID_SLOTS];
+
+/* The node of a checker id, NULL for id 0, an id past the table or a freed slot. */
+static inline mmt_classify_proto_t * mmt_classifier_by_id(uint16_t id) {
+    return (id != 0 && id < MMT_CLASSIFIER_ID_SLOTS)
+            ? __atomic_load_n(&mmt_classifier_slots[id], __ATOMIC_ACQUIRE) : NULL;
+}
+
+/* packet_registry_classify.c — issue #562: give a node an id (0 when the
+ * table is full) / clear its slot before the node is freed. */
+uint16_t mmt_classifier_id_assign(mmt_classify_proto_t * node);
+void mmt_classifier_id_release(mmt_classify_proto_t * node);
+/**
+ * Issue #560 (F-PERF-005, checker walk part 1): one checker of a frozen
+ * chain. The registration node stays the checker's identity — the claim
+ * stores it, mmt_session_t.proto_checkers[] its id (#562) — so a chain
+ * re-frozen after a late registration never invalidates either;
+ * the walk itself reads only these contiguous entries. The guard inputs
+ * (selection_mask, detection, excluded_slot) are copied from the node for the
+ * central guard (issue #561, mmt_classify_guard_open()).
+ */
+struct mmt_classify_entry_struct {
+    generic_classification_function classify_me;
+    mmt_classify_proto_t *node;  /**< the registration node (stable identity) */
+    const uint64_t *detection;   /**< node->detection (NULL = no central guard) */
+    uint32_t selection_mask;     /**< node->selection_mask */
+    uint16_t excluded_proto;     /**< node->excluded_proto (ids < PROTO_MAX_IDENTIFIER) */
+    uint16_t excluded_slot;      /**< node->excluded_slot */
+    uint8_t legacy;              /**< node->legacy */
+};
+
+/**
+ * Issue #561 (F-PERF-005, checker walk part 2): what a chain's checkers are
+ * guarded on, read once per walk from the packet by the parent's guard_view
+ * hook (the tcpip plugin's for TCP and UDP). A guarded checker — an entry
+ * with a detection set — is called only when its guard is open
+ * (mmt_classify_guard_open()); the checker no longer tests it itself.
+ */
+struct mmt_classify_guard_view_struct {
+    uint32_t selection;       /**< the packet's selection word */
+    uint32_t detected_word;   /**< the word of the 1,024-bit detection sets holding the packet's detected protocol */
+    uint64_t detected_bits;   /**< the packet's bits in that word (0: none — every guard is closed) */
+    const uint64_t *excluded; /**< the flow's dense exclusion set (NULL: no flow — every guard is closed) */
+};
+
+/** Fills the guard view of a packet about to walk a chain (issue #561). */
+typedef void (*mmt_classify_guard_view_function)(const ipacket_t *ipacket, mmt_classify_guard_view_t *view);
+
+/**
+ * Issue #561: a guarded checker's guard — the test every checker used to open
+ * with: its selection mask is all set in the packet's selection word, its
+ * detection set holds the packet's detected protocol, and the flow has not
+ * excluded its protocol. O(1): one word of each set.
+ */
+static inline int mmt_classify_guard_open(const mmt_classify_guard_view_t *view,
+        uint32_t selection_mask, const uint64_t *detection, uint16_t excluded_slot) {
+    return (selection_mask & view->selection) == selection_mask
+            && (detection[view->detected_word] & view->detected_bits) != 0
+            && view->excluded != NULL
+            && ((view->excluded[excluded_slot >> 6] >> (excluded_slot & 63)) & 1) == 0;
+}
+
+/**
+ * Issue #560: a classification chain frozen into one allocation, built by
+ * mmt_classify_chain_freeze() from the weight-sorted registration list in
+ * list order. entries[0..count) is every checker (the `legacy` profile's
+ * walk); default_entries[0..default_count) is the same sequence without the
+ * legacy checkers (the default walk), so neither walk tests a flag per
+ * checker. A chain superseded by a later registration is kept on the
+ * protocol's retired list until teardown — a worker that loaded it before the
+ * change can still finish its walk.
+ */
+struct mmt_classify_chain_struct {
+    mmt_classify_chain_t *retired_next;    /**< next superseded chain (retired list) */
+    uint32_t count;                        /**< checkers in entries[] */
+    uint32_t default_count;                /**< checkers in default_entries[] */
+    mmt_classify_entry_t *default_entries; /**< == entries + count */
+    mmt_classify_entry_t entries[];        /**< count + default_count entries */
 };
 
 struct mmt_classify_next_struct {
     generic_classification_function pre_classify;
     mmt_classify_proto_t * classify_protos;
     generic_classification_function post_classify;
+    /** Issue #560: the frozen copy of classify_protos the walk uses; NULL
+     * until mmt_init_handler() freezes it, and again after any change to the
+     * list (registration, legacy mark, guard) until the next freeze — the walk
+     * then falls back to the list, so a late registration is never missed.
+     * Published with release / read with acquire (__atomic builtins). */
+    mmt_classify_chain_t * frozen;
+    mmt_classify_chain_t * retired; /**< Issue #560: superseded chains, freed with the list */
+    /** Issue #561: fills the per-walk guard view of this chain's guarded
+     * checkers; NULL when none is guarded (mmt_classifier_set_guard_view()). */
+    mmt_classify_guard_view_function guard_view;
 };
 
 struct mmt_proto_data_analysis_proc_struct {
@@ -548,6 +663,24 @@ struct protocol_struct {
 };
 
 /**
+ * Issue #560: drop the frozen copy of a chain whose list just changed. The
+ * chain moves to the retired list (freed at teardown, never here: a worker may
+ * still be walking it) and the walk falls back to the list until the next
+ * mmt_init_handler() freezes it again. A no-op before the first freeze, so
+ * the registrations of init_extraction() retire nothing. Header-inline so the
+ * plugins' list mutators (mmt_classifier_mark_legacy/_set_guard) use it with
+ * no libmmt_core export.
+ */
+static inline void mmt_classify_chain_invalidate(mmt_classify_next_t *cn) {
+    /* An exchange, so two invalidations can never retire one chain twice. */
+    mmt_classify_chain_t *old = __atomic_exchange_n(&cn->frozen, NULL, __ATOMIC_ACQ_REL);
+    if (old != NULL) {
+        old->retired_next = cn->retired;
+        cn->retired = old;
+    }
+}
+
+/**
  * Issue #540 (F-BUG-311): mark the chain node of `fn` registered on `proto`
  * as a legacy checker, which proto_packet_classify_next() skips unless the
  * handler runs the `legacy` DPI profile. Header-inline so the tcpip plugin
@@ -564,10 +697,65 @@ static inline int mmt_classifier_mark_legacy(protocol_t *proto,
     for (n = proto->classify_next.classify_protos; n != NULL; n = n->next) {
         if (n->classify_me == fn && !n->legacy) {
             n->legacy = 1;
+            mmt_classify_chain_invalidate(&proto->classify_next);
             return 1;
         }
     }
     return 0;
+}
+
+/**
+ * Issue #561: install the hook that fills the guard view of `proto`'s chain
+ * (mmt_classify_guard_view_t), before mmt_classifier_set_guard() gives a
+ * checker of that chain a central guard. Header-inline: no libmmt_core
+ * export.
+ * @return 1 when installed, 0 on a NULL argument
+ */
+static inline int mmt_classifier_set_guard_view(protocol_t *proto,
+        mmt_classify_guard_view_function fn) {
+    if (proto == NULL || fn == NULL) {
+        return 0;
+    }
+    proto->classify_next.guard_view = fn;
+    mmt_classify_chain_invalidate(&proto->classify_next);
+    return 1;
+}
+
+/**
+ * Issue #560: record the guard inputs of the chain node(s) of `fn` registered
+ * on `proto` — the checker's packet-selection mask and the protocol id its
+ * excluded bitmask holds — so the frozen entry carries them. Issue #561: with
+ * a `detection` set the walk evaluates the guard (mmt_classify_guard_open(),
+ * with the flow's exclusion bit at `excluded_slot`) and calls the checker
+ * only when it is open; NULL leaves the checker unguarded (it keeps its own
+ * guard). Header-inline like mmt_classifier_mark_legacy(): no libmmt_core
+ * export.
+ * @return 1 when at least one node was updated, 0 when `fn` is not registered
+ * on `proto`, `excluded_proto` is not a protocol id, or a `detection` set is
+ * given for a chain without a guard_view hook
+ */
+static inline int mmt_classifier_set_guard(protocol_t *proto,
+        generic_classification_function fn, uint32_t selection_mask,
+        uint32_t excluded_proto, const uint64_t *detection, uint16_t excluded_slot) {
+    mmt_classify_proto_t *n;
+    int set = 0;
+    if (proto == NULL || fn == NULL || excluded_proto >= PROTO_MAX_IDENTIFIER
+            || (detection != NULL && proto->classify_next.guard_view == NULL)) {
+        return 0;
+    }
+    for (n = proto->classify_next.classify_protos; n != NULL; n = n->next) {
+        if (n->classify_me == fn) {
+            n->selection_mask = selection_mask;
+            n->excluded_proto = excluded_proto;
+            n->detection = detection;
+            n->excluded_slot = excluded_slot;
+            set = 1;
+        }
+    }
+    if (set) {
+        mmt_classify_chain_invalidate(&proto->classify_next);
+    }
+    return set;
 }
 
 struct protocol_instance_struct {
@@ -582,6 +770,14 @@ struct protocol_instance_struct {
      * proto_status_load()/proto_status_store() below. */
     int analysis_enabled; /**< 1: proto_packet_analyze() runs the analysis chain */
     int classify_enabled; /**< 1: proto_packet_classify_next() runs the classification chain */
+    /* Issue #558: one-entry cache of _get_protocol_stats_from_parent()
+     * (packet_stats.c) — the stats instance this protocol last resolved and
+     * the parent stats it hangs under — so a packet whose layer sits under
+     * the same parent as the previous one skips the parent's encap_proto_stats
+     * map probe. Both point into this handler's stats trees, which are freed
+     * only as a whole (free_handler_protocol_statistics() clears the cache). */
+    proto_statistics_internal_t * stats_cache_parent;
+    proto_statistics_internal_t * stats_cache;
 };
 
 /* Issue #245 (F-PERF-003): pooled reassembly ipacket — a slot owns the
@@ -928,6 +1124,13 @@ void mmt_dpi_profile_apply_env(mmt_handler_t *mmt_handler);
 
 /* packet_registry*.c — cross-unit entry points (issue #549). */
 protocol_t *get_protocol_slot(uint32_t proto_id);
+/* packet_registry_classify.c — issue #560: freeze one chain (1 = frozen or
+ * nothing to freeze, 0 = out of memory: the walk keeps using the list), every
+ * registered protocol's chain (mmt_init_handler(), under a mutex), and free a
+ * chain's frozen and retired copies (protocol teardown). */
+int mmt_classify_chain_freeze(mmt_classify_next_t *cn);
+void mmt_classify_chains_freeze(void);
+void mmt_classify_chain_release(mmt_classify_next_t *cn);
 protocol_t *get_protocol_struct_by_protocol_id(uint32_t proto_id);
 bool init_handlers_map(void);
 void close_handlers_map(void);

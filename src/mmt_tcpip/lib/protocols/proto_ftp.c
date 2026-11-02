@@ -275,10 +275,7 @@ static void search_active_ftp_mode(ipacket_t * ipacket) {
 int mmt_check_ftp(ipacket_t * ipacket, unsigned index) {
     // debug("[PROTO_FTP] mmt_check_ftp on packet: %lu, index: %d",ipacket->packet_id,index);
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
-            ) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
         struct mmt_internal_tcpip_id_struct *src = ipacket->internal_packet->src;
@@ -287,8 +284,7 @@ int mmt_check_ftp(ipacket_t * ipacket, unsigned index) {
         if (src != NULL && mmt_compare_packet_destination_ip_to_given_ip(packet, &src->ftp_ip)
                 && packet->tcp->syn != 0 && packet->tcp->ack == 0
                 && packet->detected_protocol_stack[0] == PROTO_UNKNOWN
-                && MMT_COMPARE_PROTOCOL_TO_BITMASK(src->detected_protocol_bitmask,
-                        PROTO_FTP) != 0 && src->ftp_timer_set != 0) {
+                && MMT_HOST_HAS_PROTOCOL(src, PROTO_FTP) != 0 && src->ftp_timer_set != 0) {
 
             if (((MMT_INTERNAL_TIMESTAMP_TYPE)
                     (packet->tick_timestamp - src->ftp_timer)) >= ftp_connection_timeout) {
@@ -304,8 +300,7 @@ int mmt_check_ftp(ipacket_t * ipacket, unsigned index) {
         if (dst != NULL && mmt_compare_packet_source_ip_to_given_ip(packet, &dst->ftp_ip)
                 && packet->tcp->syn != 0 && packet->tcp->ack == 0
                 && packet->detected_protocol_stack[0] == PROTO_UNKNOWN
-                && MMT_COMPARE_PROTOCOL_TO_BITMASK(dst->detected_protocol_bitmask,
-                        PROTO_FTP) != 0 && dst->ftp_timer_set != 0) {
+                && MMT_HOST_HAS_PROTOCOL(dst, PROTO_FTP) != 0 && dst->ftp_timer_set != 0) {
 
             if (((MMT_INTERNAL_TIMESTAMP_TYPE)
                     (packet->tick_timestamp - dst->ftp_timer)) >= ftp_connection_timeout) {
@@ -337,7 +332,7 @@ int mmt_check_ftp(ipacket_t * ipacket, unsigned index) {
         if (packet->detected_protocol_stack[0] == PROTO_UNKNOWN && search_ftp(ipacket) != 0) {
             return 4;
         }
-        MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_FTP);
+        MMT_EXCLUDE_PROTOCOL(flow, PROTO_FTP);
 
     }
     return 0;

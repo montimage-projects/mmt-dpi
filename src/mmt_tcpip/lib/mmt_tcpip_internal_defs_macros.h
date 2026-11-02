@@ -208,6 +208,43 @@ typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
 
 #define MMT_BITMASK_CONTAINS_NEGATED_BITMASK(a,b) mmt_bitmask_contains_negated_bitmask(&(a),&(b))
 
+    /* Issue #561 (F-PERF-005 part 2, F-PERF-105): a flow's exclusion set is
+     * dense. Only the ids listed in excluded_protocols.def can be excluded,
+     * each at its own slot, so the session carries MMT_EXCL_SET_WORDS words
+     * instead of a 1,024-bit MMT_PROTOCOL_BITMASK. The macros paste the
+     * protocol name into its slot (MMT_EXCL_SLOT_PROTO_X): an id without a
+     * row does not compile. `protocol` must be the PROTO_X name itself —
+     * passed on through another macro it would expand to its number first. */
+    enum mmt_excluded_slot_enum {
+#define MMT_EXCLUDABLE(protocol) MMT_EXCL_SLOT_##protocol,
+#include "excluded_protocols.def"
+#undef MMT_EXCLUDABLE
+        MMT_EXCL_SLOT_COUNT
+    };
+
+#define MMT_EXCL_SET_WORDS ((MMT_EXCL_SLOT_COUNT + 63) / 64)
+    _Static_assert(MMT_EXCL_SLOT_COUNT <= 256,
+        "excluded_protocols.def holds more than 256 ids: the dense exclusion "
+        "set of issue #561 is sized for at most 4 words");
+
+    typedef struct mmt_excluded_set_struct {
+        uint64_t words[MMT_EXCL_SET_WORDS];
+    } mmt_excluded_set_t;
+
+    static inline void mmt_excluded_set_add(mmt_excluded_set_t *set, unsigned slot) {
+        set->words[slot >> 6] |= ((uint64_t)1) << (slot & 0x3F);
+    }
+
+    static inline int mmt_excluded_set_has(const mmt_excluded_set_t *set, unsigned slot) {
+        return (int) ((set->words[slot >> 6] >> (slot & 0x3F)) & 1);
+    }
+
+    /* Exclude `protocol` on a (non-NULL) flow, and test whether it is excluded. */
+#define MMT_EXCLUDE_PROTOCOL(flow, protocol) \
+    mmt_excluded_set_add(&(flow)->excluded_protos, MMT_EXCL_SLOT_##protocol)
+#define MMT_FLOW_EXCLUDES(flow, protocol) \
+    mmt_excluded_set_has(&(flow)->excluded_protos, MMT_EXCL_SLOT_##protocol)
+
 #define MMT_PARSE_PACKET_LINE_INFO(ipacket, packet)                        \
                         if (packet->packet_lines_parsed_complete != 1) {        \
                                 mmt_parse_packet_line_info(ipacket);      \
@@ -297,6 +334,32 @@ typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
      * exported symbol, so deleting the 106 wrappers drops libmmt_tcpip.so's
      * exported `_init` symbols by exactly 106. Issue #227 folded the remaining
      * richer wrappers through the multi-add variant below. */
+    /* Issue #560 (F-PERF-005): both helpers below also report the unit's
+     * selection mask under its excluded protocol id to init_tcpip_plugin()
+     * (configured_protocols.c), which stores them in the frozen classifier
+     * chain. Weak, so a test that compiles a protocol unit without
+     * configured_protocols.c still links (the call is then skipped). */
+    /* Issue #561: the hook also records the unit's detection set, which the
+     * walk tests the packet's detected protocol against (the central guard).
+     * mmt_tcpip_record_local_guard() marks a unit whose checker keeps its own
+     * guard (mmt_checker_keeps_local_guard()): its chain entry gets no
+     * central guard. */
+    void mmt_tcpip_record_checker_guard(uint32_t excluded_proto,
+        MMT_SELECTION_BITMASK_PROTOCOL_SIZE selection_mask,
+        const MMT_PROTOCOL_BITMASK *detection) __attribute__((weak));
+    void mmt_tcpip_record_local_guard(uint32_t excluded_proto) __attribute__((weak));
+
+    /* Issue #561: called by a protocol unit's init, after its
+     * mmt_init_classify_bitmasks*() call, when the walk must not evaluate its
+     * checker's guard: the checker evaluates its own, because a closed guard
+     * has a side effect (the checker excludes itself) the walk's skip would
+     * lose, or it never had one (mmt_check_gtp). */
+    static inline void mmt_checker_keeps_local_guard(uint32_t excluded_proto) {
+        if (mmt_tcpip_record_local_guard != NULL) {
+            mmt_tcpip_record_local_guard(excluded_proto);
+        }
+    }
+
     static inline void mmt_init_classify_bitmasks(
         MMT_SELECTION_BITMASK_PROTOCOL_SIZE *selection_bitmask,
         MMT_PROTOCOL_BITMASK *detection_bitmask,
@@ -309,6 +372,9 @@ typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
             MMT_ADD_PROTOCOL_TO_BITMASK(*detection_bitmask, detection_add);
         }
         MMT_SAVE_AS_BITMASK(*excluded_protocol_bitmask, excluded_proto);
+        if (mmt_tcpip_record_checker_guard != NULL) {
+            mmt_tcpip_record_checker_guard(excluded_proto, selection_value, detection_bitmask);
+        }
     }
 
     /* Issue #227 (F-DEAD-011): multi-add variant for the protocols whose
@@ -332,22 +398,32 @@ typedef struct udphdr __attribute__((aligned(1))) mmt_una_udphdr_t;
             MMT_ADD_PROTOCOL_TO_BITMASK(*detection_bitmask, detection_adds[_mmt_add_i]);
         }
         MMT_SAVE_AS_BITMASK(*excluded_protocol_bitmask, excluded_proto);
+        if (mmt_tcpip_record_checker_guard != NULL) {
+            mmt_tcpip_record_checker_guard(excluded_proto, selection_value, detection_bitmask);
+        }
     }
 
     /* safe src/dst protocol check macros... */
 
-#define MMT_SRC_HAS_PROTOCOL(src,protocol) ((src) != NULL && MMT_COMPARE_PROTOCOL_TO_BITMASK((src)->detected_protocol_bitmask,(protocol)) != 0)
+    /* Issue #562: the host record keeps one bit per tracked protocol
+     * (MMT_HOST_PROTO_BIT_* in mmt_tcpip_plugin_structs.h). `protocol` is
+     * pasted, not expanded, so each macro pastes it itself: passing it on
+     * to another macro would expand PROTO_X to its number first. */
+#define MMT_SRC_HAS_PROTOCOL(src,protocol) ((src) != NULL && ((src)->detected_host_protos & MMT_HOST_PROTO_BIT_##protocol) != 0)
 
-#define MMT_DST_HAS_PROTOCOL(dst,protocol) ((dst) != NULL && MMT_COMPARE_PROTOCOL_TO_BITMASK((dst)->detected_protocol_bitmask,(protocol)) != 0)
+#define MMT_DST_HAS_PROTOCOL(dst,protocol) ((dst) != NULL && ((dst)->detected_host_protos & MMT_HOST_PROTO_BIT_##protocol) != 0)
 
-#define MMT_SRC_OR_DST_HAS_PROTOCOL(src,dst,protocol) (MMT_SRC_HAS_PROTOCOL(src,protocol) || MMT_SRC_HAS_PROTOCOL(dst,protocol))
+#define MMT_SRC_OR_DST_HAS_PROTOCOL(src,dst,protocol) \
+    (((src) != NULL && ((src)->detected_host_protos & MMT_HOST_PROTO_BIT_##protocol) != 0) \
+     || ((dst) != NULL && ((dst)->detected_host_protos & MMT_HOST_PROTO_BIT_##protocol) != 0))
 
     /**
      * convenience macro to check for excluded protocol
      * a protocol is excluded if the flow is known and either the protocol is not detected at all
      * or the excluded bitmask contains the protocol
      */
-#define MMT_FLOW_PROTOCOL_EXCLUDED(flow,protocol) ((flow) != NULL && (MMT_COMPARE_PROTOCOL_TO_BITMASK((flow)->excluded_protocol_bitmask, (protocol)) != 0 ) )
+#define MMT_FLOW_PROTOCOL_EXCLUDED(flow,protocol) ((flow) != NULL \
+    && mmt_excluded_set_has(&(flow)->excluded_protos, MMT_EXCL_SLOT_##protocol) != 0)
 
 
 

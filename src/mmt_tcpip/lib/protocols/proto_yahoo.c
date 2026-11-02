@@ -132,9 +132,9 @@ static enum yahoo_stage_result mmt_yahoo_search_http_relay_post(ipacket_t * ipac
             || mmt_memcmp(packet->payload, "GET /?token=", 12) == 0
             || mmt_memcmp(packet->payload, "HEAD /relay?token=", 18) == 0) {
         if ((src != NULL
-                && MMT_COMPARE_PROTOCOL_TO_BITMASK(src->detected_protocol_bitmask, PROTO_YAHOO)
+                && MMT_HOST_HAS_PROTOCOL(src, PROTO_YAHOO)
                 != 0) || (dst != NULL
-                && MMT_COMPARE_PROTOCOL_TO_BITMASK(dst->detected_protocol_bitmask, PROTO_YAHOO)
+                && MMT_HOST_HAS_PROTOCOL(dst, PROTO_YAHOO)
                 != 0)) {
             /* this is mostly a file transfer */
             mmt_int_yahoo_add_connection(ipacket, MMT_CORRELATED_PROTOCOL);
@@ -200,9 +200,9 @@ static enum yahoo_stage_result mmt_yahoo_search_http_get(ipacket_t * ipacket) {
 
     if (mmt_memcmp(packet->payload, "GET /Messenger.", 15) == 0) {
         if ((src != NULL
-                && MMT_COMPARE_PROTOCOL_TO_BITMASK(src->detected_protocol_bitmask, PROTO_YAHOO)
+                && MMT_HOST_HAS_PROTOCOL(src, PROTO_YAHOO)
                 != 0) || (dst != NULL
-                && MMT_COMPARE_PROTOCOL_TO_BITMASK(dst->detected_protocol_bitmask, PROTO_YAHOO)
+                && MMT_HOST_HAS_PROTOCOL(dst, PROTO_YAHOO)
                 != 0)) {
             mmt_int_yahoo_add_connection(ipacket, MMT_CORRELATED_PROTOCOL);
             return YAHOO_STAGE_DONE;
@@ -237,9 +237,9 @@ static enum yahoo_stage_result mmt_yahoo_search_known_peer(ipacket_t * ipacket) 
     struct mmt_internal_tcpip_id_struct *src = ipacket->internal_packet->src;
     struct mmt_internal_tcpip_id_struct *dst = ipacket->internal_packet->dst;
 
-    if ((src != NULL && MMT_COMPARE_PROTOCOL_TO_BITMASK(src->detected_protocol_bitmask, PROTO_YAHOO) != 0)
+    if ((src != NULL && MMT_HOST_HAS_PROTOCOL(src, PROTO_YAHOO) != 0)
             || (dst != NULL
-            && MMT_COMPARE_PROTOCOL_TO_BITMASK(dst->detected_protocol_bitmask, PROTO_YAHOO) != 0)) {
+            && MMT_HOST_HAS_PROTOCOL(dst, PROTO_YAHOO) != 0)) {
         if (packet->payload_packet_len == 6 && mmt_memcmp(packet->payload, "YAHOO!", 6) == 0) {
             mmt_int_yahoo_add_connection(ipacket, MMT_REAL_PROTOCOL);
             return YAHOO_STAGE_DONE;
@@ -382,7 +382,7 @@ static void mmt_search_yahoo_tcp(ipacket_t * ipacket) {
     if (mmt_yahoo_search_http_proxy(ipacket) == YAHOO_STAGE_DONE) {
         return;
     }
-    MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_YAHOO);
+    MMT_EXCLUDE_PROTOCOL(flow, PROTO_YAHOO);
 }
 
 static void mmt_search_yahoo_udp(ipacket_t * ipacket) {
@@ -390,19 +390,17 @@ static void mmt_search_yahoo_udp(ipacket_t * ipacket) {
     struct mmt_internal_tcpip_session_struct *flow = packet->flow;
     struct mmt_internal_tcpip_id_struct *src = ipacket->internal_packet->src;
 
-    if (src == NULL || MMT_COMPARE_PROTOCOL_TO_BITMASK(src->detected_protocol_bitmask, PROTO_YAHOO) == 0) {
+    if (src == NULL || MMT_HOST_HAS_PROTOCOL(src, PROTO_YAHOO) == 0) {
         goto excl_yahoo_udp;
     }
 excl_yahoo_udp:
 
-    MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_YAHOO);
+    MMT_EXCLUDE_PROTOCOL(flow, PROTO_YAHOO);
 }
 
 int mmt_check_yahoo_tcp(ipacket_t * ipacket, unsigned index) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 
@@ -428,9 +426,7 @@ int mmt_check_yahoo_tcp(ipacket_t * ipacket, unsigned index) {
 
 int mmt_check_yahoo_udp(ipacket_t * ipacket, unsigned index) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
 

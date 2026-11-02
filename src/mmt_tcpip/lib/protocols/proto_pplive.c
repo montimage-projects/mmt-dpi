@@ -30,7 +30,7 @@ static int pplive_tcp_check_vod_port(ipacket_t * ipacket) {
     struct mmt_internal_tcpip_id_struct *dst = ipacket->internal_packet->dst;
 
     if (src != NULL && src->pplive_vod_cli_port == packet->tcp->source
-            && MMT_COMPARE_PROTOCOL_TO_BITMASK(src->detected_protocol_bitmask, PROTO_PPLIVE)) {
+            && MMT_HOST_HAS_PROTOCOL(src, PROTO_PPLIVE)) {
         if (src->pplive_last_packet_time_set == 1 && (MMT_INTERNAL_TIMESTAMP_TYPE)
                 (packet->tick_timestamp - src->pplive_last_packet_time) < pplive_connection_timeout) {
             mmt_int_pplive_add_connection(ipacket, MMT_CORRELATED_PROTOCOL);
@@ -44,7 +44,7 @@ static int pplive_tcp_check_vod_port(ipacket_t * ipacket) {
     }
 
     if (dst != NULL && dst->pplive_vod_cli_port == packet->tcp->dest
-            && MMT_COMPARE_PROTOCOL_TO_BITMASK(dst->detected_protocol_bitmask, PROTO_PPLIVE)) {
+            && MMT_HOST_HAS_PROTOCOL(dst, PROTO_PPLIVE)) {
         if (dst->pplive_last_packet_time_set == 1 && (MMT_INTERNAL_TIMESTAMP_TYPE)
                 (packet->tick_timestamp - dst->pplive_last_packet_time) < pplive_connection_timeout) {
             mmt_int_pplive_add_connection(ipacket, MMT_CORRELATED_PROTOCOL);
@@ -316,10 +316,7 @@ static int pplive_tcp_search_stage(ipacket_t * ipacket) {
 }
 
 int mmt_check_pplive_tcp(ipacket_t * ipacket, unsigned index) {
-    struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
@@ -345,16 +342,14 @@ int mmt_check_pplive_tcp(ipacket_t * ipacket, unsigned index) {
         if (ret != 0) {
             return ret;
         }
-        MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_PPLIVE);
+        MMT_EXCLUDE_PROTOCOL(flow, PROTO_PPLIVE);
     }
     return 0;
 }
 
 int mmt_check_pplive_udp(ipacket_t * ipacket, unsigned index) {
     struct mmt_tcpip_internal_packet_struct *packet = ipacket->internal_packet;
-    if ((selection_bitmask & packet->mmt_selection_packet) == selection_bitmask
-            && MMT_BITMASK_COMPARE(excluded_protocol_bitmask, packet->flow->excluded_protocol_bitmask) == 0
-            && MMT_BITMASK_COMPARE(detection_bitmask, packet->detection_bitmask) != 0) {
+    { /* guard evaluated by the classifier walk (issue #561) */
 
         struct mmt_internal_tcpip_session_struct *flow = packet->flow;
         struct mmt_internal_tcpip_id_struct *src = ipacket->internal_packet->src;
@@ -362,7 +357,7 @@ int mmt_check_pplive_udp(ipacket_t * ipacket, unsigned index) {
 
 
         if (src != NULL && src->pplive_vod_cli_port == packet->udp->source
-                && MMT_COMPARE_PROTOCOL_TO_BITMASK(src->detected_protocol_bitmask, PROTO_PPLIVE)) {
+                && MMT_HOST_HAS_PROTOCOL(src, PROTO_PPLIVE)) {
             if (src->pplive_last_packet_time_set == 1 && (MMT_INTERNAL_TIMESTAMP_TYPE)
                     (packet->tick_timestamp - src->pplive_last_packet_time) < pplive_connection_timeout) {
                 mmt_int_pplive_add_connection(ipacket, MMT_CORRELATED_PROTOCOL);
@@ -376,7 +371,7 @@ int mmt_check_pplive_udp(ipacket_t * ipacket, unsigned index) {
         }
 
         if (dst != NULL && dst->pplive_vod_cli_port == packet->udp->dest
-                && MMT_COMPARE_PROTOCOL_TO_BITMASK(dst->detected_protocol_bitmask, PROTO_PPLIVE)) {
+                && MMT_HOST_HAS_PROTOCOL(dst, PROTO_PPLIVE)) {
             if (dst->pplive_last_packet_time_set == 1 && (MMT_INTERNAL_TIMESTAMP_TYPE)
                     (packet->tick_timestamp - dst->pplive_last_packet_time) < pplive_connection_timeout) {
                 mmt_int_pplive_add_connection(ipacket, MMT_CORRELATED_PROTOCOL);
@@ -482,7 +477,7 @@ int mmt_check_pplive_udp(ipacket_t * ipacket, unsigned index) {
             }
         }
 
-        MMT_ADD_PROTOCOL_TO_BITMASK(flow->excluded_protocol_bitmask, PROTO_PPLIVE);
+        MMT_EXCLUDE_PROTOCOL(flow, PROTO_PPLIVE);
 
     }
     return 0;
