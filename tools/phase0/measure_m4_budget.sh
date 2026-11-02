@@ -55,7 +55,8 @@
 #   MMT_SDK_PREBUILT=1  reuse the SDK already installed under MMT_PREFIX
 #
 # Exit: 0 budget met, 1 a check failed, 3 incomplete (a step skipped, nothing
-# failed), 2 bad usage, missing input or a step that could not run.
+# failed), 2 bad usage, missing input or a step that could not run (the build,
+# capture_perf.sh, or check_instructions.sh exiting 2) — then nothing is written.
 set -euo pipefail
 export LC_ALL=C
 
@@ -281,7 +282,7 @@ elif [ -n "${status}" ]; then
     commit="${commit} (dirty tree)"
 fi
 echo "    role:    ${ROLE} | commit: ${commit}"
-echo "    host:    $(uname -m), $(nproc) cpus, kernel $(uname -r), gcc $(gcc -dumpfullversion)"
+echo "    host:    $(uname -m), $(nproc --all) cpus, kernel $(uname -r), gcc $(gcc -dumpfullversion)"
 echo "    dataset: ${M4_PCAP} sha256 ${sha}"
 
 if [ "${MMT_SDK_PREBUILT:-0}" = "1" ]; then
@@ -316,6 +317,11 @@ else
     set -e
     sed 's/^/    /' "${WORK}/instr.log"
     case "${rc}" in 0) GATE=pass ;; 1) GATE=fail ;; *) GATE=error ;; esac
+    # A gate that could not run (no valgrind, another architecture) is an
+    # environment problem, not a measured failure: write nothing.
+    if [ "${GATE}" = error ]; then
+        echo "✗ check_instructions.sh could not run (exit ${rc}); nothing written" >&2; exit 2
+    fi
     # Only this run's measurement, never one an earlier run left behind.
     if [ -f "${INSTR_ACTUAL}" ] && [ "${INSTR_ACTUAL}" -nt "${WORK}/instr.stamp" ]; then
         cp "${INSTR_ACTUAL}" "${WORK}/instructions.txt"; INSTR_FILE="${WORK}/instructions.txt"

@@ -13,9 +13,11 @@
 #      a dev-host run aimed at the committed audit reference
 #      baseline/perf/throughput.txt — directly or through a symlinked
 #      directory — which must leave that file byte-identical;
-#   3. an end-to-end dev-host run (2 iterations, steps 4-5 skipped) against
-#      one default-profile SDK: six 11-column rows, the host-identification
-#      header (CPU model, kernel, dataset sha256 and size), the dev-host
+#   3. an end-to-end dev-host run (2 iterations, steps 4-5 skipped, pinned to
+#      CPU 0 where taskset allows) against one default-profile SDK: six
+#      11-column rows, the host-identification header (every online CPU
+#      counted whatever the affinity, CPU model, kernel, dataset sha256 and
+#      size), the recorded affinity, the dev-host
 #      record label, five "# m4:" checks plus a verdict that matches the exit
 #      status and a re-run of --evaluate on the written file.
 #
@@ -93,9 +95,13 @@ else
     fi
 fi
 OUT="${WORK}/m4.txt"
+# Pinned to one CPU where taskset allows it: the header must still count every
+# online CPU, and the record must name the affinity.
+PIN=()
+if command -v taskset >/dev/null 2>&1 && taskset -c 0 true 2>/dev/null; then PIN=(--taskset 0); fi
 set +e
 ( cd "${WORK}" && MMT_PREFIX="${PREFIX}" MMT_SDK_PREBUILT=1 bash "${SCRIPT}" --host-role dev --iterations 2 \
-      --datasets "${DS}" --out "${OUT}" --skip-instructions --skip-harness ) >"${WORK}/run.log" 2>&1
+      --datasets "${DS}" --out "${OUT}" --skip-instructions --skip-harness "${PIN[@]}" ) >"${WORK}/run.log" 2>&1
 rc=$?
 set -e
 if [ "${rc}" -ne 1 ] && [ "${rc}" -ne 3 ]; then
@@ -114,7 +120,7 @@ else
     for mode in bare attrs8 all; do
         grep -q "^bigFlows.pcap	${mode}	" "${OUT}" || fail "no bigFlows.pcap ${mode} row"
     done
-    want_hdr=("# host: $(uname -m) | cpu: $(nproc)"
+    want_hdr=("# host: $(uname -m) | cpu: $(nproc --all) |"
               "# cpu_model: "
               "| kernel: $(uname -r) |"
               "| iterations: 2"
@@ -122,6 +128,7 @@ else
               "# dataset: smallFlows.pcap | sha256: "
               "# record: DEV HOST, NOT the audit host"
               "# m4 budget (issue #584): DEV HOST, NOT the audit host"
+              "| affinity: ${PIN[1]:-none}"
               "# m4: instruction gate (check_instructions.sh): SKIPPED"
               "# m4: run_throughput_attrs_test.sh: SKIPPED")
     for want in "${want_hdr[@]}"; do

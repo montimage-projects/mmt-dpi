@@ -28,7 +28,8 @@
 #   --record TEXT   a "# record: TEXT" header line naming what the capture is
 #                   (measure_m4_budget.sh sets it to the host role, issue #584)
 # The header identifies the host (issue #584): architecture, CPU count, GCC,
-# OS and commit, then the CPU model, kernel, cpufreq governor and the sha256
+# OS and commit (cpu: every online CPU, whatever the affinity mask), then the
+# CPU model, kernel, cpufreq governor and the sha256
 # and size of every replayed pcap, so two captures can be told apart.
 # Environment:
 #   MMT_PREFIX          install prefix (default: a private mktemp dir, removed)
@@ -119,7 +120,7 @@ echo "[3/3] replaying ${#PCAPS[@]} pcap(s) x modes '${MODES}', ${ITERATIONS} ite
     printf '# M4 budget reference (audit host, issues #555/#584): bigFlows bare\n'
     printf '# 3,106,798 pps and library_rss_kib 21,428; fetch-all 1,704 ns/pkt.\n'
     printf '# host: %s | cpu: %s | gcc: %s | os: %s | commit: %s\n' \
-        "$(uname -m)" "$(nproc 2>/dev/null || echo '?')" "$(gcc -dumpfullversion)" \
+        "$(uname -m)" "$(nproc --all 2>/dev/null || echo '?')" "$(gcc -dumpfullversion)" \
         "$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-unknown}" || echo unknown)" \
         "$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     printf '# cpu_model: %s | kernel: %s | governor: %s | iterations: %s\n' \

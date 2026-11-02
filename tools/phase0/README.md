@@ -268,7 +268,8 @@ It builds the default SDK once, runs `capture_perf.sh` (all three modes,
 `tests/run_throughput_attrs_test.sh` against it, and appends one `# m4:`
 line per check (the gate's line quotes the Ir/pkt per mode) and a verdict:
 exit 0 met, 1 a check failed, 3 a step skipped (`--skip-instructions`,
-`--skip-harness`), 2 a step that could not run. `library_rss_kib` is the
+`--skip-harness`), 2 a step that could not run (the build, the capture or the
+gate exiting 2 — nothing is written then). `library_rss_kib` is the
 peak over the iterations, so the RSS check holds for the count the record
 states. `--taskset CPULIST` pins the replay (the big cores of a big.LITTLE
 host), `--expect-sha256` refuses another bigFlows capture, and
