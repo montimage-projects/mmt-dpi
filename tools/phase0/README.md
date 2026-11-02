@@ -16,13 +16,15 @@ Phase 0 changes **no production code** — it adds tooling and captured baseline
 | `phase0_precision.c` | Labelled-pcap precision/recall harness (Phase 7, M9, issue #74). Given a pcap and the application protocol it is known to carry, prints `label<TAB>total<TAB>tp<TAB>fp<TAB>app_unknown<TAB>predicted_csv<TAB>method_csv` from the classifier's deterministic decisions, where `predicted_csv` is the retained prediction histogram (`name:count` pairs) feeding the actual-by-predicted confusion matrix in `ci/render_precision.py` (issue #373, F-TEST-002), and `method_csv` splits the verdicts by classification method (`method:verdicts:tp` triples, issue #567). The unlabelled fingerprint proves decisions don't *change*; this measures whether they are *correct*. |
 | `golden_pcaps.txt` | The fixed golden pcap set (paths relative to the mmt-test `data-sets/` root). |
 | `throughput_pcaps.txt` | The bigFlows/smallFlows perf-benchmark set (issue #251) — deliberately separate from `golden_pcaps.txt` so the classification fingerprint's input set is unchanged. |
-| `capture_perf.sh` | Captures `baseline/perf/throughput.txt`: default-build SDK, every `throughput_pcaps.txt` capture in each `PHASE0_MODE`, one row per (pcap, mode) with the host in the header (issue #555). |
+| `capture_perf.sh` | Captures `baseline/perf/throughput.txt`: default-build SDK, every `throughput_pcaps.txt` capture in each `PHASE0_MODE`, one row per (pcap, mode) with the host in the header (issue #555) — CPU model, kernel, governor and every pcap's sha256 since issue #584. |
+| `measure_m4_budget.sh` | The one-command M4 budget measurement (issue #584): one default-build SDK, then `capture_perf.sh`, `ci/check_instructions.sh` and `tests/run_throughput_attrs_test.sh`, and one `# m4:` line per budget check plus a verdict appended to the rows. `--host-role audit` writes `baseline/perf/throughput.txt`; `--host-role dev` writes `baseline/perf/throughput.dev-host.txt` and refuses the reference (see *M4 budget* below). |
 | `capture_baseline.sh` | Orchestrator: build+install at `-O3`, compile the drivers, capture all baselines into `baseline/`. |
 | `run_all_harnesses.sh` | Aggregate runner (issue #183): enumerates `tests/run_*.sh`, builds the SDK once per required profile into a shared prefix, and replays every harness against it. `--group`/`--shard` select one slice of the enumeration (issue #655 — the CI `harness-*` legs), `--only` keeps the named harnesses (their `run_<stem>.sh` stems) before that (issue #656 — a pull request's selection), `--list` prints the selection without building, and `--log-dir` keeps one log per harness plus a `verdicts.tsv` table. Reachable from the suite runner via `bash tests/run_all_tests.sh --with-harnesses`. `--profile coverage` (issue #524) instead builds one `BUILD=coverage` SDK and replays every harness against it except its `COVERAGE_SKIP` list; `bash tests/run_all_tests.sh --coverage` runs it as its harness arm (see *Coverage profile* below). |
 | `baseline/classification.txt` | **The golden classification baseline.** The asserted regression oracle. |
 | `baseline/classification/` | Per-pcap fingerprints (one file each), for granular diffs. |
 | `baseline/throughput.txt` | Throughput reference snapshot (environment-dependent — compare relative deltas). |
 | `baseline/perf/throughput.txt` | Same-machine throughput + RSS reference for the `throughput_pcaps.txt` benchmark set (issue #251), per attribute mode with `ns_per_pkt` (issue #555). Written by `capture_perf.sh`. |
+| `baseline/perf/throughput.dev-host.txt` | **Not a baseline**: a `measure_m4_budget.sh --host-role dev` record from a development host (issue #584), kept apart so it can never be read as the audit host's reference. |
 | `ci/check_instructions.sh` | The `instruction-gate` CI gate (issue #555): callgrind instruction counts of the replay per attribute mode against `ci/baseline/instructions.txt`. `--self-test` checks its comparator on fixtures. |
 | `ci/baseline/instructions.txt` | Committed instruction-count baseline (aarch64 / Ubuntu 24.04 / GCC 13): per pcap and per mode, plus the per-mode instructions per packet the gate compares. |
 | `ci/accuracy/` | Reviewed accuracy corpus (F-TEST-003): DNS/TLS/QUIC/HTTP-2 (issue #389), S1AP/NGAP/NAS and unknown/malformed traffic (issue #390), a positive and a negative case per classifier of the default TCP/UDP chains (issue #527), and corroboration cases for the DICOM, gQUIC, STUN and S1AP/NGAP signatures (issue #564). Synthetic captures plus `corpus.json`, which records per capture the family, the case (positive / negative / ambiguous, or `unknown` in the abstention family), the default-chain classifiers it exercises (`classifiers`), the expected per-packet handling, the sha256 of the reviewed bytes, redistribution provenance and review notes. `coverage-pending.txt` lists, each with its reason, the chain classifiers still owed a case pair; the list only shrinks (enforced against the base commit by `--base`). Checked by `tools/ci/tests/check-accuracy-corpus.py`; deliberately **not** in `ci/golden_pcaps.txt`, so the golden fingerprint's input set is unchanged. Regenerate with `gen_tcpip_pcap.py --out-dir ci/accuracy --accuracy` and `gen_mobile_pcap.py --out-dir ci/accuracy --accuracy`. |
@@ -112,7 +114,7 @@ list fails the build):
 - `leak-gate` — leak-gate
 - `instruction-gate` — instruction-gate
 - `precision-gate` — Labelled-pcap precision/recall holds or improves (M9, issue #74)
-- matrix expansion: `harness-*` runs 5 legs, slices of `tools/phase0/run_all_harnesses.sh` that together run all 51 `tools/phase0/tests/run_*.sh`
+- matrix expansion: `harness-*` runs 5 legs, slices of `tools/phase0/run_all_harnesses.sh` that together run all 52 `tools/phase0/tests/run_*.sh`
 <!-- end-generated: ci-gates -->
 
 What each gate asserts:
@@ -257,6 +259,24 @@ GCC and the commit; compare a change against a fresh capture on the **same
 host**, never against figures from another machine. A perf change records
 its before/after rows in its PR.
 
+**M4 budget (issue #584).** `tools/phase0/measure_m4_budget.sh --host-role
+audit|dev` measures the M4 budget in one command: bigFlows `bare` at
+≥ 3,106,798 pps and `library_rss_kib` ≤ 21,428, fetch-all (`all`) below
+1,704 ns/pkt (target ≤ 1,000), and the instruction-count gate below green.
+It builds the default SDK once, runs `capture_perf.sh` (all three modes,
+`--iterations`, default 200), `ci/check_instructions.sh` and
+`tests/run_throughput_attrs_test.sh` against it, and appends one `# m4:`
+line per check (the gate's line quotes the Ir/pkt per mode) and a verdict:
+exit 0 met, 1 a check failed, 3 a step skipped (`--skip-instructions`,
+`--skip-harness`), 2 a step that could not run. `library_rss_kib` is the
+peak over the iterations, so the RSS check holds for the count the record
+states. `--taskset CPULIST` pins the replay (the big cores of a big.LITTLE
+host), `--expect-sha256` refuses another bigFlows capture, and
+`--evaluate FILE` re-checks a written record. The audit-host run writes the
+committed reference; any other host is `--host-role dev`, whose record goes
+to `baseline/perf/throughput.dev-host.txt` and which refuses to write
+`baseline/perf/throughput.txt`. Harness: `tests/run_m4_budget_test.sh`.
+
 **CI instruction counts.** Wall-clock pps is too noisy on shared runners, so
 CI counts instructions: `tools/phase0/ci/check_instructions.sh` runs the
 driver under `valgrind --tool=callgrind --collect-atstart=no`, one iteration
@@ -323,6 +343,8 @@ Equally deliberate — these signals exist but nothing fails on them
 - `baseline/perf/throughput.txt` — same-host wall clock and RSS per
   attribute mode; CI gates the instruction counts (`instruction-gate`)
   instead.
+- `baseline/perf/throughput.dev-host.txt` — a development host's
+  `measure_m4_budget.sh` record (issue #584); nothing reads it.
 - `baseline/valgrind.txt` — asserted only where valgrind is installed; the
   capture records SKIPPED otherwise.
 - `tests/run_all_tests.sh --with-harnesses` — the local aggregate run of

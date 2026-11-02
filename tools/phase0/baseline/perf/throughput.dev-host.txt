@@ -1,0 +1,30 @@
+# Phase 0 perf reference — in-memory replay, default (-O3) build (issues #251, #555).
+# Same-host figures: compare deltas on the host below, never across hosts.
+# Captured by tools/phase0/capture_perf.sh. Modes (PHASE0_MODE): bare = no
+# attribute or handler; attrs8 = 8 attributes fetched by a packet handler;
+# all = fetch-all, every attribute the packet carries fetched per packet.
+# ns_per_pkt = 1e9 / pps. RSS columns (issue #251): harness_rss_kib is the
+# trace-preload share, library_rss_kib the SDK share on top of it.
+# library_rss_kib is the peak over all iterations, so it rises with --iterations.
+# M4 budget reference (audit host, issues #555/#584): bigFlows bare
+# 3,106,798 pps and library_rss_kib 21,428; fetch-all 1,704 ns/pkt.
+# host: aarch64 | cpu: 20 | gcc: 13.3.0 | os: Ubuntu 24.04.4 LTS | commit: 92165f37
+# cpu_model: Cortex-X925 + Cortex-A725 | kernel: 6.17.0-1032-nvidia | governor: performance | iterations: 200
+# dataset: bigFlows.pcap | sha256: 2b630291cc848c79949e12a54edebe07d20f644747db28899ac4d568c42dc141 | bytes: 368083648
+# dataset: smallFlows.pcap | sha256: 77d06d3f33f1a95fb9f2610f20ead8ce978449077d6ba22d4945b85bd48f75d1 | bytes: 9444731
+# record: DEV HOST, NOT the audit host (--host-role dev): not a baseline, never copy it over baseline/perf/throughput.txt
+#
+# pcap	mode	attrs	packets	iterations	elapsed_s	pps	harness_rss_kib	library_rss_kib	peak_rss_kib	ns_per_pkt
+bigFlows.pcap	bare	0	791615	200	33.5919	4713125	403976	30976	438076	212.2
+bigFlows.pcap	attrs8	8	791615	200	39.2520	4033502	403980	30792	438060	247.9
+bigFlows.pcap	all	7500	791615	200	250.4451	632167	403976	31748	438832	1581.9
+smallFlows.pcap	bare	0	14261	200	0.6736	4233957	10080	5604	18864	236.2
+smallFlows.pcap	attrs8	8	14261	200	0.8049	3543709	10076	5608	18864	282.2
+smallFlows.pcap	all	7500	14261	200	5.0235	567769	10076	6632	19824	1761.3
+# m4 budget (issue #584): DEV HOST, NOT the audit host (--host-role dev): not a baseline, never copy it over baseline/perf/throughput.txt | commit: 92165f370c17d8006d527526a405a9f76287aa86 | affinity: none
+# m4: bigFlows.pcap bare pps 4713125 >= 3106798: PASS
+# m4: bigFlows.pcap bare library_rss_kib 30976 <= 21428 (peak over 200 iterations): FAIL
+# m4: bigFlows.pcap fetch-all ns_per_pkt 1581.9 < 1704: PASS (target <= 1000: missed)
+# m4: instruction gate (check_instructions.sh): PASS - Ir/pkt bare 10115.7, attrs8 11190.5, all 51126.3
+# m4: run_throughput_attrs_test.sh: PASS
+# m4: verdict: FAIL (1 of 5 checks failed)

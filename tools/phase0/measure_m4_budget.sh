@@ -191,7 +191,9 @@ realpath_of() {
 
 ROLE=""; ITERATIONS=200; OUT=""; DATASETS_OPT=""; CPULIST=""; EXPECT_SHA=""
 SKIP_INSTR=0; SKIP_HARNESS=0; EVALUATE=""; EV_INSTR=""; EV_GATE=skipped; EV_HARNESS=skipped
-need() { [ $# -ge 2 ] && [ -n "$2" ] || { echo "✗ $1 takes a value" >&2; exit 2; }; }
+need() {
+    if [ $# -lt 2 ] || [ -z "$2" ]; then echo "✗ $1 takes a value" >&2; exit 2; fi
+}
 while [ $# -gt 0 ]; do
     case "$1" in
         --host-role)         need "$@"; ROLE="$2"; shift 2 ;;
