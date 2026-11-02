@@ -279,7 +279,9 @@
 # inner flow, which classifies; a stack without a bottom entry within the
 # walker's bound, non-user payloads (G-ACh, GENEVE control, PPPoE discovery,
 # PPP control protocols) and every header cut short of caplen end the path
-# at the encapsulation, and nested tunnels stop at PROTO_PATH_SIZE layers.
+# at the encapsulation, nested tunnels stop at PROTO_PATH_SIZE layers, a flow
+# whose stack depth or GENEVE option length differs by direction is read at
+# each packet's own offsets, and PPTP (GRE version 1) steps over its ack.
 #
 #   test_encap_walk_api.c — packet/API path: crafted encapsulated
 #                               Ethernet frames (exactly-sized heap copies)

@@ -32,6 +32,7 @@
 
 #include "mmt_core.h"
 #include "tcpip/mmt_tcpip.h"
+#include "mmt_tcpip_attributes.h"      /* TCP_SRC_PORT */
 
 static int g_failures = 0;
 static int g_checks   = 0;
@@ -51,6 +52,7 @@ static int g_path[PROTO_PATH_SIZE];
 static int g_path_len;
 static int g_raw_len;       /* proto_hierarchy->len, unbounded */
 static int g_http_seen;
+static int g_tcp_sport;     /* tcp.src_port of the last packet, -1: none */
 
 static int packet_handler(const ipacket_t *ipacket, void *user_args) {
     (void) user_args;
@@ -58,6 +60,8 @@ static int packet_handler(const ipacket_t *ipacket, void *user_args) {
     if (ipacket->proto_hierarchy == NULL)
         return 0;
     g_raw_len = (int) ipacket->proto_hierarchy->len;
+    const uint16_t *sport = get_attribute_extracted_data(ipacket, PROTO_TCP, TCP_SRC_PORT);
+    g_tcp_sport = sport != NULL ? *sport : -1;
     for (int i = 0; i < ipacket->proto_hierarchy->len && i < PROTO_PATH_SIZE; i++) {
         g_path[g_path_len++] = (int) ipacket->proto_hierarchy->proto_path[i];
         if (ipacket->proto_hierarchy->proto_path[i] == PROTO_HTTP)
@@ -175,6 +179,7 @@ static void feed(mmt_handler_t *h, const uint8_t *frame, unsigned len, unsigned 
     hdr.caplen = caplen;
     hdr.len = len;
     g_path_len = 0;
+    g_tcp_sport = -1;
     packet_process(h, &hdr, data);
     free(data);
 }
@@ -183,7 +188,7 @@ static void feed(mmt_handler_t *h, const uint8_t *frame, unsigned len, unsigned 
 enum encap {
     E_MPLS1, E_MPLS3_V6, E_VLAN_MPLS, E_MPLS_NULL, E_MPLS_PW,
     E_VXLAN, E_GENEVE_OPT, E_GENEVE_IP, E_PPPOE, E_PPPOE_V6, E_PPPOE_PFC,
-    E_PPPOE_MPLS,
+    E_PPPOE_MPLS, E_GENEVE_TEB, E_PPTP,
 };
 
 /* Builds the frame of `step` of the case's inner TCP flow; returns its
@@ -194,7 +199,7 @@ static unsigned build(uint8_t *f, enum encap e, uint8_t net, int step, unsigned 
     unsigned ilen = 0, n = 0, k;
     int c2s = step != 1;
     /* Ethernet-in-tunnel cases carry an inner Ethernet header. */
-    if (e == E_MPLS_PW || e == E_VXLAN || e == E_GENEVE_OPT) {
+    if (e == E_MPLS_PW || e == E_VXLAN || e == E_GENEVE_OPT || e == E_GENEVE_TEB) {
         ilen = eth(inner, 0x0800);
     }
     ilen += inner_tcp(inner + ilen, v6, net, 1, step);
@@ -229,6 +234,7 @@ static unsigned build(uint8_t *f, enum encap e, uint8_t net, int step, unsigned 
         break;
     case E_VXLAN:
     case E_GENEVE_OPT:
+    case E_GENEVE_TEB:
     case E_GENEVE_IP: {
         unsigned tun = e == E_VXLAN ? 8 : e == E_GENEVE_OPT ? 16 : 8;
         n = eth(f, 0x0800);
@@ -241,7 +247,7 @@ static unsigned build(uint8_t *f, enum encap e, uint8_t net, int step, unsigned 
             f[n + 4] = 0x00; f[n + 5] = 0x10; f[n + 6] = net;   /* VNI */
         } else {
             f[n] = e == E_GENEVE_OPT ? 0x02 : 0x00;   /* ver 0, opt len 2 */
-            be16(f + n + 2, e == E_GENEVE_OPT ? 0x6558 : 0x0800);
+            be16(f + n + 2, e == E_GENEVE_IP ? 0x0800 : 0x6558);
             f[n + 6] = net;
             if (e == E_GENEVE_OPT) {               /* one 8-byte option */
                 be16(f + n + 8, 0x0104); f[n + 10] = 0x80; f[n + 11] = 0x01;
@@ -250,6 +256,18 @@ static unsigned build(uint8_t *f, enum encap e, uint8_t net, int step, unsigned 
         n += tun;
         break;
     }
+    case E_PPTP:                   /* enhanced GRE (RFC 2637 §4.1), K+S+A */
+        n = eth(f, 0x0800);
+        n += ipv4(f + n, (uint8_t) (200 + net), 9, c2s, 47, 16 + 4 + ilen);
+        *hdr_at = n;
+        f[n] = 0x30; f[n + 1] = 0x81;             /* K, S | A, version 1 */
+        be16(f + n + 2, 0x880b);
+        be16(f + n + 4, 4 + ilen); be16(f + n + 6, 0x0100 + net);   /* key */
+        memset(f + n + 8, 0, 8); f[n + 11] = (uint8_t) step; f[n + 15] = 1;
+        n += 16;
+        f[n] = 0xff; f[n + 1] = 0x03; be16(f + n + 2, 0x0021);       /* PPP */
+        n += 4;
+        break;
     case E_PPPOE:
     case E_PPPOE_V6:
     case E_PPPOE_PFC:
@@ -304,6 +322,28 @@ static void positive(mmt_handler_t *h, const char *name, enum encap e, uint8_t n
     CHECK(PATH_HAS(encap_proto, inner_ip, PROTO_TCP), msg);
     snprintf(msg, sizeof msg, "%s: the inner flow classifies as HTTP", name);
     CHECK(g_http_seen && path_last() == PROTO_HTTP, msg);
+}
+
+/* One inner TCP flow whose client packets ride `c2s` and whose server
+ * packets ride `s2c` (an MPLS stack one direction pops, GENEVE options only
+ * one VTEP adds): the server's SYN-ACK must be read at its own offsets, not
+ * at those of the packet that created the inner session. */
+static void asymmetric(mmt_handler_t *h, const char *name, enum encap c2s, enum encap s2c,
+                       uint8_t net) {
+    uint8_t f[512];
+    unsigned at;
+    char msg[160];
+    int sport[4];
+    g_http_seen = 0;
+    for (int step = 0; step < 4; step++) {
+        unsigned len = build(f, step == 1 ? s2c : c2s, net, step, &at);
+        feed(h, f, len, 0);
+        sport[step] = g_tcp_sport;
+    }
+    snprintf(msg, sizeof msg, "%s: each direction's TCP header is read at its own offset", name);
+    CHECK(sport[0] == 40000 && sport[1] == 80 && sport[2] == 40000 && sport[3] == 40000, msg);
+    snprintf(msg, sizeof msg, "%s: the inner flow still classifies as HTTP", name);
+    CHECK(g_http_seen, msg);
 }
 
 /* Truncation: every cut inside the encapsulation header (and, for a header
@@ -372,6 +412,18 @@ int main(void) {
     positive(h, "PPPoE/PPP compressed protocol", E_PPPOE_PFC, 11, PROTO_PPP, PROTO_IP);
     positive(h, "PPPoE/PPP/MPLS", E_PPPOE_MPLS, 12, PROTO_MPLS, PROTO_IP);
     CHECK(PATH_HAS(PROTO_PPPOE, PROTO_PPP, PROTO_MPLS, PROTO_IP), "PPP protocol 0x0281 is MPLS");
+    positive(h, "PPTP enhanced GRE with an ack", E_PPTP, 13, PROTO_PPP, PROTO_IP);
+    CHECK(PATH_HAS(PROTO_GRE, PROTO_PPP, PROTO_IP, PROTO_TCP),
+          "GRE version 1 steps over the acknowledgment number to PPP");
+
+    if (!register_extraction_attribute(h, PROTO_TCP, TCP_SRC_PORT)) {
+        fprintf(stderr, "register_extraction_attribute(tcp.src_port) failed\n");
+        return 2;
+    }
+    asymmetric(h, "MPLS 2 labels / 1 label", E_MPLS_NULL, E_MPLS1, 20);
+    asymmetric(h, "MPLS 1 label / 2 labels", E_MPLS1, E_MPLS_NULL, 21);
+    asymmetric(h, "GENEVE options / none", E_GENEVE_OPT, E_GENEVE_TEB, 22);
+    asymmetric(h, "GENEVE none / options", E_GENEVE_TEB, E_GENEVE_OPT, 23);
 
     /* --- the walk refuses what is not a user flow ----------------------- */
     uint8_t f[512];
