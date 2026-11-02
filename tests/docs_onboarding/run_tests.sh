@@ -561,15 +561,21 @@ if [ -f "${WORK}/live_sessions.c" ] \
         fail "live listing on mmt-nosuch0: expected exit 1 with 'pcap_open_live: ...', got exit ${rc}"
         head -5 "${WORK}/live.out" >&2 || true
     fi
-    perm="You don't have permission to perform this capture on that device"
-    if grep -qF "${perm}" "${WORK}/live.out"; then
-        if documented "${perm}"; then
+    # Without CAP_NET_RAW, libpcap refuses the capture before it looks the
+    # interface up: the message after "pcap_open_live: mmt-nosuch0: " is its
+    # permission error, which the page must quote whole. The skip is keyed
+    # on privilege (root, or bit 13 of the effective capability set), never
+    # on the output, so a changed wording fails for a normal user.
+    capeff=$(awk '/^CapEff:/ { print $2 }' /proc/self/status 2>/dev/null || true)
+    if [ "$(id -u)" -eq 0 ] || { [ -n "${capeff}" ] && (( (16#${capeff} >> 13) & 1 )); }; then
+        ok "live capture: $(id -un) holds CAP_NET_RAW, no permission error — not reproducible here"
+    else
+        perm=$(sed -n 's/^pcap_open_live: mmt-nosuch0: //p' "${WORK}/live.out" | head -1)
+        if [[ "${perm}" == "You don't have permission to "* ]] && documented "${perm}"; then
             ok "live capture as a normal user prints libpcap's permission error; the page quotes it"
         else
-            fail "live capture prints '${perm}', but docs/troubleshooting.md does not quote it"
+            fail "live capture as a normal user printed '${perm}': expected libpcap's permission error, quoted whole by docs/troubleshooting.md"
         fi
-    else
-        ok "live capture: no permission error on this host ($(id -un)) — the quote is not reproducible here"
     fi
 else
     fail "the landing page's live-capture listing does not compile:"

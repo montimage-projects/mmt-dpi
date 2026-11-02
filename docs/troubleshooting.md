@@ -23,7 +23,11 @@ Packages to install before any of this are listed in the
 ### `install: cannot create directory '/opt/mmt': Permission denied`
 
 `make -C sdk install` ran as your user, and the prefix belongs to root. The
-same cause can also print `install: cannot change permissions of '/opt/mmt'`.
+same cause can also print `install: cannot change permissions of '/opt/mmt'`,
+or, when `/opt/mmt` already exists (after an earlier `sudo` install, for
+example), one
+`install: cannot create regular file '/opt/mmt/dpi/lib/...': Permission denied`
+line per library.
 
 Fix: build as your user, then install with `sudo`:
 
@@ -176,7 +180,17 @@ user cannot read it: check it with `ls -l` and make it readable, or copy it.
 
 ## Capturing live traffic
 
-### `You don't have permission to perform this capture on that device (socket: Operation not permitted)`
+### `You don't have permission to perform this capture on that device`
+
+The program prints `pcap_open_live: <interface>: ` followed by one of these,
+depending on the libpcap release:
+
+- `You don't have permission to perform this capture on that device (socket: Operation not permitted)`
+  (libpcap 1.10.3 to 1.10.5: Debian 12 and 13, Ubuntu 24.04);
+- `You don't have permission to perform this capture on that device (Attempt to create packet socket failed - CAP_NET_RAW may be required)`
+  (libpcap 1.10.6: Ubuntu 26.04);
+- `You don't have permission to capture on that device (socket: Operation not permitted)`
+  (libpcap 1.10.1: Ubuntu 22.04).
 
 Opening a network interface needs the `CAP_NET_RAW` capability, which a
 normal user does not have. libpcap prints the same message for an interface
