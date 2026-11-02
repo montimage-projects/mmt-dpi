@@ -82,7 +82,8 @@ gcc -o hello_packet hello_packet.c -I /opt/mmt/dpi/include -L /opt/mmt/dpi/lib -
 ### `fatal error: pcap.h: No such file or directory`
 
 The libpcap development headers are not installed. The `.deb`/`.rpm`
-packages install the libpcap runtime only.
+packages do not install libpcap at all: no MMT-DPI library links it, only the
+example programs do.
 
 Fix: install `libpcap-dev` (Debian, Ubuntu) or `libpcap-devel` (Fedora, Rocky
 Linux, AlmaLinux, CentOS Stream, openSUSE), as the
@@ -101,8 +102,8 @@ Fix: add `-L /opt/mmt/dpi/lib` (your prefix's `dpi/lib`) before
 
 ### `cannot find -lpcap`
 
-Only the libpcap runtime is installed, not its development package, which
-provides the `libpcap.so` the linker looks for.
+The libpcap development package, which provides the `libpcap.so` the linker
+looks for, is not installed (a libpcap runtime alone is not enough).
 
 Fix: install `libpcap-dev` or `libpcap-devel`, as for the missing `pcap.h`
 above.

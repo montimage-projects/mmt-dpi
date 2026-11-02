@@ -508,7 +508,7 @@ else
 fi
 if [ "$(id -u)" -ne 0 ]; then
     cp "${FIXTURE}" "${RUN_DIR}/traffic.pcap" && chmod 000 "${RUN_DIR}/traffic.pcap"
-    repro "unreadable capture" "traffic.pcap: Permission denied" "Permission denied" \
+    repro "unreadable capture" "traffic.pcap: Permission denied" "The same message ending in \`Permission denied\` means the file exists" \
           env LD_LIBRARY_PATH="${LIBPATH}" ./hello_packet traffic.pcap
     chmod 644 "${RUN_DIR}/traffic.pcap"
 else
