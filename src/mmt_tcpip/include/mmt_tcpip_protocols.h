@@ -679,8 +679,8 @@ extern "C" {
 #define PROTO_MS_TEAMS                664
 #define PROTO_SHAREPOINT              665
 #define PROTO_OFFICE365               666
-/* Issue #572: encapsulations walked to the inner flow (667 is issue #565's
- * PROTO_GOOGLE_CLOUD). */
+#define PROTO_GOOGLE_CLOUD            667
+/* Issue #572: encapsulations walked to the inner flow. */
 #define PROTO_MPLS                    668
 #define PROTO_VXLAN                   669
 #define PROTO_GENEVE                  670
@@ -1354,6 +1354,7 @@ extern "C" {
 #define PROTO_MS_TEAMS_ALIAS          "ms_teams"
 #define PROTO_SHAREPOINT_ALIAS        "sharepoint"
 #define PROTO_OFFICE365_ALIAS         "office365"
+#define PROTO_GOOGLE_CLOUD_ALIAS      "google_cloud"
 #define PROTO_MPLS_ALIAS              "mpls"
 #define PROTO_VXLAN_ALIAS             "vxlan"
 #define PROTO_GENEVE_ALIAS            "geneve"
