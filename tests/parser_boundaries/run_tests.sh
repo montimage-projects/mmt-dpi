@@ -480,4 +480,4 @@ if [ "${rc}" -ne 0 ]; then
     echo "✗ parser boundary tests failed" >&2
     exit 1
 fi
-echo "✓ parser boundary tests passed (issues #330, #331, #332, #333, #375, #376, #377, #378, #407, #409, #453, #455, #505, #513, #531, #542, #544, #560, #567, #568, #569)"
+echo "✓ parser boundary tests passed (issues #330, #331, #332, #333, #375, #376, #377, #378, #407, #409, #453, #455, #505, #513, #531, #542, #544, #560, #567, #568, #569, #570)"
