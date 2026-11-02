@@ -128,7 +128,10 @@ tls_hello_reasm_status_t tls_hello_reasm_begin(tls_hello_reasm_t **slot, uint32_
 /**
  * Places `len` bytes whose first byte has stream position `pos`. Positions
  * compare modulo 2^32 (TCP sequence space); bytes before the message start
- * or past its end are ignored. DROPPED frees the slot.
+ * or past its end are ignored. DROPPED frees the slot. A caller with wider
+ * positions (QUIC CRYPTO offsets are 62-bit) must refuse data whose offset
+ * + length exceeds base + TLS_HELLO_MAX_MESSAGE before narrowing to 32 bits,
+ * or a far offset would wrap into the buffer.
  */
 tls_hello_reasm_status_t tls_hello_reasm_feed(tls_hello_reasm_t **slot, uint32_t pos,
         const uint8_t *data, size_t len);
