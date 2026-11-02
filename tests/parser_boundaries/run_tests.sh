@@ -106,11 +106,39 @@
 # Length/varint bounded by the captured bytes. Issue #458 extends it: a
 # chained packet must carry the first packet's DCID, and the chained tail
 # never outlives its datagram — also past the classification threshold.
+# Issue #570 (F-BUG-307) adds the client Initial decryption (RFC 9001 §5,
+# RFC 9369) and refuses connection IDs longer than 20 bytes.
 #
 #   test_quic_ietf_coalesced.c — packet/API path: crafted Ethernet/IPv4/UDP
 #                               QUIC frames through mmt_init_handler +
 #                               packet_process, reading the path and the
 #                               QUIC attributes back per layer.
+#   test_quic_initial_decrypt_unit.c — helper reproducer: mmt_sha256.c,
+#                               mmt_crypto.c and quic_ietf_initial.c
+#                               included directly; the AES/HMAC/HKDF/GCM
+#                               known answers, the RFC 9001 / RFC 9369
+#                               Appendix A keys and A.2 client Initials, and
+#                               every prefix and malformation of them over
+#                               exact-size buffers (quic_initial_vectors.h).
+# Issue #571 reads the client Initial's ClientHello (SNI, ALPN, JA4) from its
+# CRYPTO frames, names the application from the SNI, and classifies a flow
+# seen from mid-connection from its short headers.
+#
+#   test_quic_crypto_unit.c — helper reproducer: quic_ietf_crypto.c and its
+#                               dependencies included directly, the decrypt,
+#                               begin and feed calls counted: the RFC A.2
+#                               Initials, frame walks, out-of-bound CRYPTO
+#                               offsets and lengths, the decryption cap, the
+#                               client latch and the release.
+#   test_quic_hello_attrs_api.c — packet/API path: the QUIC accuracy-corpus
+#                               captures and the A.2 Initial behind assorted
+#                               UDP lengths, reading quic_ietf.server_name,
+#                               tls_alpn, tls_ja4, the application layer and
+#                               the classification method per packet.
+#   test_quic_short_header_api.c — packet/API path: crafted 1-RTT flows to
+#                               UDP/443 (stable / changing DCID, server
+#                               packets, port 8443, fixed bit clear, TURN
+#                               ChannelData, an IP-range server).
 #
 # Issue #455 adds the "gre" fixture: gre.seq_out, gre.seq_in, gre.seq_gap and
 # gre.loss are deprecated — their ids stay reserved and registrable but are
@@ -231,11 +259,39 @@
 #                               mmt_init_handler + packet_process, reading
 #                               ssl.server_name and the path per segment.
 #
+# Issue #569 (F-BUG-309) adds to it the hello readers: supported_versions,
+# ALPN, ECH and the JA4 fingerprint on the in-tree SHA-256.
+#
+#   test_tls_fingerprint_unit.c — helper reproducer: mmt_sha256.c and
+#                               tls_client_hello.c included directly; the
+#                               FIPS 180-2 SHA-256 vectors, the FoxIO JA4
+#                               specification example and each JA4 rule,
+#                               the version/ALPN/ECH readers and the
+#                               ServerHello parser over exact-size buffers.
+#   test_tls_hello_attrs_api.c — packet/API path: the TLS 1.3 / ECH / TLS 1.2
+#                               / split-hello accuracy-corpus captures
+#                               through packet_process, reading
+#                               ssl.tls_version, tls_alpn, tls_sni_hidden and
+#                               tls_ja4 per packet.
+#
+# Issue #572 adds the "encap" fixture: MPLS label stacks (behind Ethernet,
+# 802.1Q and PPP), VXLAN, GENEVE and PPPoE sessions are walked down to the
+# inner flow, which classifies; a stack without a bottom entry within the
+# walker's bound, non-user payloads (G-ACh, GENEVE control, PPPoE discovery,
+# PPP control protocols) and every header cut short of caplen end the path
+# at the encapsulation, nested tunnels stop at PROTO_PATH_SIZE layers, a flow
+# whose stack depth or GENEVE option length differs by direction is read at
+# each packet's own offsets, and PPTP (GRE version 1) steps over its ack.
+#
+#   test_encap_walk_api.c — packet/API path: crafted encapsulated
+#                               Ethernet frames (exactly-sized heap copies)
+#                               through mmt_init_handler + packet_process.
+#
 # Usage: tests/parser_boundaries/run_tests.sh [fixture ...]
 #   no arguments runs every fixture; "udp"/"dtls"/"dns-soa"/"dns-txt"/"dns-names"/"nfs"/"int"/
 #   "tcp-options"/"radius-dns"/"quic"/"gre"/"classifier-audit"/"tcp-events"/"s1ap-integer"/
 #   "classify"/"registration"/"ftp-sessions"/"classification-method"/"chain"/
-#   "tls-hello" select a fixture family.
+#   "tls-hello"/"encap" select a fixture family.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -243,7 +299,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # --- fixture selection -----------------------------------------------------
 FIXTURES=( "$@" )
-[ "${#FIXTURES[@]}" -eq 0 ] && FIXTURES=(udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic gre classifier-audit tcp-events s1ap-integer classify registration ftp-sessions classification-method chain tls-hello)
+[ "${#FIXTURES[@]}" -eq 0 ] && FIXTURES=(udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic gre classifier-audit tcp-events s1ap-integer classify registration ftp-sessions classification-method chain tls-hello encap)
 UNIT_TESTS=()
 API_TESTS=()
 MOBILE_TESTS=()
@@ -278,7 +334,8 @@ for f in "${FIXTURES[@]}"; do
             API_TESTS+=(radius_dns_ipv6_api)
             ;;
         quic)
-            API_TESTS+=(quic_ietf_coalesced)
+            UNIT_TESTS+=(quic_initial_decrypt_unit quic_crypto_unit)
+            API_TESTS+=(quic_ietf_coalesced quic_hello_attrs_api quic_short_header_api)
             ;;
         gre)
             API_TESTS+=(gre_deprecated_attrs_api)
@@ -310,11 +367,14 @@ for f in "${FIXTURES[@]}"; do
             python3 -I "${SCRIPT_DIR}/check_inter_proto_excluded.py" "${REPO_ROOT}" || exit 1
             ;;
         tls-hello)
-            UNIT_TESTS+=(tls_client_hello_unit)
-            API_TESTS+=(tls_split_hello_api)
+            UNIT_TESTS+=(tls_client_hello_unit tls_fingerprint_unit)
+            API_TESTS+=(tls_split_hello_api tls_hello_attrs_api)
+            ;;
+        encap)
+            API_TESTS+=(encap_walk_api)
             ;;
         *)
-            echo "✗ unknown parser_boundaries fixture '$f' (known: udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic gre classifier-audit tcp-events s1ap-integer classify registration ftp-sessions classification-method chain tls-hello)" >&2
+            echo "✗ unknown parser_boundaries fixture '$f' (known: udp dtls dns-soa dns-txt dns-names nfs int tcp-options radius-dns quic gre classifier-audit tcp-events s1ap-integer classify registration ftp-sessions classification-method chain tls-hello encap)" >&2
             exit 2
             ;;
     esac
@@ -455,4 +515,4 @@ if [ "${rc}" -ne 0 ]; then
     echo "✗ parser boundary tests failed" >&2
     exit 1
 fi
-echo "✓ parser boundary tests passed (issues #330, #331, #332, #333, #375, #376, #377, #378, #407, #409, #453, #455, #505, #513, #531, #542, #544, #560, #567, #568)"
+echo "✓ parser boundary tests passed (issues #330, #331, #332, #333, #375, #376, #377, #378, #407, #409, #453, #455, #505, #513, #531, #542, #544, #560, #567, #568, #569, #570, #571, #572)"

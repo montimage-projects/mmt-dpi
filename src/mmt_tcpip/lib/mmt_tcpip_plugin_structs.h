@@ -498,6 +498,11 @@ struct mmt_internal_udp_session_struct {
 #ifdef PROTO_TANGO
     uint8_t tango_like_packet;
 #endif
+    /* Issue #571: QUIC 1-RTT candidate of a flow seen from mid-connection
+     * (proto_quic_ietf.c): client packets to UDP/443 so far that carried
+     * the same first 8 DCID bytes (0xff: not QUIC), and those bytes. */
+    uint8_t quic_sh_count;
+    uint8_t quic_sh_dcid[8];
 }
 
 __attribute__((__packed__))
@@ -630,11 +635,39 @@ _Static_assert(sizeof(void *) != 8
         || sizeof(struct mmt_internal_tcpip_session_struct) <= 232 - 96,
     "mmt_internal_tcpip_session_struct grew back past the issue #561 budget "
     "(232 B before the dense exclusion set, minus 96 B)");
+/* Issue #571: the UDP state shares the l4 union with the larger TCP state,
+ * so the QUIC 1-RTT candidate bytes do not grow the record. */
+_Static_assert(sizeof(struct mmt_internal_udp_session_struct)
+        <= sizeof(struct mmt_internal_tcp_session_struct),
+    "mmt_internal_udp_session_struct outgrew the l4 union's TCP member");
 
 typedef struct mmt_int_one_line_struct {
     const uint8_t *ptr;
     uint16_t len;
 } mmt_int_one_line_struct_t;
+
+/* Longest ALPN text ssl.tls_alpn reports, NUL included (issue #569). */
+#define MMT_TLS_ALPN_TEXT_LEN 128
+/* JA4 fingerprint: 36 characters and a NUL (issue #569). */
+#define MMT_TLS_JA4_TEXT_LEN 37
+
+/*
+ * The TLS hello facts of one packet (issue #569): packet-scoped like
+ * https_server_name, so they live with the handler's packet, never in the
+ * flow. `filled` and `packet_id` name the packet they describe.
+ */
+struct mmt_tls_hello_facts {
+    uint64_t packet_id;
+    uint8_t filled;          /* facts computed for packet_id */
+    uint8_t handshake_type;  /* 1 ClientHello, 2 ServerHello, 0 none */
+    uint8_t sni_hidden;      /* ClientHello: outer encrypted_client_hello */
+    uint8_t has_ja4;
+    uint16_t version;        /* advertised (ClientHello) / negotiated (ServerHello) */
+    struct mmt_int_one_line_struct alpn;
+    struct mmt_int_one_line_struct ja4;
+    char alpn_text[MMT_TLS_ALPN_TEXT_LEN];
+    char ja4_text[MMT_TLS_JA4_TEXT_LEN];
+};
 
 struct mmt_tcpip_internal_packet_struct {
     struct mmt_internal_tcpip_session_struct *flow;
@@ -689,6 +722,10 @@ struct mmt_tcpip_internal_packet_struct {
     } content_info;
 
     struct mmt_int_one_line_struct https_server_name;
+
+    /* Issue #569: what ssl.tls_version / tls_alpn / tls_sni_hidden /
+     * tls_ja4 report for the packet `tls_hello.packet_id` (proto_ssl.c) */
+    struct mmt_tls_hello_facts tls_hello;
 
     struct mmt_int_one_line_struct line[MMT_MAX_PARSE_LINES_PER_PACKET];
     struct mmt_int_one_line_struct unix_line[MMT_MAX_PARSE_LINES_PER_PACKET];

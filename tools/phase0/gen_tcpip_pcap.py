@@ -747,6 +747,109 @@ def gen_acc_tls_split_truncated_pcap(path):
     print("wrote %s (accuracy: TLS ClientHello never completed)" % path)
 
 
+# Issue #569 (F-BUG-309): a TLS 1.3 ClientHello whose cipher suites,
+# extensions and signature algorithms are those of the example in the FoxIO
+# JA4 specification (technical_details/JA4.md), so its JA4 must be the
+# published t13d1516h2_8daaf6152771_e5627efa2ab1; GREASE values (RFC 8701)
+# are interleaved, and the specification ignores them. ALPN offers h2 then
+# http/1.1, supported_versions TLS 1.3 then 1.2.
+JA4_SPEC_SUITES = (0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030,
+                   0xcca9, 0xcca8, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f,
+                   0x0035)
+JA4_SPEC_SIGALGS = (0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806,
+                    0x0601)
+TLS_GREASE_A, TLS_GREASE_B = 0x0a0a, 0x2a2a
+TLS_EXT_ECH = 0xfe0d
+
+
+def _tls_ext(etype, body):
+    return struct.pack("!HH", etype, len(body)) + body
+
+
+def _tls13_client_hello(sni, ech=False, alpn=b"\x02h2\x08http/1.1", extra=()):
+    """TLS 1.3 ClientHello record with the JA4 specification's suites,
+    extensions and signature algorithms. With `ech`, an outer
+    encrypted_client_hello (RFC 9849 §5: type 0, HPKE suite HKDF-SHA256 /
+    AES-128-GCM, config id, 32-byte enc, 144-byte payload) is added and
+    `sni` is the ECH public name. `alpn` is the ALPN ProtocolNameList and
+    `extra` further encoded extensions, appended last (QUIC, issue #571)."""
+    host = sni.encode()
+    sni_list = b"\x00" + struct.pack("!H", len(host)) + host
+    versions = struct.pack("!HHH", TLS_GREASE_A, 0x0304, 0x0303)
+    sigalgs = b"".join(struct.pack("!H", a) for a in JA4_SPEC_SIGALGS)
+    exts = [
+        _tls_ext(TLS_GREASE_A, b""),
+        _tls_ext(0x0000, struct.pack("!H", len(sni_list)) + sni_list),
+        _tls_ext(0x0017, b""),                                 # extended_master_secret
+        _tls_ext(0xff01, b"\x00"),                             # renegotiation_info
+        _tls_ext(0x000a, struct.pack("!HHHHH", 8, TLS_GREASE_B, 0x001d, 0x0017, 0x0018)),
+        _tls_ext(0x000b, b"\x01\x00"),                         # ec_point_formats
+        _tls_ext(0x0023, b""),                                 # session_ticket
+        _tls_ext(0x0010, struct.pack("!H", len(alpn)) + alpn),
+        _tls_ext(0x0005, b"\x01\x00\x00\x00\x00"),             # status_request
+        _tls_ext(0x000d, struct.pack("!H", len(sigalgs)) + sigalgs),
+        _tls_ext(0x0012, b""),                                 # signed_certificate_timestamp
+        _tls_ext(0x0033, struct.pack("!HHH", 38, 0x001d, 32) + bytes(range(32))),
+        _tls_ext(0x002d, b"\x01\x01"),                         # psk_key_exchange_modes
+        _tls_ext(0x002b, bytes([len(versions)]) + versions),
+        _tls_ext(0x001b, b"\x02\x00\x02"),                     # compress_certificate
+        _tls_ext(0x4469, b"\x00\x03\x02h2"),                   # application_settings
+        _tls_ext(TLS_GREASE_B, b"\x00"),
+        _tls_ext(0x0015, b"\x00" * 16),                         # padding
+    ]
+    if ech:
+        enc, payload = bytes(range(64, 96)), bytes((7 * i) & 0xff for i in range(144))
+        exts.append(_tls_ext(TLS_EXT_ECH, b"\x00" + struct.pack("!HH", 1, 1) + b"\x2a"
+                             + struct.pack("!H", len(enc)) + enc
+                             + struct.pack("!H", len(payload)) + payload))
+    exts.extend(extra)
+    suites = (TLS_GREASE_A,) + JA4_SPEC_SUITES
+    ext = b"".join(exts)
+    body = (b"\x03\x03" + bytes(range(32)) + b"\x20" + bytes(range(32, 64))
+            + struct.pack("!H", 2 * len(suites))
+            + b"".join(struct.pack("!H", c) for c in suites)
+            + b"\x01\x00" + struct.pack("!H", len(ext)) + ext)
+    hs = b"\x01" + struct.pack("!I", len(body))[1:] + body
+    return struct.pack("!BHH", 22, 0x0301, len(hs)) + hs
+
+
+def _tls13_server_hello():
+    """TLS 1.3 ServerHello (RFC 8446 §4.1.3): legacy_version 0x0303, the
+    client's session id echoed, TLS_AES_128_GCM_SHA256, supported_versions
+    selecting 0x0304 and an x25519 key_share."""
+    ext = (_tls_ext(0x002b, b"\x03\x04")
+           + _tls_ext(0x0033, struct.pack("!HH", 0x001d, 32) + bytes(range(96, 128))))
+    body = (b"\x03\x03" + bytes(range(128, 160)) + b"\x20" + bytes(range(32, 64))
+            + b"\x13\x01" + b"\x00" + struct.pack("!H", len(ext)) + ext)
+    hs = b"\x02" + struct.pack("!I", len(body))[1:] + body
+    return struct.pack("!BHH", 22, 0x0303, len(hs)) + hs
+
+
+def _acc_tls13_pcap(path, cport, sni, ech, note):
+    f = pcap_open(path)
+    flow = _AccFlow(f, 6, cport, 443)
+    flow.handshake()
+    flow.send("cli", _tls13_client_hello(sni, ech=ech))
+    flow.send("srv", _tls13_server_hello())
+    f.close()
+    print("wrote %s (accuracy: %s)" % (path, note))
+
+
+def gen_acc_tls13_alpn_h2_pcap(path):
+    """TCP/443 handshake, a TLS 1.3 ClientHello (SNI accuracy.example, ALPN
+    h2 + http/1.1, the JA4 specification's suites and extensions) and a
+    TLS 1.3 ServerHello: ALPN h2, version 0x0304 from supported_versions and
+    the published JA4 (issue #569)."""
+    _acc_tls13_pcap(path, 49326, "accuracy.example", False, "TLS 1.3 with ALPN h2")
+
+
+def gen_acc_tls_ech_pcap(path):
+    """Same exchange with an outer encrypted_client_hello: the server_name
+    is the ECH public name public.example, the real one is encrypted, so the
+    hello is reported sni-hidden (issue #569)."""
+    _acc_tls13_pcap(path, 49327, "public.example", True, "TLS 1.3 with ECH")
+
+
 def gen_acc_tls_negative_pcap(path):
     """Plaintext HTTP/1.1 on TCP/443 — port 443 alone must not yield a TLS
     verdict."""
@@ -828,6 +931,377 @@ def gen_acc_quic_draft29_ambiguous_pcap(path):
     print("wrote %s (accuracy: QUIC draft-29 Initial x2)" % path)
 
 
+# --- QUIC client Initial protection (issue #571) ----------------------------
+# The client Initial is protected with keys derived from its Destination
+# Connection ID (RFC 9001 §5.2, RFC 9369 §3.3.1). The generator is stdlib
+# only, so AES-128, AES-128-GCM sealing, HKDF-Expand-Label and header
+# protection are written out here; _quic_selftest() checks them against the
+# published RFC 9001 / RFC 9369 Appendix A.2 packets (copied, for the C
+# tests, in tests/parser_boundaries/quic_initial_vectors.h) before any QUIC
+# capture is written. Independent of the SDK's own src/mmt_tcpip/lib
+# mmt_crypto.c, so the fixtures cross-check it.
+
+def _aes_tables():
+    sbox = [0] * 256
+    p = q = 1
+    while True:
+        p = (p ^ (p << 1) ^ (0x1b if p & 0x80 else 0)) & 0xff
+        q ^= q << 1
+        q ^= q << 2
+        q ^= q << 4
+        q &= 0xff
+        if q & 0x80:
+            q ^= 0x09
+        x = q
+        for r in (1, 2, 3, 4):
+            x ^= ((q << r) | (q >> (8 - r))) & 0xff
+        sbox[p] = x ^ 0x63
+        if p == 1:
+            break
+    sbox[0] = 0x63
+    return sbox
+
+
+AES_SBOX = _aes_tables()
+
+
+def _xtime(b):
+    return ((b << 1) ^ (0x1b if b & 0x80 else 0)) & 0xff
+
+
+def _aes_expand(key):
+    """AES-128 key schedule (FIPS 197 §5.2): 11 round keys of 16 bytes."""
+    w = [list(key[i:i + 4]) for i in range(0, 16, 4)]
+    rcon = 1
+    for i in range(4, 44):
+        t = list(w[i - 1])
+        if i % 4 == 0:
+            t = [AES_SBOX[b] for b in t[1:] + t[:1]]
+            t[0] ^= rcon
+            rcon = _xtime(rcon)
+        w.append([a ^ b for a, b in zip(w[i - 4], t)])
+    return [sum(w[4 * r:4 * r + 4], []) for r in range(11)]
+
+
+def _aes_encrypt_block(rk, block):
+    """AES-128 encryption of one 16-byte block (FIPS 197 §5.1); the state
+    is column-major: byte r + 4c is row r, column c."""
+    s = [a ^ b for a, b in zip(block, rk[0])]
+    for rnd in range(1, 11):
+        s = [AES_SBOX[b] for b in s]
+        s = [s[r + 4 * ((c + r) % 4)] for c in range(4) for r in range(4)]
+        if rnd < 10:
+            m = []
+            for c in range(4):
+                a = s[4 * c:4 * c + 4]
+                t = a[0] ^ a[1] ^ a[2] ^ a[3]
+                m += [a[r] ^ t ^ _xtime(a[r] ^ a[(r + 1) % 4]) for r in range(4)]
+            s = m
+        s = [a ^ b for a, b in zip(s, rk[rnd])]
+    return bytes(s)
+
+
+def _gf128_mul(x, y):
+    """GCM multiplication in GF(2^128) (SP 800-38D §6.3, bit-reflected)."""
+    z, v = 0, y
+    for i in range(127, -1, -1):
+        if (x >> i) & 1:
+            z ^= v
+        v = (v >> 1) ^ (0xE1 << 120) if v & 1 else v >> 1
+    return z
+
+
+def _ghash(h, aad, ct):
+    def blocks(data):
+        data += b"\x00" * (-len(data) % 16)
+        return [data[i:i + 16] for i in range(0, len(data), 16)]
+    hi, x = int.from_bytes(h, "big"), 0
+    for blk in blocks(aad) + blocks(ct) + [struct.pack("!QQ", 8 * len(aad), 8 * len(ct))]:
+        x = _gf128_mul(x ^ int.from_bytes(blk, "big"), hi)
+    return x.to_bytes(16, "big")
+
+
+def _aes_gcm_seal(key, iv, plaintext, aad):
+    """AES-128-GCM with a 96-bit IV (SP 800-38D §7.1): ciphertext || tag."""
+    rk = _aes_expand(key)
+    j0 = iv + b"\x00\x00\x00\x01"
+    ct = bytearray()
+    for i in range(0, len(plaintext), 16):
+        ctr = iv + struct.pack("!I", 2 + i // 16)
+        ks = _aes_encrypt_block(rk, ctr)
+        ct += bytes(a ^ b for a, b in zip(plaintext[i:i + 16], ks))
+    ct = bytes(ct)
+    s = _ghash(_aes_encrypt_block(rk, bytes(16)), aad, ct)
+    tag = bytes(a ^ b for a, b in zip(s, _aes_encrypt_block(rk, j0)))
+    return ct + tag
+
+
+def _hkdf_expand_label(secret, label, length):
+    """TLS 1.3 HKDF-Expand-Label with an empty context (RFC 8446 §7.1)."""
+    full = b"tls13 " + label
+    info = struct.pack("!HB", length, len(full)) + full + b"\x00"
+    out, t, i = b"", b"", 1
+    while len(out) < length:
+        t = hmac.new(secret, t + info + bytes([i]), hashlib.sha256).digest()
+        out += t
+        i += 1
+    return out[:length]
+
+
+QUIC_V2 = 0x6B3343CF
+QUIC_INITIAL_SALT = {
+    1: bytes.fromhex("38762cf7f55934b34d179ae6a4c80cadccbb7f0a"),        # RFC 9001 §5.2
+    QUIC_V2: bytes.fromhex("0dede3def700a6db819381be6e269dcbf9bd2ed9"),  # RFC 9369 §3.3.1
+}
+
+
+def _quic_initial_keys(dcid, version):
+    """Client Initial key, IV and header-protection key."""
+    pfx = b"quic" if version == 1 else b"quicv2"   # RFC 9369 §3.3.2 labels
+    initial = hmac.new(QUIC_INITIAL_SALT[version], dcid, hashlib.sha256).digest()
+    client = _hkdf_expand_label(initial, b"client in", 32)
+    return (_hkdf_expand_label(client, pfx + b" key", 16),
+            _hkdf_expand_label(client, pfx + b" iv", 12),
+            _hkdf_expand_label(client, pfx + b" hp", 16))
+
+
+def _quic_varint(v):
+    """RFC 9000 §16 variable-length integer, shortest encoding."""
+    if v < 0x40:
+        return bytes([v])
+    if v < 0x4000:
+        return struct.pack("!H", 0x4000 | v)
+    if v < 0x40000000:
+        return struct.pack("!I", 0x80000000 | v)
+    return struct.pack("!Q", 0xC000000000000000 | v)
+
+
+def _quic_crypto_frame(offset, data):
+    return b"\x06" + _quic_varint(offset) + _quic_varint(len(data)) + data
+
+
+def _quic_protect_initial(version, dcid, scid, pn, frames, pad_to=1200):
+    """Protected client Initial (RFC 9001 §5.3-5.4) carrying `frames`,
+    PADDING-filled so the packet is `pad_to` bytes, with a 4-byte packet
+    number `pn` and an empty token."""
+    ptype = 0 if version == 1 else 1           # RFC 9369 §3.2: v2 Initial 0b01
+    head = (bytes([0xC0 | (ptype << 4) | 0x03]) + struct.pack("!I", version)
+            + bytes([len(dcid)]) + dcid + bytes([len(scid)]) + scid + b"\x00")
+    payload_len = pad_to - len(head) - 2 - 4 - 16
+    if payload_len < len(frames):
+        raise ValueError("QUIC Initial frames do not fit %d bytes" % pad_to)
+    plaintext = frames + b"\x00" * (payload_len - len(frames))
+    head += struct.pack("!H", 0x4000 | (4 + payload_len + 16))
+    pn_off = len(head)
+    head += struct.pack("!I", pn)
+    key, iv, hp = _quic_initial_keys(dcid, version)
+    nonce = bytes(a ^ b for a, b in zip(iv, bytes(8) + struct.pack("!I", pn)))
+    pkt = bytearray(head + _aes_gcm_seal(key, nonce, plaintext, head))
+    mask = _aes_encrypt_block(_aes_expand(hp), bytes(pkt[pn_off + 4:pn_off + 20]))
+    pkt[0] ^= mask[0] & 0x0f
+    for i in range(4):
+        pkt[pn_off + i] ^= mask[1 + i]
+    return bytes(pkt)
+
+
+def _quic_vectors():
+    """The RFC 9001 / RFC 9369 A.2 hex strings of the C test vectors."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
+                        "tests", "parser_boundaries", "quic_initial_vectors.h")
+    with open(path, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    out = {}
+    for name in ("RFC_V1_CRYPTO_FRAME", "RFC_V1_PROTECTED",
+                 "RFC_V2_CRYPTO_FRAME", "RFC_V2_PROTECTED"):
+        body = text.split("static const char %s[] =" % name, 1)[1].split(";", 1)[0]
+        out[name] = bytes.fromhex("".join(body.replace('"', " ").split()))
+    return out
+
+
+_QUIC_SELFTEST_DONE = []
+
+
+def _quic_selftest():
+    """RFC 9001 Appendix A.1 keys and the A.2 protected client Initial, and
+    the RFC 9369 Appendix A.2 one, byte for byte; raises on a mismatch."""
+    if _QUIC_SELFTEST_DONE:
+        return
+    dcid = bytes.fromhex("8394c8f03e515708")
+    want = (bytes.fromhex("1f369613dd76d5467730efcbe3b1a22d"),
+            bytes.fromhex("fa044b2f42a3fd3b46fb255c"),
+            bytes.fromhex("9f50449e04a0e810283a1e9933adedd2"))
+    if _quic_initial_keys(dcid, 1) != want:
+        raise AssertionError("QUIC v1 client Initial keys differ from RFC 9001 A.1")
+    vec = _quic_vectors()
+    for version, tag in ((1, "V1"), (QUIC_V2, "V2")):
+        got = _quic_protect_initial(version, dcid, b"", 2, vec["RFC_%s_CRYPTO_FRAME" % tag])
+        if got != vec["RFC_%s_PROTECTED" % tag]:
+            raise AssertionError("QUIC %s client Initial differs from the RFC A.2 packet" % tag)
+    _QUIC_SELFTEST_DONE.append(True)
+
+
+QUIC_ACC_DCID = bytes(range(0x30, 0x38))    # client-chosen DCID
+QUIC_ACC_SCID = bytes(range(0x38, 0x40))    # client SCID
+QUIC_ACC_SNI = "www.google.com"             # same host as acc_tls_sni_attribution
+
+
+def _quic_client_hello(sni):
+    """The TLS 1.3 ClientHello handshake message a QUIC client sends in its
+    CRYPTO frames (RFC 9001 §4): _tls13_client_hello() without the record
+    header, ALPN h3 (RFC 9114 §3.1) and quic_transport_parameters (RFC 9000
+    §18: initial_source_connection_id = the client SCID)."""
+    params = b"\x0f" + _quic_varint(len(QUIC_ACC_SCID)) + QUIC_ACC_SCID
+    rec = _tls13_client_hello(sni, alpn=b"\x02h3", extra=(_tls_ext(0x0039, params),))
+    return rec[5:]
+
+
+def _quic_short(first, dcid, pn, payload):
+    """1-RTT packet as it is on the wire (RFC 9000 §17.3)."""
+    return bytes([first]) + dcid + pn + payload
+
+
+def _acc_quic_sni_pcap(path, version, cport, note):
+    _quic_selftest()
+    f = pcap_open(path)
+    flow = _AccFlow(f, 17, cport, 443)
+    srv_cid = bytes(range(0x40, 0x48))
+    hello = _quic_client_hello(QUIC_ACC_SNI)
+    flow.send("cli", _quic_protect_initial(version, QUIC_ACC_DCID, QUIC_ACC_SCID, 0,
+                                           _quic_crypto_frame(0, hello)))
+    ptype = 0 if version == 1 else 1
+    srv = _quic_long_header(version, ptype, QUIC_ACC_SCID, srv_cid, b"\x5b" * 40, initial=True)
+    if version == 1:   # the server's Initial coalesced with a Handshake packet
+        srv += _quic_long_header(1, 2, QUIC_ACC_SCID, srv_cid, b"\x5e" * 60)
+    flow.send("srv", srv)
+    if version == 1:
+        flow.send("cli", _quic_short(0x43, srv_cid, b"\x00\x00\x00\x01", b"\x5c" * 24))
+        flow.send("srv", _quic_short(0x41, QUIC_ACC_SCID, b"\x00\x01", b"\x5d" * 30))
+    f.close()
+    print("wrote %s (accuracy: %s)" % (path, note))
+
+
+def gen_acc_quic_initial_sni_h3_pcap(path):
+    """QUIC v1 on UDP/443: a protected client Initial whose CRYPTO frame
+    carries a TLS 1.3 ClientHello (SNI www.google.com, ALPN h3), the server
+    Initial coalesced with a Handshake packet, and a 1-RTT packet each way
+    (issue #571)."""
+    _acc_quic_sni_pcap(path, 1, 51830, "QUIC v1 Initial with SNI and ALPN h3")
+
+
+def gen_acc_quic_v2_initial_sni_pcap(path):
+    """Same client Initial protected under QUIC version 2 (RFC 9369), then
+    the server Initial (issue #571)."""
+    _acc_quic_sni_pcap(path, QUIC_V2, 51832, "QUIC v2 Initial with SNI")
+
+
+def gen_acc_quic_initial_split_reordered_pcap(path):
+    """The ClientHello over two protected client Initials (issue #571): the
+    first carries its first 200 bytes as three CRYPTO frames in reverse
+    offset order, the one at offset 0 only 2 bytes long (the 4-byte
+    handshake header spans two frames); a server Initial coalesced with a
+    Handshake packet, padded to 1200 bytes, comes between them; the second
+    client Initial carries the rest."""
+    _quic_selftest()
+    f = pcap_open(path)
+    flow = _AccFlow(f, 17, 51831, 443)
+    srv_cid = bytes(range(0x48, 0x50))
+    hello = _quic_client_hello(QUIC_ACC_SNI)
+    first = (_quic_crypto_frame(120, hello[120:200]) + _quic_crypto_frame(2, hello[2:120])
+             + _quic_crypto_frame(0, hello[:2]))
+    flow.send("cli", _quic_protect_initial(1, QUIC_ACC_DCID, QUIC_ACC_SCID, 0, first))
+    srv_initial = _quic_long_header(1, 0, QUIC_ACC_SCID, srv_cid, b"\x5b" * 90, initial=True)
+    srv_handshake = _quic_long_header(1, 2, QUIC_ACC_SCID, srv_cid, b"\x5e" * 200)
+    srv = srv_initial + srv_handshake
+    flow.send("srv", srv + b"\x00" * (1200 - len(srv)))
+    flow.send("cli", _quic_protect_initial(1, QUIC_ACC_DCID, QUIC_ACC_SCID, 1,
+                                           _quic_crypto_frame(200, hello[200:])))
+    flow.send("cli", _quic_short(0x43, srv_cid, b"\x00\x00\x00\x02", b"\x5c" * 24))
+    f.close()
+    print("wrote %s (accuracy: QUIC ClientHello over two reordered Initials)" % path)
+
+
+def gen_acc_quic_short_header_midflow_pcap(path):
+    """A capture that starts mid-connection (issue #571): QUIC 1-RTT packets
+    only, the client's to UDP/443 carrying one stable 8-byte DCID, the
+    server's with a zero-length one; the fourth client packet makes the
+    verdict."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 17, 51833, 443)
+    dcid = bytes(range(0x50, 0x58))
+    sizes = {"cli": (48, 61, 1100, 33, 75, 900), "srv": (1200, 52, 300)}
+    order = ("cli", "srv", "cli", "cli", "srv", "cli", "srv", "cli", "cli")
+    firsts = (0x43, 0x61, 0x5a, 0x6b, 0x41, 0x59, 0x62, 0x4c, 0x70)
+    used = {"cli": 0, "srv": 0}
+    for i, side in enumerate(order):
+        n = sizes[side][used[side]]
+        used[side] += 1
+        pn = struct.pack("!H", 0x100 + i)
+        body = _acc_opaque("quic-midflow-%d" % i, n)
+        flow.send(side, _quic_short(firsts[i], dcid if side == "cli" else b"", pn, body))
+    f.close()
+    print("wrote %s (accuracy: QUIC 1-RTT only, capture starts mid-flow)" % path)
+
+
+def gen_acc_quic_neg_short_header_unstable_dcid_pcap(path):
+    """Fixed-bit-set datagrams to UDP/443 whose 8 bytes after the first one
+    never repeat (issue #571): no stable connection ID, so no QUIC verdict."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 17, 51835, 443)
+    for i in range(8):
+        flow.send("cli", bytes([0x40 | (i * 7 & 0x3f)]) + _acc_opaque("quic-unstable-%d" % i, 60))
+        if i % 3 == 2:
+            flow.send("srv", bytes([0x50]) + _acc_opaque("quic-unstable-srv-%d" % i, 40))
+    f.close()
+    print("wrote %s (accuracy: unstable DCID on UDP/443)" % path)
+
+
+def _turn_channel_data(channel, seq, n):
+    """TURN ChannelData (RFC 8656 §12.4) carrying one DTLS 1.2
+    application-data record (RFC 6347 §4.1: type 23, version 0xfefd, epoch
+    1, 48-bit sequence, length) of n ciphertext bytes, padded to 4 bytes."""
+    rec = (struct.pack("!BHH", 23, 0xFEFD, 1) + seq.to_bytes(6, "big")
+           + struct.pack("!H", n) + _acc_opaque("turn-dtls-%d-%d" % (channel, seq), n))
+    msg = struct.pack("!HH", channel, len(rec)) + rec
+    return msg + b"\x00" * (-len(msg) % 4)
+
+
+def gen_acc_quic_neg_turn_channeldata_443_pcap(path):
+    """TURN ChannelData relaying DTLS 1.2 application data on UDP/443 with a
+    constant record size (issue #571): the first byte (0x40) and the 8 bytes
+    after it (channel, length, DTLS type/version/epoch) repeat on every
+    datagram like a QUIC 1-RTT DCID would, but the ChannelData length field
+    + 4 equals the datagram length, so it is not QUIC."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 17, 51834, 443)
+    for i in range(8):
+        flow.send("cli", _turn_channel_data(0x4001, i + 1, 97))
+        if i % 2:
+            flow.send("srv", _turn_channel_data(0x4001, 100 + i, 97))
+    f.close()
+    print("wrote %s (accuracy: TURN ChannelData + DTLS on UDP/443)" % path)
+
+
+def gen_acc_quic_neg_turn_channeldata_trailer_pcap(path):
+    """The same constant-size ChannelData on two UDP/443 flows whose capture
+    length differs from the UDP length (issue #571): the first carries a
+    4-byte Ethernet FCS trailer after every IP packet, the second is cut by a
+    snap length below the ChannelData length. The UDP header length, not the
+    captured length, tells the ChannelData framing."""
+    f = pcap_open(path)
+    for cport, mode in ((51836, "fcs"), (51837, "snap")):
+        flow = _AccFlow(f, 17, cport, 443, ts_us=0 if mode == "fcs" else 100_000)
+        for i in range(8):
+            pkt = flow._l3l4("cli", _turn_channel_data(0x4002, i + 1, 97), 0x18)
+            if mode == "fcs":
+                pcap_write(f, pkt + _acc_opaque("fcs-%d" % i, 4), ts_us=flow.ts_us)
+            else:
+                pcap_write_trunc(f, pkt, ETH_HLEN + IP_HLEN + UDP_HLEN + 60, ts_us=flow.ts_us)
+            flow.ts_us += 1000
+            flow.ident += 1
+    f.close()
+    print("wrote %s (accuracy: TURN ChannelData with FCS / snap length)" % path)
+
+
 def _h2_frame(ftype, flags, stream, payload):
     return (struct.pack("!I", len(payload))[1:] + bytes([ftype, flags])
             + struct.pack("!I", stream) + payload)
@@ -898,6 +1372,197 @@ def gen_acc_unknown_tcp_pcap(path):
     flow.send("srv", _acc_opaque("tcp-srv", 80))
     f.close()
     print("wrote %s (accuracy: opaque TCP on unassigned ports)" % path)
+
+
+# --- accuracy corpus: corroborated weak signatures (issue #564) -------------
+# DICOM, gQUIC and STUN used to claim a flow on evidence random bytes or an
+# address can supply. Each positive below is what the corroborated classifier
+# still claims; each negative is what it claimed before and must not now.
+
+DICOM_PORT = 11112   # IANA "dicom" (PS3.8 §9.1.2); 104 is the legacy one
+
+
+def _dicom_item(itype, value):
+    """PS3.8 §9.3.2.2 variable item: type, reserved, 16-bit length."""
+    return struct.pack("!BBH", itype, 0, len(value)) + value
+
+
+def _dicom_associate(pdu_type, called=b"ACC-SCP", calling=b"ACC-SCU"):
+    """A-ASSOCIATE-RQ (1) or -AC (2), PS3.8 §9.3.2/§9.3.3: protocol version
+    1, the AE titles, the Verification SOP class (1.2.840.10008.1.1) in
+    implicit VR little endian (1.2.840.10008.1.2), max PDU length 16384."""
+    # presentation context ID 1, then reserved bytes (RQ) or reserved,
+    # result 0 = acceptance, reserved (AC)
+    pctx = b"\x01\x00\x00\x00"
+    if pdu_type == 1:   # RQ proposes the abstract syntax
+        pctx += _dicom_item(0x30, b"1.2.840.10008.1.1")
+    pctx_item = _dicom_item(0x20 if pdu_type == 1 else 0x21,
+                            pctx + _dicom_item(0x40, b"1.2.840.10008.1.2"))
+    body = (struct.pack("!HH", 1, 0) + called.ljust(16) + calling.ljust(16)
+            + b"\x00" * 32
+            + _dicom_item(0x10, b"1.2.840.10008.3.1.1.1")
+            + pctx_item
+            + _dicom_item(0x50, _dicom_item(0x51, struct.pack("!I", 16384))
+                          + _dicom_item(0x52, b"1.2.826.0.1.3680043.2.1143")))
+    return struct.pack("!BBI", pdu_type, 0, len(body)) + body
+
+
+def _dicom_element(group, elem, value):
+    """PS3.5 §7.1.3 implicit VR little endian data element."""
+    return struct.pack("<HHI", group, elem, len(value)) + value
+
+
+def _dicom_echo(response):
+    """C-ECHO-RQ / -RSP command set (PS3.7 §9.3.5) in one command PDV of a
+    P-DATA-TF (PS3.8 §9.3.5): context 1, flags 0x03 (command, last)."""
+    elems = _dicom_element(0x0000, 0x0002, b"1.2.840.10008.1.1\x00")
+    if response:
+        elems += (_dicom_element(0x0000, 0x0100, struct.pack("<H", 0x8030))
+                  + _dicom_element(0x0000, 0x0120, struct.pack("<H", 1))
+                  + _dicom_element(0x0000, 0x0800, struct.pack("<H", 0x0101))
+                  + _dicom_element(0x0000, 0x0900, struct.pack("<H", 0)))
+    else:
+        elems += (_dicom_element(0x0000, 0x0100, struct.pack("<H", 0x0030))
+                  + _dicom_element(0x0000, 0x0110, struct.pack("<H", 1))
+                  + _dicom_element(0x0000, 0x0800, struct.pack("<H", 0x0101)))
+    cmd = _dicom_element(0x0000, 0x0000, struct.pack("<I", len(elems))) + elems
+    pdv = struct.pack("!I", len(cmd) + 2) + b"\x01\x03" + cmd
+    return struct.pack("!BBI", 0x04, 0, len(pdv)) + pdv
+
+
+def _dicom_release(pdu_type):
+    """A-RELEASE-RQ (5) / -RP (6): 4 reserved bytes (PS3.8 §9.3.6/§9.3.7)."""
+    return struct.pack("!BBII", pdu_type, 0, 4, 0)
+
+
+def gen_acc_dicom_positive_pcap(path):
+    """A whole DICOM association on TCP/11112: A-ASSOCIATE-RQ/AC, a C-ECHO
+    request and response in P-DATA-TF, A-RELEASE-RQ/RP. The A-ASSOCIATE-RQ
+    classifies the flow; the later PDUs ride that session."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 6, 49601, DICOM_PORT)
+    flow.handshake()
+    flow.send("cli", _dicom_associate(1))
+    flow.send("srv", _dicom_associate(2))
+    flow.send("cli", _dicom_echo(False))
+    flow.send("srv", _dicom_echo(True))
+    flow.send("cli", _dicom_release(5))
+    flow.send("srv", _dicom_release(6))
+    f.close()
+    print("wrote %s (accuracy: DICOM association with C-ECHO)" % path)
+
+
+def gen_acc_dicom_negative_pcap(path):
+    """Random bytes on unassigned TCP ports whose first six happen to read
+    as a P-DATA-TF header (type 0x04, length 64): one byte used to make an
+    unknown TCP flow DICOM (F-BUG-301)."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 6, 49602, 47805)
+    flow.handshake()
+    flow.send("cli", b"\x04\x00" + struct.pack("!I", 64)
+              + _acc_opaque("dicom-neg-cli", 64))
+    flow.send("srv", _acc_opaque("dicom-neg-srv", 48))
+    f.close()
+    print("wrote %s (accuracy: P-DATA-TF-shaped random TCP payload)" % path)
+
+
+def gen_acc_dicom_midstream_ambiguous_pcap(path):
+    """A C-ECHO exchange of an association whose A-ASSOCIATE the capture
+    missed: genuine DICOM, but without the association the SDK abstains."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 6, 49603, DICOM_PORT)
+    flow.handshake()
+    flow.send("cli", _dicom_echo(False))
+    flow.send("srv", _dicom_echo(True))
+    f.close()
+    print("wrote %s (accuracy: DICOM P-DATA without A-ASSOCIATE)" % path)
+
+
+def _gquic_public_header(version, cid, pkt_num):
+    """Google QUIC public header (gQUIC Q025 wire spec): public flags with
+    an 8-byte connection ID (0x0C) and, client side, the version (0x01);
+    then a 1-byte packet number."""
+    flags = 0x0C | (0x01 if version else 0x00)
+    return bytes([flags]) + cid + (version or b"") + bytes([pkt_num])
+
+
+def gen_acc_gquic_positive_pcap(path):
+    """gQUIC Q025 on UDP/443: the client's first packet carries the version
+    in its public header; the server's reply has none and rides the flow."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 17, 51830, 443)
+    cid = bytes(range(0xE0, 0xE8))
+    chlo = (b"CHLO" + struct.pack("<HH", 2, 0)
+            + b"SNI\x00" + struct.pack("<I", 16)
+            + b"VER\x00" + struct.pack("<I", 20)
+            + b"accuracy.example" + b"Q025")
+    stream = bytes([0xA0, 0x01]) + struct.pack("<H", len(chlo)) + chlo
+    flow.send("cli", _gquic_public_header(b"Q025", cid, 1)
+              + b"\x00" * 12 + stream)                # 12-byte message hash
+    flow.send("srv", _gquic_public_header(None, cid, 1)
+              + b"\x00" * 12 + bytes([0xA0, 0x01]) + struct.pack("<H", 4)
+              + b"REJ\x00")
+    f.close()
+    print("wrote %s (accuracy: gQUIC Q025 CHLO + reply)" % path)
+
+
+def gen_acc_quic_negative_pcap(path):
+    """Opaque datagrams on UDP/443 whose first byte has the 0xC3 bits clear:
+    the version-less gQUIC branch took about one random datagram in sixteen
+    this way (F-BUG-303)."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 17, 51831, 443)
+    flow.send("cli", b"\x08" + _acc_opaque("quic-neg-cli", 63))
+    flow.send("srv", b"\x00\x01" + _acc_opaque("quic-neg-srv", 46))
+    f.close()
+    print("wrote %s (accuracy: non-QUIC datagrams on UDP/443)" % path)
+
+
+GOOGLE_STUN = struct.pack("!I", 0x4A7DFA81)   # 74.125.250.129, stun.l.google.com
+
+
+def gen_acc_stun_google_positive_pcap(path):
+    """A STUN Binding exchange with Google's public STUN server address on
+    UDP/19302: the flow is STUN, and nothing in it names an application --
+    the address must not relabel it gtalk (F-BUG-304)."""
+    f = pcap_open(path)
+    flow = _AccFlow(f, 17, 49451, 19302, server=GOOGLE_STUN)
+    txid = bytes(range(0x40, 0x4C))
+    flow.send("cli", _stun(0x0001, txid))
+    flow.send("srv", _stun(0x0101, txid, _stun_xor_mapped()))
+    f.close()
+    print("wrote %s (accuracy: STUN Binding to a Google address)" % path)
+
+
+# --- accuracy corpus: cloud-tenancy IP attribution (issue #565) -------------
+# An unknown flow to an address of a provider's published cloud or CDN range
+# is attributed, by the IP-range table, to the cloud or CDN label -- never to
+# the first-party application the 2017 table named (amazon, google).
+
+CLOUDFRONT_TENANT = struct.pack("!I", 0x0D200A0A)  # 13.32.10.10, AWS CLOUDFRONT 13.32.0.0/15
+GCP_TENANT = struct.pack("!I", 0x23C00A0A)         # 35.192.10.10, Google Cloud 35.192.0.0/14
+
+
+def _acc_tenant_pcap(path, server, cport, label):
+    f = pcap_open(path)
+    flow = _AccFlow(f, 6, cport, cport + 1, server=server)
+    flow.handshake()
+    flow.send("cli", _acc_opaque(label + "-cli", 120))
+    flow.send("srv", _acc_opaque(label + "-srv", 80))
+    f.close()
+    print("wrote %s (accuracy: opaque TCP to a %s tenant address)" % (path, label))
+
+
+def gen_acc_ip_cloudfront_tenant_pcap(path):
+    """Opaque TCP between unassigned ports to a CloudFront edge address: the
+    IP-range table may say cloudfront, never amazon."""
+    _acc_tenant_pcap(path, CLOUDFRONT_TENANT, 47811, "cloudfront")
+
+
+def gen_acc_ip_gcp_tenant_pcap(path):
+    """Opaque TCP between unassigned ports to a Google Cloud customer address:
+    the IP-range table may say google_cloud, never google."""
+    _acc_tenant_pcap(path, GCP_TENANT, 47813, "gcp")
 
 
 # --- accuracy corpus: default-chain classifiers (issue #527) ---------------
@@ -2078,6 +2743,176 @@ def _acc_classifier_gen(name):
     return gen
 
 
+# --- accuracy corpus: encapsulated inner flows (issue #572) ------------------
+# The same HTTP / TLS exchanges carried by an MPLS label stack, a PPPoE
+# session, VXLAN and GENEVE: the walk must reach the inner flow and classify
+# it (positive), and must not for a stack without a bottom entry, a PPP control
+# protocol, VXLAN without its I flag or GENEVE version 1 (negative). Tunnel
+# endpoints are RFC 5737 TEST-NET-3 addresses.
+
+ACC_TUNNEL_CLIENT = struct.pack("!I", 0xCB007101)   # 203.0.113.1 (TEST-NET-3)
+ACC_TUNNEL_SERVER = struct.pack("!I", 0xCB007102)   # 203.0.113.2
+ACC_TUNNEL_CLIENT_MAC = b"\x02\x00\x00\x00\x71\x01"
+ACC_TUNNEL_SERVER_MAC = b"\x02\x00\x00\x00\x71\x02"
+
+
+class _EncapFlow(_AccFlow):
+    """An _AccFlow whose frames ride an encapsulation: `wrap(side, frame)`
+    returns the frame put on the wire for the inner Ethernet frame."""
+
+    def __init__(self, f, proto, cport, sport, wrap, **kw):
+        super().__init__(f, proto, cport, sport, **kw)
+        self.wrap = wrap
+
+    def send(self, side, payload=b"", flags=0x18):
+        pcap_write(self.f, self.wrap(side, self._l3l4(side, payload, flags)),
+                   ts_us=self.ts_us)
+        self.ts_us += 1000
+        self.ident += 1
+
+
+def _eth(side, ethertype, tunnel=False):
+    cli, srv = ((ACC_TUNNEL_CLIENT_MAC, ACC_TUNNEL_SERVER_MAC) if tunnel
+                else (ACC_CLIENT_MAC, ACC_SERVER_MAC))
+    src, dst = (cli, srv) if side == "cli" else (srv, cli)
+    return dst + src + struct.pack("!H", ethertype)
+
+
+def _mpls_entry(label, bottom, ttl=64):
+    """RFC 3032 label stack entry (traffic class 0)."""
+    return struct.pack("!I", (label << 12) | ((1 if bottom else 0) << 8) | ttl)
+
+
+def _wrap_mpls(labels, bottom=True):
+    stack = b"".join(_mpls_entry(lab, bottom and i == len(labels) - 1)
+                     for i, lab in enumerate(labels))
+    return lambda side, frame: _eth(side, 0x8847) + stack + frame[ETH_HLEN:]
+
+
+def _pppoe_session(session_id, ppp_proto, data):
+    """RFC 2516 session-stage packet: VER 1, TYPE 1, CODE 0x00."""
+    ppp = struct.pack("!H", ppp_proto) + data
+    return struct.pack("!BBHH", 0x11, 0x00, session_id, len(ppp)) + ppp
+
+
+def _wrap_pppoe(session_id):
+    return lambda side, frame: (_eth(side, 0x8864)
+                                + _pppoe_session(session_id, 0x0021,
+                                                 frame[ETH_HLEN:]))
+
+
+def _udp_tunnel(side, sport, dport, header, frame):
+    """Outer Ethernet/IPv4/UDP between the tunnel endpoints."""
+    src, dst = ((ACC_TUNNEL_CLIENT, ACC_TUNNEL_SERVER) if side == "cli"
+                else (ACC_TUNNEL_SERVER, ACC_TUNNEL_CLIENT))
+    payload = header + frame
+    return (_eth(side, 0x0800, tunnel=True)
+            + ip_header(src, dst, 17, UDP_HLEN + len(payload))
+            + udp_header(sport, dport, len(payload)) + payload)
+
+
+def _wrap_vxlan(vni, flags=0x08):
+    """RFC 7348 §5: every VTEP sends to UDP/4789 from an entropy port."""
+    header = struct.pack("!B3xI", flags, vni << 8)
+    return lambda side, frame: _udp_tunnel(
+        side, 49871 if side == "cli" else 51307, 4789, header, frame)
+
+
+def _wrap_geneve(vni, version=0):
+    """RFC 8926 §3: one 8-byte option (class 0x0104, type 0x80), Protocol
+    Type 0x6558 (transparent Ethernet bridging)."""
+    option = struct.pack("!HBB", 0x0104, 0x80, 1) + b"\x00\x00\x00\x2a"
+    header = (struct.pack("!BBHI", (version << 6) | (len(option) // 4), 0,
+                          0x6558, vni << 8) + option)
+    return lambda side, frame: _udp_tunnel(
+        side, 50113 if side == "cli" else 52741, 6081, header, frame)
+
+
+ACC_HTTP_EXCHANGE = [
+    ("cli", _text([b"GET /index.html HTTP/1.1", b"Host: accuracy.example",
+                   b"User-Agent: accuracy/1.0", b"Accept: */*", b""])),
+    ("srv", _text([b"HTTP/1.1 200 OK", b"Content-Type: text/plain",
+                   b"Content-Length: 2", b""]) + b"ok")]
+
+
+def _acc_encap_pcap(path, wrap, cport, sport, exchange, note):
+    f = pcap_open(path)
+    flow = _EncapFlow(f, 6, cport, sport, wrap)
+    flow.handshake()
+    for side, payload in exchange:
+        flow.send(side, payload)
+    f.close()
+    print("wrote %s (accuracy: %s)" % (path, note))
+
+
+def gen_acc_mpls_http_positive_pcap(path):
+    """HTTP/1.1 over a two-label MPLS stack (transport + service label)."""
+    _acc_encap_pcap(path, _wrap_mpls([16004, 24001]), 49501, 80,
+                    ACC_HTTP_EXCHANGE, "HTTP over a two-label MPLS stack")
+
+
+def gen_acc_mpls_negative_pcap(path):
+    """The same exchange beneath 17 label entries, none at the bottom of the
+    stack: past the walker's bound, so no inner flow is walked."""
+    _acc_encap_pcap(path, _wrap_mpls(list(range(16100, 16117)), bottom=False),
+                    49502, 80, ACC_HTTP_EXCHANGE,
+                    "MPLS stack without a bottom-of-stack entry")
+
+
+def gen_acc_pppoe_http_positive_pcap(path):
+    """HTTP/1.1 in a PPPoE session (PPP protocol 0x0021)."""
+    _acc_encap_pcap(path, _wrap_pppoe(0x2a01), 49503, 80, ACC_HTTP_EXCHANGE,
+                    "HTTP in a PPPoE session")
+
+
+def gen_acc_pppoe_negative_pcap(path):
+    """PPPoE discovery (PADI, PADO) then an LCP Configure-Request/Ack in the
+    session: tags and a PPP control protocol, no user flow."""
+    f = pcap_open(path)
+    tags = struct.pack("!HH", 0x0101, 0)                    # Service-Name
+    ac = b"accuracy-ac"
+    pado = tags + struct.pack("!HH", 0x0102, len(ac)) + ac   # AC-Name
+    lcp = struct.pack("!BBH", 1, 1, 8) + struct.pack("!BBH", 1, 4, 1492)
+    frames = [
+        _eth("cli", 0x8863) + struct.pack("!BBHH", 0x11, 0x09, 0, len(tags)) + tags,
+        _eth("srv", 0x8863) + struct.pack("!BBHH", 0x11, 0x07, 0, len(pado)) + pado,
+        _eth("cli", 0x8864) + _pppoe_session(0x2a02, 0xc021, lcp),
+        _eth("srv", 0x8864) + _pppoe_session(0x2a02, 0xc021, b"\x02" + lcp[1:]),
+    ]
+    for i, frame in enumerate(frames):
+        pcap_write(f, frame, ts_us=i * 1000)
+    f.close()
+    print("wrote %s (accuracy: PPPoE discovery + LCP)" % path)
+
+
+def gen_acc_vxlan_tls_positive_pcap(path):
+    """TLS ClientHello/ServerHello on TCP/443 inside VXLAN (VNI 0x1001)."""
+    _acc_encap_pcap(path, _wrap_vxlan(0x1001), 49504, 443,
+                    [("cli", _tls_client_hello("accuracy.example")),
+                     ("srv", _tls_server_hello())], "TLS inside VXLAN")
+
+
+def gen_acc_vxlan_negative_pcap(path):
+    """The same frames on UDP/4789 with the VXLAN I flag clear: the VNI is
+    not valid, so the datagrams are not VXLAN."""
+    _acc_encap_pcap(path, _wrap_vxlan(0x1002, flags=0x00), 49505, 443,
+                    [("cli", _tls_client_hello("accuracy.example")),
+                     ("srv", _tls_server_hello())], "UDP/4789 without the I flag")
+
+
+def gen_acc_geneve_http_positive_pcap(path):
+    """HTTP/1.1 inside GENEVE (one option, transparent Ethernet bridging)."""
+    _acc_encap_pcap(path, _wrap_geneve(0x2001), 49506, 80, ACC_HTTP_EXCHANGE,
+                    "HTTP inside GENEVE")
+
+
+def gen_acc_geneve_negative_pcap(path):
+    """The same frames on UDP/6081 under a version-1 header, which RFC 8926
+    does not define: not GENEVE."""
+    _acc_encap_pcap(path, _wrap_geneve(0x2002, version=1), 49507, 80,
+                    ACC_HTTP_EXCHANGE, "UDP/6081 with GENEVE version 1")
+
+
 ACC_GENS = {
     "acc_dns_positive": gen_acc_dns_positive_pcap,
     "acc_dns_negative": gen_acc_dns_negative_pcap,
@@ -2088,14 +2923,39 @@ ACC_GENS = {
     "acc_tls_split_clienthello": gen_acc_tls_split_clienthello_pcap,
     "acc_tls_split_reordered": gen_acc_tls_split_reordered_pcap,
     "acc_tls_split_truncated": gen_acc_tls_split_truncated_pcap,
+    "acc_tls13_alpn_h2": gen_acc_tls13_alpn_h2_pcap,
+    "acc_tls_ech": gen_acc_tls_ech_pcap,
     "acc_tls_negative": gen_acc_tls_negative_pcap,
     "acc_quic_positive": gen_acc_quic_positive_pcap,
     "acc_quic_v2_positive": gen_acc_quic_v2_positive_pcap,
     "acc_quic_draft29_ambiguous": gen_acc_quic_draft29_ambiguous_pcap,
+    "acc_quic_initial_sni_h3": gen_acc_quic_initial_sni_h3_pcap,
+    "acc_quic_initial_split_reordered": gen_acc_quic_initial_split_reordered_pcap,
+    "acc_quic_v2_initial_sni": gen_acc_quic_v2_initial_sni_pcap,
+    "acc_quic_short_header_midflow": gen_acc_quic_short_header_midflow_pcap,
+    "acc_quic_neg_short_header_unstable_dcid": gen_acc_quic_neg_short_header_unstable_dcid_pcap,
+    "acc_quic_neg_turn_channeldata_443": gen_acc_quic_neg_turn_channeldata_443_pcap,
+    "acc_quic_neg_turn_channeldata_trailer": gen_acc_quic_neg_turn_channeldata_trailer_pcap,
     "acc_http2_positive": gen_acc_http2_positive_pcap,
     "acc_http2_negative": gen_acc_http2_negative_pcap,
     "acc_unknown_udp": gen_acc_unknown_udp_pcap,
     "acc_unknown_tcp": gen_acc_unknown_tcp_pcap,
+    "acc_dicom_positive": gen_acc_dicom_positive_pcap,
+    "acc_dicom_negative": gen_acc_dicom_negative_pcap,
+    "acc_dicom_midstream_ambiguous": gen_acc_dicom_midstream_ambiguous_pcap,
+    "acc_gquic_positive": gen_acc_gquic_positive_pcap,
+    "acc_quic_negative": gen_acc_quic_negative_pcap,
+    "acc_stun_google_positive": gen_acc_stun_google_positive_pcap,
+    "acc_ip_cloudfront_tenant": gen_acc_ip_cloudfront_tenant_pcap,
+    "acc_ip_gcp_tenant": gen_acc_ip_gcp_tenant_pcap,
+    "acc_mpls_http_positive": gen_acc_mpls_http_positive_pcap,
+    "acc_mpls_negative": gen_acc_mpls_negative_pcap,
+    "acc_pppoe_http_positive": gen_acc_pppoe_http_positive_pcap,
+    "acc_pppoe_negative": gen_acc_pppoe_negative_pcap,
+    "acc_vxlan_tls_positive": gen_acc_vxlan_tls_positive_pcap,
+    "acc_vxlan_negative": gen_acc_vxlan_negative_pcap,
+    "acc_geneve_http_positive": gen_acc_geneve_http_positive_pcap,
+    "acc_geneve_negative": gen_acc_geneve_negative_pcap,
 }
 ACC_GENS.update((name, _acc_classifier_gen(name))
                 for name in ACC_CLASSIFIER_FLOWS)

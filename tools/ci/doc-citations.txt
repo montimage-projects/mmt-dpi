@@ -13,9 +13,9 @@
 # changing the needle.
 
 # Append-only records: each entry describes the tree on its date, and the
-# log may not be rewritten (docs/DECISIONS.md, docs/troubleshooting.md headers).
+# log may not be rewritten (docs/DECISIONS.md, docs/doc-fix-log.md headers).
 exempt	docs/DECISIONS.md	append-only decision log
-exempt	docs/troubleshooting.md	append-only troubleshooting log
+exempt	docs/doc-fix-log.md	append-only documentation fix log
 
 # Pages whose citations their own validator anchors with a richer table:
 # a CITATIONS row per range (head, tail and body regexes) and a needle list
@@ -73,10 +73,10 @@ cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_udp.c:165	retval.p
 cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_tcp.c:1226	retval.proto_id = get_proto_id_from_address(ipacket);	-
 cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_udp.c:160	retval.proto_id = get_proto_id_from_address(ipacket);	-
 cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/http.c:942	mmt_int_http_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_IP);	-
-cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_ssl.c:850	mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_IP);	-
+cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_ssl.c:1148	mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_IP);	-
 cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/http.c:933	mmt_int_http_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_HOSTNAME);	-
-cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_ssl.c:512	mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_HOSTNAME);	-
-cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_ssl.c:572	mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_HOSTNAME);	-
+cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_ssl.c:705	mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_HOSTNAME);	-
+cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_ssl.c:765	mmt_int_ssl_add_connection_by(ipacket, proto, MMT_CLASSIFICATION_METHOD_HOSTNAME);	-
 cite	docs/MMT-Attributes.md	src/mmt_core/src/packet_pipeline.c:669	ipacket->session->classification_method = MMT_CLASSIFICATION_METHOD_DPI;	-
 cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/mmt_tcpip_plugin_internal.c:217	void mmt_change_internal_flow_protocol_by(ipacket_t * ipacket, uint16_t detected_protocol,	-
 cite	docs/MMT-Attributes.md	src/mmt_core/src/packet_pipeline.c:909	static inline void attr_dispatch_leave(mmt_handler_t * mmt_handler) {	-
@@ -170,3 +170,9 @@ cite	docs/llhttp-migration.md	src/mmt_tcpip/lib/protocols/proto_http.c:378-379	*
 cite	docs/llhttp-migration.md	rules/common.mk:173-178	# HTTP strict-mode (issue #204, F-BUG-060; issue #222, F-DEP-201): the	# llhttp_set_lenient_*() if a deployment ever needs it.
 cite	docs/llhttp-migration.md	src/mmt_tcpip/lib/protocols/proto_http.c:370	} else if (err != HPE_OK) {	-
 cite	docs/llhttp-migration.md	src/mmt_tcpip/lib/protocols/proto_http.c:378-380	* llhttp_reset() preserves type, settings and parser->data (the	llhttp_reset(parser);
+cite	docs/troubleshooting.md	sdk/Makefile:70-80	--check-built:	fi
+cite	docs/troubleshooting.md	sdk/Makefile:136-144	@ $(LDCONF_DECIDE); \	fi
+cite	docs/troubleshooting.md	src/mmt_core/src/packet_registry_handler.c:123	strcpy(errbuf, "Unsupported stack type");	-
+cite	docs/troubleshooting.md	src/mmt_core/src/plugins_engine.c:48-82	static const char *plugins_directory(int *from_env)	}
+cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_quic_ietf.c:853	session->app_method = MMT_CLASSIFICATION_METHOD_HOSTNAME;	-
+cite	docs/MMT-Attributes.md	src/mmt_tcpip/lib/protocols/proto_quic_ietf.c:714	session->app_method = MMT_CLASSIFICATION_METHOD_IP;	-

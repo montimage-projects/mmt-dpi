@@ -11,7 +11,7 @@ A high-performance C library for deep packet inspection (DPI), designed to extra
 
 <!-- begin-shared: docs/_includes/key-features.md -->
 
-- **Protocol Classification** - Automatic identification and classification of network traffic across 673 protocols
+- **Protocol Classification** - Automatic identification and classification of network traffic across 677 protocols
 - **Attribute Extraction** - Extract detailed protocol-specific fields (IPs, ports, headers, payloads, etc.)
 - **Session Tracking** - Track and analyze network sessions with flow-level statistics (RTT, retransmissions, byte/packet counts)
 - **Extensible Plugin Architecture** - Add new protocol support via modular plugins
@@ -175,11 +175,14 @@ installer.
 
 ### Manual Build and Install
 
-If you prefer to build manually, install the build dependencies first — the
-`apt-get` line is maintained in one place,
-[Agent Environment Notes §1 Toolchain Requirements](docs/AGENT_ENVIRONMENT.md#1-toolchain-requirements).
-The install prefix is configurable; see
-[§4 `MMT_BASE` Install-Prefix Behavior](docs/AGENT_ENVIRONMENT.md#4-mmt_base-install-prefix-behavior).
+If you prefer to build manually, install the build dependencies first — one
+command per distribution is listed in the
+[prerequisites](docs/Compilation-and-Installation-Instructions.md#prerequisites).
+The install prefix is configurable with `MMT_BASE`: pass the same value to the
+build and the install, as the
+[Deployment Guide](docs/DEPLOYMENT.md#from-source) shows. If a step fails,
+[Troubleshooting](docs/troubleshooting.md) gives the fix for each first-run
+error.
 
 From any directory (the block clones into `./mmt-dpi` and stays at the root
 of that checkout):
@@ -358,6 +361,10 @@ out:
 
 <!-- end-shared: docs/_includes/first-example.md -->
 
+If compiling or running it fails — a missing header or library, the loader,
+the plugin directory or a permission error —
+[Troubleshooting](docs/troubleshooting.md) gives the fix for each message.
+
 ### More Examples
 
 See [`src/examples/`](src/examples/) for complete working examples:
@@ -403,6 +410,7 @@ mmt-dpi/
 - [Documentation site](https://montimage-projects.github.io/mmt-dpi/) — the rendered version of everything below
 - [User Guide](docs/USER_GUIDE.md) — install, run the examples, write your first program
 - [Compilation and Installation](docs/Compilation-and-Installation-Instructions.md)
+- [Troubleshooting](docs/troubleshooting.md) — first-run build, install, compile and run errors, with the fix for each
 - [Protocol Stack Architecture](docs/Protocol-Stack.md)
 - [Adding New Protocols](docs/Add-New-Protocol.md)
 - [API Examples](docs/Examples.md)
