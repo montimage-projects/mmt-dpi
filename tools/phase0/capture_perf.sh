@@ -18,12 +18,18 @@
 # Usage:
 #   tools/phase0/capture_perf.sh [--iterations N] [--modes "bare attrs8 all"]
 #                                [--out FILE] [--datasets DIR] [--jobs N]
+#                                [--record TEXT]
 #
 #   --iterations N  passes per (pcap, mode) (default 200)
 #   --modes LIST    modes to capture (default "bare attrs8 all")
 #   --out FILE      output (default tools/phase0/baseline/perf/throughput.txt)
 #   --datasets DIR  pcap dataset root (default $MMT_TEST_DATASETS, else
 #                   <repo>/../mmt-test/data-sets)
+#   --record TEXT   a "# record: TEXT" header line naming what the capture is
+#                   (measure_m4_budget.sh sets it to the host role, issue #584)
+# The header identifies the host (issue #584): architecture, CPU count, GCC,
+# OS and commit, then the CPU model, kernel, cpufreq governor and the sha256
+# and size of every replayed pcap, so two captures can be told apart.
 # Environment:
 #   MMT_PREFIX          install prefix (default: a private mktemp dir, removed)
 #   MMT_SDK_PREBUILT=1  reuse the SDK already installed under MMT_PREFIX
@@ -40,6 +46,7 @@ OUT="${SCRIPT_DIR}/baseline/perf/throughput.txt"
 DATASETS_OPT=""
 JOBS="$(nproc 2>/dev/null || echo 4)"
 LIST="${SCRIPT_DIR}/throughput_pcaps.txt"
+RECORD=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -48,11 +55,13 @@ while [ $# -gt 0 ]; do
         --out)        OUT="$2"; shift 2 ;;
         --datasets)   DATASETS_OPT="$2"; shift 2 ;;
         --jobs)       JOBS="$2"; shift 2 ;;
+        --record)     RECORD="$2"; shift 2 ;;
         -h|--help)    sed -n '2,/^set -euo/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 case "${ITERATIONS}" in ''|*[!0-9]*|0) echo "✗ --iterations takes a positive integer" >&2; exit 2 ;; esac
+case "${RECORD}" in *$'\n'*) echo "✗ --record takes a single line" >&2; exit 2 ;; esac
 
 DATASETS="${DATASETS_OPT:-${MMT_TEST_DATASETS:-${REPO_ROOT}/../mmt-test/data-sets}}"
 [ -d "${DATASETS}" ] || { echo "✗ mmt-test data-sets not found at: ${DATASETS} (set MMT_TEST_DATASETS)" >&2; exit 1; }
@@ -88,6 +97,15 @@ gcc -O2 -Wall -o "${BIN}" "${SCRIPT_DIR}/phase0_throughput.c" \
 export LD_LIBRARY_PATH="${PREFIX}/dpi/lib:${LD_LIBRARY_PATH:-}"
 
 mapfile -t PCAPS < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "${LIST}")
+for rel in "${PCAPS[@]}"; do
+    [ -f "${DATASETS}/${rel}" ] || { echo "✗ missing pcap: ${DATASETS}/${rel}" >&2; exit 1; }
+done
+# cpu_model: lscpu's distinct "Model name" values (two on a big.LITTLE part),
+# else /proc/cpuinfo's x86 "model name".
+cpu_model="$(lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' \
+             | awk '!seen[$0]++ { out = out (n++ ? " + " : "") $0 } END { print out }')"
+[ -n "${cpu_model}" ] || cpu_model="$(sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo 2>/dev/null | head -n 1)"
+governor="$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || true)"
 echo "[3/3] replaying ${#PCAPS[@]} pcap(s) x modes '${MODES}', ${ITERATIONS} iterations each"
 {
     printf '# Phase 0 perf reference — in-memory replay, default (-O3) build (issues #251, #555).\n'
@@ -104,6 +122,13 @@ echo "[3/3] replaying ${#PCAPS[@]} pcap(s) x modes '${MODES}', ${ITERATIONS} ite
         "$(uname -m)" "$(nproc 2>/dev/null || echo '?')" "$(gcc -dumpfullversion)" \
         "$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-unknown}" || echo unknown)" \
         "$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    printf '# cpu_model: %s | kernel: %s | governor: %s | iterations: %s\n' \
+        "${cpu_model:-unknown}" "$(uname -r)" "${governor:-n/a}" "${ITERATIONS}"
+    for rel in "${PCAPS[@]}"; do
+        printf '# dataset: %s | sha256: %s | bytes: %s\n' "${rel}" \
+            "$(sha256sum "${DATASETS}/${rel}" | cut -d' ' -f1)" "$(stat -L -c %s "${DATASETS}/${rel}")"
+    done
+    [ -z "${RECORD}" ] || printf '# record: %s\n' "${RECORD}"
     printf '#\n# pcap\tmode\tattrs\tpackets\titerations\telapsed_s\tpps\tharness_rss_kib\tlibrary_rss_kib\tpeak_rss_kib\tns_per_pkt\n'
 } > "${WORK}/perf.txt"
 for rel in "${PCAPS[@]}"; do

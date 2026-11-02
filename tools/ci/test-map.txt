@@ -186,6 +186,7 @@ harness ip_frag_bounds_test smoke
 harness ip_session_frag_key_test smoke
 harness ip_unaligned_header_test smoke
 harness leak_regression_test smoke
+harness m4_budget_test smoke
 harness memory_ceiling_test smoke
 harness mobile_pcap_harness_test mobile,tcpip,smoke
 harness mt_tsan_test smoke
