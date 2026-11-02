@@ -66,7 +66,7 @@ int mmt_hkdf_expand(const uint8_t prk[MMT_HMAC_SHA256_LEN], const uint8_t *info,
     if (okm_len > MMT_HKDF_SHA256_MAX_OKM) {
         return -1;
     }
-    uint8_t t[MMT_HMAC_SHA256_LEN];
+    uint8_t t[MMT_HMAC_SHA256_LEN] = {0};
     size_t t_len = 0; /* T(0) is the empty string */
     size_t done = 0;
     for (uint8_t counter = 1; done < okm_len; counter++) {

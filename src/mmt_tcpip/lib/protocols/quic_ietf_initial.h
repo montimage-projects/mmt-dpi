@@ -39,7 +39,9 @@ extern "C" {
 #define QUIC_INITIAL_OUT_BUFFER 1500u
 
 /** Outcome of quic_ietf_initial_decrypt(). Only QUIC_INITIAL_OK writes
- *  `info` and leaves plaintext in `out`. */
+ *  `info`; on any other outcome `out` holds unspecified bytes (on
+ *  QUIC_INITIAL_ERR_RESERVED_BITS, the authenticated packet) that must not
+ *  be read. */
 typedef enum quic_initial_status {
     QUIC_INITIAL_OK = 0,
     QUIC_INITIAL_ERR_ARG,            /**< a NULL buffer */
