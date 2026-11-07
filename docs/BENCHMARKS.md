@@ -7,7 +7,7 @@ title: "Benchmarks: 1.10.0 against Montimage/mmt-dpi main"
 
 The landing page's 1.10.0 figures come from one head-to-head run, recorded
 here with its conditions and raw output. 1.10.0 is **unreleased**: the
-current release is still the one the [landing page](../#quick-start) installs.
+current release is still the one the [landing page](index.html#quick-start) installs.
 
 ## What was compared
 
