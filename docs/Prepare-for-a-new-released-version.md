@@ -322,7 +322,11 @@ entries).
 **9. Require the status checks on `main`.**
 - **Prerequisites:** step 8 is done. The merge-queue ruleset of the same
   `CONTRIBUTING.md` block uses `"merge_method": "SQUASH"`, so it is applied
-  only now, after #41 has landed.
+  only now, after #41 has landed. Steps 9 and 10 read
+  `.github/required-checks.txt`, the workflows and `tools/ci/base-images.txt`
+  from the working tree, so run them from the merged tree
+  (`git fetch upstream && git switch --detach upstream/main`), not from a
+  fork branch.
 - **Command:** the `jq … | gh api -X PATCH …/protection/required_status_checks`
   line of `CONTRIBUTING.md` (*Required checks and review*), which reads
   `.github/required-checks.txt`. Today no status check is required. If that
