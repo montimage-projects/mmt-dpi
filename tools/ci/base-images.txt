@@ -34,19 +34,19 @@
 # Refresh every pin with: bash tools/ci/refresh-base-images.sh --write
 # Refresh a single pin with:
 digest-source: docker buildx imagetools inspect <image>:<tag>
-ubuntu:22.04@sha256:74b12b11ffa550fba1929ad4d8d16533c34f6612728469671afba1b03b66881c  # retire-by: 2027-04-30 (#516)
-ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
-debian:12@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8
-rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6
-quay.io/centos/centos:stream9@sha256:280add9b43d478ff06de6ccc6285afa7f1d81d8a0ea0d63e292a2f87f1d5aedf  # retire-by: 2027-04-30 (#516)
-buildpack-deps:trixie@sha256:188a9dfa5e813c917be00c3f474bc75488b62914305e13fa21dff1cfef2eb354
+ubuntu:22.04@sha256:b000e69a50ff940390233025e7a337fb8469b509e2334fa4d018ac30f3e18cdb  # retire-by: 2027-04-30 (#516)
+ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b
+debian:12@sha256:1d04200c2ece1d4d75a2a6f8e11ebce7d86a2ae28b34bb2c9cbb3ee9f4953e75
+rockylinux:9@sha256:03303863808e9cd79f0c58c833db3e5f9cde9f2abe16804a267b05dc54af86e4
+quay.io/centos/centos:stream9@sha256:b76d33c9df2e709b3a2d81ed2913c9deee814a9aabba16a57226b3a9fbea6d84  # retire-by: 2027-04-30 (#516)
+buildpack-deps:trixie@sha256:086433f3c4cca3435eba355f585f55d593751a35c865745d88ce97e7258e3fc9
 # Current-generation release legs (issue #515). Rocky Linux 10 is published
 # as rockylinux/rockylinux only: the Docker Hub official `rockylinux` image
 # stops at 9.
-ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96
-debian:13@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6
-rockylinux/rockylinux:10@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834
-quay.io/centos/centos:stream10@sha256:5eaff839eea6ca355f8122044dcfaefbac5ac991940f223b668dcf80478e3166
+ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db
+debian:13@sha256:3cda3ca472ce45507a5109c6a3907093e24d9ae67d55954c9a07a45665dafba2
+rockylinux/rockylinux:10@sha256:d24beedc58f79b9e0e9289fedaa4fcbcbe692b1438883a86f177fd7c51053ca8
+quay.io/centos/centos:stream10@sha256:b042adb7687b322f80765277b552dcdd9c5f98bd3ca64e2f46175d2ae55fc82b
 # Install smoke matrix only (issue #493): the advertised distributions outside
 # the release matrix. registry.opensuse.org where upstream publishes there, to
 # stay clear of Docker Hub pull limits. Fedora comes from the Docker Hub official
@@ -55,4 +55,4 @@ quay.io/centos/centos:stream10@sha256:5eaff839eea6ca355f8122044dcfaefbac5ac99194
 fedora:44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e
 registry.opensuse.org/opensuse/leap:16.0@sha256:9c88da273b41600dfd12790849dfb198ddefed3a109eaf42ada944afb4282a9d
 alpine:3.23@sha256:469c9ea410b9215eaee7976ba6c0639039b444be8e5d638f7abbada189971eb2
-archlinux:base@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899  # platforms: linux/amd64
+archlinux:base@sha256:375a401bb3c6376b37f40b6dfa25067db37ec78d0b7af67ae6315f43a0184a9d  # platforms: linux/amd64
